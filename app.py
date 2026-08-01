@@ -26,18 +26,16 @@ if st.button("🚀 بدء التحليل الشامل والتوافق", use_con
     else:
         with st.spinner("جاري فحص النماذج المتاحة وحساب درجات التوافق..."):
             try:
-                # تهيئة المكتبة بمفتاح الـ API
                 genai.configure(api_key=api_key)
                 
-                # --- آلية اختيار النموذج ديناميكياً ---
+                # استثناء الإصدارات الموقوفة مثل 2.5
                 available_models = [
                     m.name for m in genai.list_models() 
-                    if 'generateContent' in m.supported_generation_methods
+                    if 'generateContent' in m.supported_generation_methods and '2.5' not in m.name
                 ]
                 
-                # البحث عن أحدث نموذج متوفر في حسابك (Gemini Flash أو Pro)
                 selected_model_name = None
-                for preferred in ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro-vision', 'gemini-1.0-pro']:
+                for preferred in ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro-vision']:
                     for m in available_models:
                         if preferred in m:
                             selected_model_name = m
@@ -45,14 +43,12 @@ if st.button("🚀 بدء التحليل الشامل والتوافق", use_con
                     if selected_model_name:
                         break
                 
-                # إذا لم يجد الأفضلية، يختار أول نموذج متاح يدعم generateContent
                 if not selected_model_name and available_models:
                     selected_model_name = available_models[0]
 
                 if not selected_model_name:
                     st.error("لم يتم العثور على أي نموذج مفعل على مفتاح API الخاص بك.")
                 else:
-                    # طباعة اسم النموذج المستعمل في الواجهة للتأكد
                     st.info(f"🤖 النمط المستخدم للتحليل: `{selected_model_name}`")
 
                     model = genai.GenerativeModel(selected_model_name)
@@ -81,7 +77,6 @@ if st.button("🚀 بدء التحليل الشامل والتوافق", use_con
                        - سيناريو الدخول، ومستوى وقف الخسارة المقترح، وأهداف جني الأرباح.
                     """
 
-                    # إرسال الصورة والبرومبت للنموذج الديناميكي
                     response = model.generate_content([prompt, image])
                     
                     st.success("تم التقييم والتحليل بنجاح!")
