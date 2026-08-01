@@ -8,7 +8,7 @@ st.set_page_config(page_title="مُحلل الشارت الذكي", page_icon="�
 st.title("📈 المُحلل المالي البصري الشامل")
 st.caption("تحليل لقطات الشاشات الفنية مع حساب درجات التوافق والترجيح")
 
-# إدخال المفتاح
+# إدخل مفتاح API
 api_key = st.text_input("أدخل مفتاح Google Gemini API:", type="password")
 
 # رفع الصورة أو التقاطها
@@ -16,7 +16,7 @@ uploaded_file = st.file_uploader("ارفع لقطة شاشة للشارت:", typ
 
 if uploaded_file:
     image = Image.open(uploaded_file)
-    st.image(image, caption="الشارت المراد تحليله", use_container_width=True)
+    st.image(image, caption="الشارت المراد تحليله", use_column_width=True)
 
 if st.button("🚀 بدء التحليل الشامل والتوافق", use_container_width=True):
     if not api_key:
@@ -27,10 +27,9 @@ if st.button("🚀 بدء التحليل الشامل والتوافق", use_con
         with st.spinner("جاري مسح الأنماط الفنية وحساب درجات التوافق..."):
             try:
                 genai.configure(api_key=api_key)
-                # استخدام أحدث نموذج رؤية متاح
-                model = genai.GenerativeModel('gemini-1.5-flash-latest')
                 
-
+                # استخدام النموذج المستقر لقراءة الصور
+                model = genai.GenerativeModel('gemini-1.5-flash-latest')
 
                 prompt = """
                 أنت خبير محترف في التحليل الفني ومدرسة السلوك السعري (Price Action). 
@@ -42,7 +41,7 @@ if st.button("🚀 بدء التحليل الشامل والتوافق", use_con
 
                 2. 🔍 **كشف الأنماط والشموع (Pattern Recognition):**
                    - نماذج الشارت الكلاسيكية المرئية (مثل: الرأس والكتفين، القمتين/القاعين، القنوات، المثلثات).
-                   - نماذج الشاموع اليابانية المؤكدة (مثل: Pin Bar, Engulfing, Doji).
+                   - نماذج الشموع اليابانية المؤكدة (مثل: Pin Bar, Engulfing, Doji).
 
                 3. 📉 **تحليل المؤشرات الفنية (إن وجدت في الصورة):**
                    - قراءة المتوسطات المتحركة (EMA/MA)، مؤشر RSI، MACD، أو ADX إذا كانت واضحة على الرسم البياني.
@@ -63,4 +62,4 @@ if st.button("🚀 بدء التحليل الشامل والتوافق", use_con
 
             except Exception as e:
                 st.error(f"حدث خطأ أثناء إجراء التحليل: {e}")
-              
+                
