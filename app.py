@@ -28,7 +28,8 @@ if st.button("🚀 بدء التحليل الشامل والتوافق", use_con
             try:
                 genai.configure(api_key=api_key)
                 # استخدام أحدث نموذج رؤية متاح
-                model = genai.GenerativeModel('gemini-1.5-flash')
+                model = genai.GenerativeModel('gemini-1.5-flash-latest')
+                
 
 
                 prompt = """
