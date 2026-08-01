@@ -1,5 +1,5 @@
 import streamlit as st
-import google.generativeai as genai
+from google import genai
 from PIL import Image
 
 # إعداد واجهة الجوال
@@ -8,15 +8,15 @@ st.set_page_config(page_title="مُحلل الشارت الذكي", page_icon="�
 st.title("📈 المُحلل المالي البصري الشامل")
 st.caption("تحليل لقطات الشاشات الفنية مع حساب درجات التوافق والترجيح")
 
-# إدخل مفتاح API
+# إدخال المفتاح
 api_key = st.text_input("أدخل مفتاح Google Gemini API:", type="password")
 
-# رفع الصورة أو التقاطها
+# رفع الصورة
 uploaded_file = st.file_uploader("ارفع لقطة شاشة للشارت:", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
     image = Image.open(uploaded_file)
-    st.image(image, caption="الشارت المراد تحليله", use_column_width=True)
+    st.image(image, caption="الشارت المراد تحليله", use_container_width=True)
 
 if st.button("🚀 بدء التحليل الشامل والتوافق", use_container_width=True):
     if not api_key:
@@ -26,10 +26,8 @@ if st.button("🚀 بدء التحليل الشامل والتوافق", use_con
     else:
         with st.spinner("جاري مسح الأنماط الفنية وحساب درجات التوافق..."):
             try:
-                genai.configure(api_key=api_key)
-                
-                # استخدام النموذج المستقر لقراءة الصور
-                model = genai.GenerativeModel('gemini-1.5-flash-latest')
+                # تهيئة العميل الجديد من مكتبة google-genai
+                client = genai.Client(api_key=api_key)
 
                 prompt = """
                 أنت خبير محترف في التحليل الفني ومدرسة السلوك السعري (Price Action). 
@@ -55,7 +53,11 @@ if st.button("🚀 بدء التحليل الشامل والتوافق", use_con
                    - سيناريو الدخول، ومستوى وقف الخسارة المقترح، وأهداف جني الأرباح.
                 """
 
-                response = model.generate_content([prompt, image])
+                # استدعاء النموذج عبر المكتبة الحديثة
+                response = client.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=[image, prompt]
+                )
                 
                 st.success("تم التقييم والتحليل بنجاح!")
                 st.markdown(response.text)
