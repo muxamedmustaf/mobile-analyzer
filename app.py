@@ -59,29 +59,46 @@ if st.button("🚀 بدء التحليل الشامل والتوافق", use_con
                    - سيناريو الدخول، ومستوى وقف الخسارة المقترح، وأهداف جني الأرباح.
                 """
 
-                # Call Updated Groq Vision API Model
-                response = client.chat.completions.create(
-                    model="llama-3.2-90b-vision-preview",
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                {
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": base64_image
-                                    }
-                                }
-                            ]
-                        }
-                    ],
-                    temperature=0.2,
-                    max_tokens=2048
-                )
+                # قائمة النماذج المتاحة للرؤية مع التبديل التلقائي
+                vision_models = [
+                    "llama-3.2-11b-vision-instruct",
+                    "llama-3.2-90b-vision-instruct",
+                    "llava-v1.5-7b-groq-preview"
+                ]
 
-                st.success("تم التقييم والتحليل بنجاح!")
-                st.markdown(response.choices[0].message.content)
+                response = None
+                used_model = ""
+
+                for m in vision_models:
+                    try:
+                        response = client.chat.completions.create(
+                            model=m,
+                            messages=[
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {"type": "text", "text": prompt},
+                                        {
+                                            "type": "image_url",
+                                            "image_url": {"url": base64_image}
+                                        }
+                                    ]
+                                }
+                            ],
+                            temperature=0.2,
+                            max_tokens=2048
+                        )
+                        used_model = m
+                        break
+                    except Exception:
+                        continue
+
+                if response:
+                    st.info(f"🤖 النموذج النشط: `{used_model}`")
+                    st.success("تم التقييم والتحليل بنجاح!")
+                    st.markdown(response.choices[0].message.content)
+                else:
+                    st.error("لم نتمكن من الوصول لأي نموذج رؤية فعال حالياً في Groq.")
 
             except Exception as e:
                 st.error(f"حدث خطأ أثناء إجراء التحليل: {e}")
