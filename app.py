@@ -1,17 +1,17 @@
 import streamlit as st
-from groq import Groq
+from openai import OpenAI
 from PIL import Image
 import base64
 import io
 
 # Setup Page
-st.set_page_config(page_title="مُحلل الشارت الذكي (Groq)", page_icon="📈", layout="centered")
+st.set_page_config(page_title="مُحلل الشارت الذكي (OpenRouter)", page_icon="📈", layout="centered")
 
 st.title("📈 المُحلل المالي البصري الشامل")
-st.caption("تحليل لقطات الشاشات الفنية بسرعة فائقة باستخدام Groq Vision API")
+st.caption("تحليل لقطات الشاشات الفنية بدقة عالية باستخدام OpenRouter API")
 
 # Input key & file
-api_key = st.text_input("أدخل مفتاح Groq API الخاص بك:", type="password")
+api_key = st.text_input("أدخل مفتاح OpenRouter API الخاص بك:", type="password")
 uploaded_file = st.file_uploader("ارفع لقطة شاشة للشارت:", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
@@ -20,7 +20,7 @@ if uploaded_file:
 
 if st.button("🚀 بدء التحليل الشامل والتوافق", use_container_width=True):
     if not api_key:
-        st.error("يرجى إدخل مفتاح الـ Groq API أولاً.")
+        st.error("يرجى إدخال مفتاح الـ OpenRouter API أولاً.")
     elif not uploaded_file:
         st.error("يرجى رفع صورة الشارت.")
     else:
@@ -32,8 +32,11 @@ if st.button("🚀 بدء التحليل الشامل والتوافق", use_con
                 img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
                 base64_image = f"data:image/png;base64,{img_str}"
 
-                # Initialize Groq Client
-                client = Groq(api_key=api_key.strip())
+                # Initialize OpenAI client pointed to OpenRouter
+                client = OpenAI(
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key=api_key.strip(),
+                )
 
                 prompt = """
                 أنت خبير محترف في التحليل الفني ومدرسة السلوك السعري (Price Action). 
@@ -59,46 +62,28 @@ if st.button("🚀 بدء التحليل الشامل والتوافق", use_con
                    - سيناريو الدخول، ومستوى وقف الخسارة المقترح، وأهداف جني الأرباح.
                 """
 
-                # قائمة النماذج المتاحة للرؤية مع التبديل التلقائي
-                vision_models = [
-                    "llama-3.2-11b-vision-instruct",
-                    "llama-3.2-90b-vision-instruct",
-                    "llava-v1.5-7b-groq-preview"
-                ]
-
-                response = None
-                used_model = ""
-
-                for m in vision_models:
-                    try:
-                        response = client.chat.completions.create(
-                            model=m,
-                            messages=[
+                # Call Free Vision Model on OpenRouter
+                response = client.chat.completions.create(
+                    model="google/gemini-2.0-flash-lite-preview-02-05:free",
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
                                 {
-                                    "role": "user",
-                                    "content": [
-                                        {"type": "text", "text": prompt},
-                                        {
-                                            "type": "image_url",
-                                            "image_url": {"url": base64_image}
-                                        }
-                                    ]
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": base64_image
+                                    }
                                 }
-                            ],
-                            temperature=0.2,
-                            max_tokens=2048
-                        )
-                        used_model = m
-                        break
-                    except Exception:
-                        continue
+                            ]
+                        }
+                    ],
+                    max_tokens=2048
+                )
 
-                if response:
-                    st.info(f"🤖 النموذج النشط: `{used_model}`")
-                    st.success("تم التقييم والتحليل بنجاح!")
-                    st.markdown(response.choices[0].message.content)
-                else:
-                    st.error("لم نتمكن من الوصول لأي نموذج رؤية فعال حالياً في Groq.")
+                st.success("تم التقييم والتحليل بنجاح!")
+                st.markdown(response.choices[0].message.content)
 
             except Exception as e:
                 st.error(f"حدث خطأ أثناء إجراء التحليل: {e}")
