@@ -59,12 +59,12 @@ if st.button("🚀 بدء التحليل الشامل والتوافق", use_con
 
                 5. 🎯 **التوصية الفنية النهائية:**
                    - القرار الترجيحي الأقوى: (شراء / بيع / انتظار وتريّث).
-                   - سيناريو الدخول، ومستوى وقف الخسارة المقترح، وأهداف جني الأرباح.
+                   - سيناريو الدخول، ومستوى وقف الخسارة المقترح، وأهداف جني الأرباح (يجب أن تعرض الأهداف ووقف الخسارة كأرقام أسعار دقيقة، ولا تستخدم النسبة المئوية إطلاقاً).
                 """
 
-                # Call Free Vision Model on OpenRouter
+                # Call Vision Model on OpenRouter using a stable Model ID
                 response = client.chat.completions.create(
-                    model="google/gemini-2.0-flash-lite-preview-02-05:free",
+                    model="google/gemini-1.5-flash",
                     messages=[
                         {
                             "role": "user",
