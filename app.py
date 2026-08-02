@@ -59,9 +59,9 @@ if st.button("🚀 بدء التحليل الشامل والتوافق", use_con
                    - سيناريو الدخول، ومستوى وقف الخسارة المقترح، وأهداف جني الأرباح.
                 """
 
-                # Call Groq Vision API Model
+                # Call Updated Groq Vision API Model
                 response = client.chat.completions.create(
-                    model="llama-3.2-11b-vision-preview",
+                    model="llama-3.2-90b-vision-preview",
                     messages=[
                         {
                             "role": "user",
