@@ -1,8 +1,8 @@
 import streamlit as st
-import google.generativeai as genai
+from google import genai
 from PIL import Image
 
-# إعداد واجهة الجوال
+# إعداد الصفحة
 st.set_page_config(page_title="مُحلل الشارت الذكي", page_icon="📈", layout="centered")
 
 st.title("📈 المُحلل المالي البصري الشامل")
@@ -26,10 +26,8 @@ if st.button("🚀 بدء التحليل الشامل والتوافق", use_con
     else:
         with st.spinner("جاري مسح الأنماط الفنية وحساب درجات التوافق..."):
             try:
-                genai.configure(api_key=api_key)
-                
-                # استخدام النموذج المجاني الأكثر استقراراً وقبولاً
-                model = genai.GenerativeModel('gemini-1.5-flash')
+                # التهيئة بالعميل الحديث
+                client = genai.Client(api_key=api_key)
 
                 prompt = """
                 أنت خبير محترف في التحليل الفني ومدرسة السلوك السعري (Price Action). 
@@ -55,7 +53,11 @@ if st.button("🚀 بدء التحليل الشامل والتوافق", use_con
                    - سيناريو الدخول، ومستوى وقف الخسارة المقترح، وأهداف جني الأرباح.
                 """
 
-                response = model.generate_content([prompt, image])
+                # الاستدعاء المباشر المستقر
+                response = client.models.generate_content(
+                    model='gemini-2.0-flash',
+                    contents=[image, prompt]
+                )
                 
                 st.success("تم التقييم والتحليل بنجاح!")
                 st.markdown(response.text)
