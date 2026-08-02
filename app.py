@@ -2,16 +2,14 @@ import streamlit as st
 from google import genai
 from PIL import Image
 
-# إعداد الصفحة
+# Setup Page
 st.set_page_config(page_title="مُحلل الشارت الذكي", page_icon="📈", layout="centered")
 
 st.title("📈 المُحلل المالي البصري الشامل")
 st.caption("تحليل لقطات الشاشات الفنية مع حساب درجات التوافق والترجيح")
 
-# إدخال المفتاح
+# Input key & file
 api_key = st.text_input("أدخل مفتاح Google Gemini API:", type="password")
-
-# رفع الصورة
 uploaded_file = st.file_uploader("ارفع لقطة شاشة للشارت:", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
@@ -26,8 +24,8 @@ if st.button("🚀 بدء التحليل الشامل والتوافق", use_con
     else:
         with st.spinner("جاري مسح الأنماط الفنية وحساب درجات التوافق..."):
             try:
-                # التهيئة بالعميل الحديث
-                client = genai.Client(api_key=api_key)
+                # Direct Client Init using SDK official
+                client = genai.Client(api_key=api_key.strip())
 
                 prompt = """
                 أنت خبير محترف في التحليل الفني ومدرسة السلوك السعري (Price Action). 
@@ -53,14 +51,24 @@ if st.button("🚀 بدء التحليل الشامل والتوافق", use_con
                    - سيناريو الدخول، ومستوى وقف الخسارة المقترح، وأهداف جني الأرباح.
                 """
 
-                # الاستدعاء المباشر المستقر
-                response = client.models.generate_content(
-                    model='gemini-2.0-flash',
-                    contents=[image, prompt]
-                )
-                
-                st.success("تم التقييم والتحليل بنجاح!")
-                st.markdown(response.text)
+                # Try modern model first, fallback to 1.5 if quota limits hit
+                response = None
+                for model_name in ['gemini-2.0-flash', 'gemini-1.5-flash']:
+                    try:
+                        response = client.models.generate_content(
+                            model=model_name,
+                            contents=[image, prompt]
+                        )
+                        st.info(f"🤖 النمط المستخدم: `{model_name}`")
+                        break
+                    except Exception as model_error:
+                        continue
+
+                if response:
+                    st.success("تم التقييم والتحليل بنجاح!")
+                    st.markdown(response.text)
+                else:
+                    st.error("تعذر الإتصال بالنماذج المتاحة، يرجى التأكد من مفتاح الـ API الخاص بك.")
 
             except Exception as e:
                 st.error(f"حدث خطأ أثناء إجراء التحليل: {e}")
