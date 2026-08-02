@@ -24,7 +24,7 @@ if st.button("🚀 بدء التحليل الشامل والتوافق", use_con
     elif not uploaded_file:
         st.error("يرجى رفع صورة الشارت.")
     else:
-        with st.spinner("جاري تحليل الشارت البصري وحساب التوافق..."):
+        with st.spinner("جاري مسح الشارت والبحث عن أفضل نموذج متاح للتحليل..."):
             try:
                 # Convert Image to Base64 Format
                 buffered = io.BytesIO()
@@ -62,29 +62,49 @@ if st.button("🚀 بدء التحليل الشامل والتوافق", use_con
                    - سيناريو الدخول، ومستوى وقف الخسارة المقترح، وأهداف جني الأرباح (يجب أن تعرض الأهداف ووقف الخسارة كأرقام أسعار دقيقة، ولا تستخدم النسبة المئوية إطلاقاً).
                 """
 
-                # Call Vision Model on OpenRouter using a stable Model ID
-                response = client.chat.completions.create(
-                    model="google/gemini-1.5-flash",
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": prompt},
-                                {
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": base64_image
-                                    }
-                                }
-                            ]
-                        }
-                    ],
-                    max_tokens=2048
-                )
+                # قائمة النماذج المجانية الفعالة (Fallback List)
+                fallback_models = [
+                    "meta-llama/llama-3.2-11b-vision-instruct:free",
+                    "qwen/qwen-2-vl-7b-instruct:free",
+                    "meta-llama/llama-3.2-90b-vision-instruct:free"
+                ]
 
-                st.success("تم التقييم والتحليل بنجاح!")
-                st.markdown(response.choices[0].message.content)
+                response = None
+                used_model = ""
+
+                # تجربة النماذج واحداً تلو الآخر حتى ينجح أحدهم
+                for m in fallback_models:
+                    try:
+                        response = client.chat.completions.create(
+                            model=m,
+                            messages=[
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {"type": "text", "text": prompt},
+                                        {
+                                            "type": "image_url",
+                                            "image_url": {
+                                                "url": base64_image
+                                            }
+                                        }
+                                    ]
+                                }
+                            ],
+                            max_tokens=2048
+                        )
+                        used_model = m
+                        break  # الخروج من الحلقة بمجرد نجاح التحليل
+                    except Exception:
+                        continue  # في حال فشل النموذج، جرب الذي يليه
+
+                # طباعة النتيجة
+                if response:
+                    st.info(f"🤖 تم التحليل بنجاح باستخدام النموذج: `{used_model}`")
+                    st.markdown(response.choices[0].message.content)
+                else:
+                    st.error("عذراً، لم نتمكن من الوصول لأي نموذج رؤية مجاني فعال حالياً على منصة OpenRouter.")
 
             except Exception as e:
-                st.error(f"حدث خطأ أثناء إجراء التحليل: {e}")
+                st.error(f"حدث خطأ غير متوقع: {e}")
                 
