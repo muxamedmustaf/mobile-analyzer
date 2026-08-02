@@ -1,15 +1,17 @@
 import streamlit as st
-from google import genai
+from groq import Groq
 from PIL import Image
+import base64
+import io
 
 # Setup Page
-st.set_page_config(page_title="مُحلل الشارت الذكي", page_icon="📈", layout="centered")
+st.set_page_config(page_title="مُحلل الشارت الذكي (Groq)", page_icon="📈", layout="centered")
 
 st.title("📈 المُحلل المالي البصري الشامل")
-st.caption("تحليل لقطات الشاشات الفنية مع حساب درجات التوافق والترجيح")
+st.caption("تحليل لقطات الشاشات الفنية بسرعة فائقة باستخدام Groq Vision API")
 
 # Input key & file
-api_key = st.text_input("أدخل مفتاح Google Gemini API:", type="password")
+api_key = st.text_input("أدخل مفتاح Groq API الخاص بك:", type="password")
 uploaded_file = st.file_uploader("ارفع لقطة شاشة للشارت:", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
@@ -18,14 +20,20 @@ if uploaded_file:
 
 if st.button("🚀 بدء التحليل الشامل والتوافق", use_container_width=True):
     if not api_key:
-        st.error("يرجى إدخال مفتاح الـ API أولاً.")
+        st.error("يرجى إدخل مفتاح الـ Groq API أولاً.")
     elif not uploaded_file:
         st.error("يرجى رفع صورة الشارت.")
     else:
-        with st.spinner("جاري مسح الأنماط الفنية وحساب درجات التوافق..."):
+        with st.spinner("جاري تحليل الشارت البصري وحساب التوافق..."):
             try:
-                # Direct Client Init using SDK official
-                client = genai.Client(api_key=api_key.strip())
+                # Convert Image to Base64 Format
+                buffered = io.BytesIO()
+                image.save(buffered, format="PNG")
+                img_str = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                base64_image = f"data:image/png;base64,{img_str}"
+
+                # Initialize Groq Client
+                client = Groq(api_key=api_key.strip())
 
                 prompt = """
                 أنت خبير محترف في التحليل الفني ومدرسة السلوك السعري (Price Action). 
@@ -51,24 +59,29 @@ if st.button("🚀 بدء التحليل الشامل والتوافق", use_con
                    - سيناريو الدخول، ومستوى وقف الخسارة المقترح، وأهداف جني الأرباح.
                 """
 
-                # Try modern model first, fallback to 1.5 if quota limits hit
-                response = None
-                for model_name in ['gemini-2.0-flash', 'gemini-1.5-flash']:
-                    try:
-                        response = client.models.generate_content(
-                            model=model_name,
-                            contents=[image, prompt]
-                        )
-                        st.info(f"🤖 النمط المستخدم: `{model_name}`")
-                        break
-                    except Exception as model_error:
-                        continue
+                # Call Groq Vision API Model
+                response = client.chat.completions.create(
+                    model="llama-3.2-11b-vision-preview",
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": base64_image
+                                    }
+                                }
+                            ]
+                        }
+                    ],
+                    temperature=0.2,
+                    max_tokens=2048
+                )
 
-                if response:
-                    st.success("تم التقييم والتحليل بنجاح!")
-                    st.markdown(response.text)
-                else:
-                    st.error("تعذر الإتصال بالنماذج المتاحة، يرجى التأكد من مفتاح الـ API الخاص بك.")
+                st.success("تم التقييم والتحليل بنجاح!")
+                st.markdown(response.choices[0].message.content)
 
             except Exception as e:
                 st.error(f"حدث خطأ أثناء إجراء التحليل: {e}")
