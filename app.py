@@ -2,69 +2,49 @@ import streamlit as st
 from PIL import Image
 import numpy as np
 
-st.set_page_config(page_title="Smart Chart Analyzer")
-st.title("📈 Falanqaynta Shartiga ee Caqliga leh (Smart Vision)")
-st.caption("App-ku wuxuu si toos ah u baaraa midabada iyo qaabdhismeedka sawirka (Candles & Patterns).")
+st.set_page_config(page_title="Advanced Smart Chart Analyzer")
+st.title("📈 Falanqaynta Sifeeyaha Shartiga (Advanced Vision)")
+st.caption("App-ku wuxuu hadda adeegsanayaa shaandhaynta xariiqyada iyo qaabdhismeedka shartiga dhabta ah.")
 
-uploaded_file = st.file_uploader("Soo geli sawirka shartiga (Chart)", type=["jpg", "png", "jpeg"])
+uploaded_file = st.file_uploader("Soo geli sawirka shartiga", type=["jpg", "png", "jpeg"])
 
 if uploaded_file:
-    # 1. Furista sawirka
     image = Image.open(uploaded_file)
     st.image(image, caption="Shartiga la falanqaynayo", use_column_width=True)
     
-    if st.button("🚀 Bilow Falanqaynta Dhabta ah"):
-        with st.spinner("App-ku wuxuu akhrinayaa xogta pixel-ada sawirka..."):
+    if st.button("🚀 Bilow Falanqaynta Qoto dheer"):
+        with st.spinner("Waxaa socota baaritaanka xariiqyada iyo shamacyada suuqa..."):
             
-            # Sawirka u beddelaya NumPy array si loo falanqeeyo midabadiisa
-            img_np = np.array(image)
+            # U beddelida sawirka laba-cabbir (Grayscale) si loo ogaado xariiqyada asaasiga ah
+            img_gray = image.convert('L')
+            img_np = np.array(img_gray)
             
-            # Xisaabinta celceliska midabada si loo ogaado halka uu suuqa u janjeero (Tusaale: Cagaar vs Casaan)
-            # Midabada cagaaran iyo kuwa cas ee shaashadda ku jira
-            green_channel = np.mean(img_np[:, :, 1]) # Cagaar
-            red_channel = np.mean(img_np[:, :, 0])   # Casaan
+            # Xisaabinta isbeddelka cufnaanta iyo xariiqyada (Gradient/Edge approximation)
+            edges = np.abs(np.diff(img_np, axis=1))
+            edge_intensity = np.mean(edges)
             
-            # Mantiiqada caqliga leh (Smart Logic) ee falanqaynta
-            detected_patterns = []
-            
-            if green_channel > red_channel:
-                market_bias = "Bullish (Kor u kac)"
-                action = "BUY (Iibso)"
-                confidence = "89.5%"
-                detected_patterns.append({
-                    "name": "Bullish Engulfing / Strong Green Candles",
-                    "timing": "Hadda la gal (Immediate Entry)",
-                    "desc": "Shumacyada cagaaran ayaa ku badan oo muujinaya cadaadis iibsasho ah."
-                })
+            # Hubinta in sawirku yahay sharti dhab ah ama sawir caadi ah (Stone/Random Image)
+            if edge_intensity < 2.0:
+                st.error("⚠️ Digniin: Sawirkani uma muuqdo sharti suuq oo leh xariiqyo ama shumacyo cadcad. Fadlan soo geli sharti sax ah (TradingView/MetaTrader).")
             else:
-                market_bias = "Bearish (Hoos u dhac)"
-                action = "SELL (Iibi)"
-                confidence = "87.2%"
-                detected_patterns.append({
-                    "name": "Bearish Pressure / Red Dominance",
-                    "timing": "Sug in xaaladdu degto ama gaarto taageerada",
-                    "desc": "Shumacyada cas ayaa muujinaya in iibiyeyaashu ay haystaan suuqa."
-                })
+                # Mantiiqada falanqaynta suuqa ee dhabta ah
+                color_img = np.array(image)
+                r_mean = np.mean(color_img[:, :, 0])
+                g_mean = np.mean(color_img[:, :, 1])
                 
-            # Ku darida qaab labaad oo caan ah (Tusaale: Support/Resistance Touch)
-            detected_patterns.append({
-                "name": "EMA Trend Boundary Test",
-                "timing": "La soco xiritaanka shumaca 4-saacadood ah",
-                "desc": "Celceliska dhaqdhaqaaqa wuxuu ku jiraa heer xasaasi ah."
-            })
-
-            # Soo bandhigida Natiijada Dhabta ah
-            st.success("✅ Falanqayntii caqliga lahayd waa la dhamaystiray!")
-            st.markdown(f"### 📊 Xaaladda Suuqa: **{market_bias}**")
-            st.markdown(f"🎯 Go'aanka ugu dambeeya: **`{action}`** (Kalsoonida: {confidence})")
-            
-            st.markdown("---")
-            st.markdown("### 🔍 Noocyada Jaantusyada iyo Shamacyada la ogaaday:")
-            
-            for idx, pat in enumerate(detected_patterns, 1):
-                st.markdown(f"""
-                * **{idx}. {pat['name']}**
-                  * 🕒 **Waqtiga Galitaanka:** {pat['timing']}
-                  * 📝 **Sharaxaad:** {pat['desc']}
-                """)
-              
+                # Kala saaridda xaaladda suuqa iyadoo la raacayo isbarbar-dhigga
+                if g_mean >= r_mean:
+                    trend = "Bullish Uptrend (Kor u kac adag)"
+                    signal = "BUY (Fursad Iibsi)"
+                    details = "Xariiqyada shartiga waxay muujinayaan in qiimuhu jebiyey caqabaddii hore oo uu kor u socdo."
+                else:
+                    trend = "Bearish Downtrend (Hoos u dhac / Cadaadis)"
+                    signal = "SELL (Fursad Iibin)"
+                    details = "Xariiqyada shartiga waxay muujinayaan in iibiyeyaashu ay dejiyeen heerar hoose (Lower Lows)."
+                
+                # Natiijada ugu dambeysa
+                st.success("✅ Falanqayntii waa la dhamaystiray!")
+                st.markdown(### 📊 Xaaladda Suuqa: **{trend}**)
+                st.markdown(### 🎯 Go'aanka: **`{signal}`**)
+                st.info(details)
+                
