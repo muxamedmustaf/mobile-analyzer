@@ -21,14 +21,12 @@ if uploaded_file:
             hsv = cv2.cvtColor(img_cv, cv2.COLOR_BGR2HSV)
             
             # 1. Shaandhaynta Shumacyada Cagaaran (Green Candles)
-            # Hue, Saturation, Value ranges oo loogu talagalay cagaarka shartiga
             lower_green1 = np.array([35, 50, 50])
             upper_green1 = np.array([85, 255, 255])
             mask_green = cv2.inRange(hsv, lower_green1, upper_green1)
             green_count = cv2.countNonZero(mask_green)
             
             # 2. Shaandhaynta Shumacyada Cas (Red/Pink Candles)
-            # Casaanku wuxuu ku jiraa laba meelood oo kala duwan oo Hue spectrum ah (0-10 iyo 170-180)
             lower_red1 = np.array([0, 50, 50])
             upper_red1 = np.array([10, 255, 255])
             mask_red1 = cv2.inRange(hsv, lower_red1, upper_red1)
@@ -49,7 +47,7 @@ if uploaded_file:
                 st.success("✅ Waa la helay shumacyadii suuqa!")
                 
                 # Isbarbar-dhigga xoogga cagaarka iyo casaanka
-                st.write(قال: f"📊 Tirada dhibcaha Cagaaran: {green_count} | Dhibcaha Cas: {red_count}")
+                st.write(f"📊 Tirada dhibcaha Cagaaran: {green_count} | Dhibcaha Cas: {red_count}")
                 
                 if green_count > red_count:
                     trend = "Bullish Dominance (Awoodda Cagaaran / Kor u kac)"
