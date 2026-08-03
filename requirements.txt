@@ -2,3 +2,8 @@ streamlit
 Pillow
 numpy
 opencv-python-headless
+streamlit
+Pillow
+numpy
+opencv-python-headless
+pytesseract
