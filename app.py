@@ -19,20 +19,19 @@ if uploaded_file:
             img_gray = image.convert('L')
             img_np = np.array(img_gray)
             
-            # Xisaabinta isbeddelka cufnaanta iyo xariiqyada (Gradient/Edge approximation)
+            # Xisaabinta isbeddelka cufnaanta iyo xariiqyada
             edges = np.abs(np.diff(img_np, axis=1))
             edge_intensity = np.mean(edges)
             
-            # Hubinta in sawirku yahay sharti dhab ah ama sawir caadi ah (Stone/Random Image)
+            # Hubinta in sawirku yahay sharti dhab ah ama sawir caadi ah
             if edge_intensity < 2.0:
                 st.error("⚠️ Digniin: Sawirkani uma muuqdo sharti suuq oo leh xariiqyo ama shumacyo cadcad. Fadlan soo geli sharti sax ah (TradingView/MetaTrader).")
             else:
-                # Mantiiqada falanqaynta suuqa ee dhabta ah
+                # Mantiiqada falanqaynta suuqa
                 color_img = np.array(image)
                 r_mean = np.mean(color_img[:, :, 0])
                 g_mean = np.mean(color_img[:, :, 1])
                 
-                # Kala saaridda xaaladda suuqa iyadoo la raacayo isbarbar-dhigga
                 if g_mean >= r_mean:
                     trend = "Bullish Uptrend (Kor u kac adag)"
                     signal = "BUY (Fursad Iibsi)"
@@ -42,9 +41,9 @@ if uploaded_file:
                     signal = "SELL (Fursad Iibin)"
                     details = "Xariiqyada shartiga waxay muujinayaan in iibiyeyaashu ay dejiyeen heerar hoose (Lower Lows)."
                 
-                # Natiijada ugu dambeysa
+                # Natiijada ugu dambeysa (oo la saxay xigashada)
                 st.success("✅ Falanqayntii waa la dhamaystiray!")
-                st.markdown(### 📊 Xaaladda Suuqa: **{trend}**)
-                st.markdown(### 🎯 Go'aanka: **`{signal}`**)
+                st.markdown(f"### 📊 Xaaladda Suuqa: **{trend}**")
+                st.markdown(f"### 🎯 Go'aanka: **`{signal}`**")
                 st.info(details)
                 
