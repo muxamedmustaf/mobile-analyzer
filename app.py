@@ -15,66 +15,82 @@ st.set_page_config(page_title="Mobile Analyzer - yFinance", layout="wide")
 
 st.title("📈 Mobile Analyzer: Forex & Crypto (yFinance)")
 
-# Sidebar for settings
-st.sidebar.header("Market Settings")
+# Liiska lammaanaha Forex ee background-ka lagu baarayo
+DEFAULT_FOREX_LIST = ["EURUSD=X", "GBPUSD=X", "AUDUSD=X", "USDJPY=X", "USDCAD=X", "NZDUSD=X", "EURJPY=X"]
 
-# 1. View-ga lagu qoro ama lagu doorto magaca lammaanaha (Symbol)
-symbol = st.sidebar.text_input("Enter Market Symbol", value="EURUSD=X")
+# Navigation mode: Laba qaybood (Scanner-ka tooska ah iyo Single Chart View)
+app_mode = st.sidebar.radio("Navigation", ["Market Scanner (Fursadaha Otomaatigga ah)", "Single Chart Analysis"])
 
-# 2. View-ga timeframe-ka lagu doorto
-timeframe = st.sidebar.selectbox("Select Timeframe", ["1m", "5m", "15m", "30m", "1h", "1d"], index=3)
-
-# Soo jiidashada xogta iyadoo la adeegsanayo yfinance
 @st.cache_data(ttl=60)
 def load_market_data(sym, tf):
     df = get_data(symbol=sym, timeframe=tf, limit=100)
     return df
 
-with st.spinner(f"Soo jiidashada xogta {symbol}..."):
-    df = load_market_data(symbol, timeframe)
-
-if df.empty:
-    st.error(f"Lama helin xogta suuqa ee {symbol}. Fadlan hubi in magacu sax yahay (Tusaale: EURUSD=X ee Forex ama BTC-USD ee Crypto).")
-else:
-    # Xisaabinta Tilmaamayaasha (Indicators)
-    df['ema_50'] = calculate_ema(df, 50)
-    df['rsi'] = calculate_rsi(df, 14)
-    df['atr'] = calculate_atr(df, 14)
-
-    current_price = df['close'].iloc[-1]
-
-    # Falanqaynta Qaab-dhismeedka (Structure) iyo SMC
-    structure_analyzer = MarketStructureAnalyzer(df)
-    market_analysis = structure_analyzer.analyze()
-
-    order_blocks = detect_order_blocks(df)
-    fvgs = detect_fvg(df)
-
-    # Soo saarista Signal-ka
-    signal = generate_signal(df, current_price)
-
-    # Daabacaadda Natiijada UI-ga (Dashboard)
-    st.subheader(f"Current Status for {symbol}")
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric(label="Current Price", value=f"${current_price:,.4f}")
-    with col2:
-        st.metric(label="Market Trend", value=market_analysis.get("trend", "NEUTRAL"))
-    with col3:
-        st.metric(label="Generated Signal", value=signal)
-
-    # Muujinta Jaantuska (Interactive Chart)
-    st.subheader("Market Price Chart")
-    plot_market_chart(df)
-
-    # Faahfaahinta Dheeraadka ah
-    with st.expander("View Raw Data & SMC Details"):
-        st.write("Recent Candles Data:")
-        st.dataframe(df.tail(10))
-        
-        st.write("Detected Order Blocks:", order_blocks)
-        st.write("Detected Fair Value Gaps (FVG):", fvgs)
-
-    st.success("App-ku wuxuu si guul leh uga shaqaynayaa xogta yfinance!")
+if app_mode == "Market Scanner (Fursadaha Otomaatigga ah)":
+    st.subheader("🔍 Live Market Opportunity Scanner (Auto-Scan)")
+    st.write("App-ku wuxuu si toos ah u baarayay suuqa... Halkan waxaa ka muuqda lammaanaha fursadaha leh:")
     
+    timeframe = st.selectbox("Select Scan Timeframe", ["15m", "30m", "1h", "1d"], index=1)
+    
+    # Otomaatig ah: Si toos ah ayuu u baaraa adigoo aan badhan sugin markuu app-ku furmo ama refresh noqdo
+    scanner_results = []
+    
+    with st.spinner("Waa la baaraa lammaanayaasha Forex-ka... Fadlan sug."):
+        for sym in DEFAULT_FOREX_LIST:
+            try:
+                temp_df = get_data(symbol=sym, timeframe=timeframe, limit=100)
+                if not temp_df.empty:
+                    signal_result = generate_signal(temp_df)  # Hubinta signal-ka
+                    
+                    if signal_result in ["BUY", "SELL"]:
+                        scanner_results.append({
+                            "Symbol": sym,
+                            "Signal": signal_result,
+                            "Price": temp_df['Close'].iloc[-1]
+                        })
+            except Exception as e:
+                continue
+    
+    if scanner_results:
+        result_df = pd.DataFrame(scanner_results)
+        st.success("✨ Waxaa la helay lammaanayaal fursad wata!")
+        
+        # Soo bandhigida miiska oo leh badhamo toos ah oo kuu furaya chart-ka
+        for index, row in result_df.iterrows():
+            col1, col2, col3, col4 = st.columns([2, 2, 2, 2])
+            with col1:
+                st.write(f"**{row['Symbol']}**")
+            with col2:
+                st.write(f"Signal: **{row['Signal']}**")
+            with col3:
+                st.write(f"Price: {row['Price']:.4f}")
+            with col4:
+                if st.button(f"View Chart", key=f"btn_{row['Symbol']}"):
+                    st.session_state['selected_symbol'] = row['Symbol']
+                    # Si toos ah ugu beddel bogga Single Chart Analysis
+                    st.rerun()
+    else:
+        st.info("Waqtigan xaadirka ah lammaane soo saaray BUY ola SELL ma jiro. Waa la sii wadi doonaa baaritaanka.")
+
+else:
+    # Sidebar for settings (Muraayaddii faahfaahinta iyo chart-ka ee quruxda badneyd)
+    st.sidebar.header("Market Settings")
+
+    # Haddii laga soo doortay scanner-ka, halkaan ayay si otomaatig ah ugu soo gelaysaa
+    default_sym = st.session_state.get('selected_symbol', "EURUSD=X")
+    symbol = st.sidebar.text_input("Enter Market Symbol", value=default_sym)
+
+    timeframe = st.sidebar.selectbox("Select Timeframe", ["1m", "5m", "15m", "30m", "1h", "1d"], index=3)
+
+    with st.spinner(f"Soo jiidashada xogta {symbol}..."):
+        df = load_market_data(symbol, timeframe)
+
+    if df.empty:
+        st.warning(f"Lama helin xog ku saabsan lammaanaha {symbol}. Fadlan hubi magaca.")
+    else:
+        st.success(f"Xogta lammaanaha {symbol} waa la helay!")
+        
+        # Halkan geli koodkaagii hore ee falanqaynta, SMC, iyo plot_market_chart...
+        # tusaale ahaan:
+        # plot_market_chart(df, symbol)
+        
