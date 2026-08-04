@@ -18,12 +18,15 @@ st.title("📈 Mobile Analyzer: Forex & Crypto (yFinance)")
 # Liiska lammaanaha Forex ee background-ka lagu baarayo
 DEFAULT_FOREX_LIST = ["EURUSD=X", "GBPUSD=X", "AUDUSD=X", "USDJPY=X", "USDCAD=X", "NZDUSD=X", "EURJPY=X"]
 
-# Navigation mode: Laba qaybood (Scanner-ka tooska ah iyo Single Chart View)
+# Navigation mode
 app_mode = st.sidebar.radio("Navigation", ["Market Scanner (Fursadaha Otomaatigga ah)", "Single Chart Analysis"])
 
 @st.cache_data(ttl=60)
 def load_market_data(sym, tf):
     df = get_data(symbol=sym, timeframe=tf, limit=100)
+    if not df.empty:
+        # Hubinta iyo ka dhigista magacyada tiirarka kuwo yaryar si uusan KeyError u dhicin
+        df.columns = [str(col).lower() for col in df.columns]
     return df
 
 if app_mode == "Market Scanner (Fursadaha Otomaatigga ah)":
@@ -39,13 +42,14 @@ if app_mode == "Market Scanner (Fursadaha Otomaatigga ah)":
             try:
                 temp_df = get_data(symbol=sym, timeframe=timeframe, limit=100)
                 if not temp_df.empty:
+                    temp_df.columns = [str(col).lower() for col in temp_df.columns]
                     signal_result = generate_signal(temp_df)
                     
                     if signal_result in ["BUY", "SELL"]:
                         scanner_results.append({
                             "Symbol": sym,
                             "Signal": signal_result,
-                            "Price": temp_df['Close'].iloc[-1]
+                            "Price": temp_df['close'].iloc[-1]
                         })
             except Exception as e:
                 continue
@@ -65,13 +69,11 @@ if app_mode == "Market Scanner (Fursadaha Otomaatigga ah)":
             with col4:
                 if st.button(f"View Chart", key=f"btn_{row['Symbol']}"):
                     st.session_state['selected_symbol'] = row['Symbol']
-                    st.session_state['app_mode_switch'] = "Single Chart Analysis"
                     st.rerun()
     else:
         st.info("Waqtigan xaadirka ah lammaane soo saaray BUY ama SELL ma jiro. Waa la sii wadi doonaa baaritaanka.")
 
 else:
-    # Sidebar for settings (Muraayadda faahfaahinta iyo chart-ka)
     st.sidebar.header("Market Settings")
 
     default_sym = st.session_state.get('selected_symbol', "EURUSD=X")
@@ -87,12 +89,11 @@ else:
     else:
         st.success(f"Xogta lammaanaha {symbol} waa la helay!")
         
-        # Halkan waxaa ku soo laabtay oo si buuxda u shaqaynaya Chart-kaagii iyo falanqayntaadii:
-        # 1. Xisaabinta tilmaamayaasha (Indicators & SMC)
+        # Xisaabinta tilmaamayaasha adigoo hubiyay inaysan jirin dhibaato xarfaha ah
         df = calculate_ema(df)
         df = calculate_rsi(df)
         df = calculate_atr(df)
         
-        # 2. Soo bandhigida Jaantuska (Chart Plot)
+        # Soo bandhigida Jaantuska
         plot_market_chart(df, symbol)
         
