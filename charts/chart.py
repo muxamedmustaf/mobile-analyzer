@@ -3,40 +3,38 @@ import pandas as pd
 import plotly.graph_objects as go
 
 def plot_market_chart(df, symbol="Market"):
-    """Muujinta jaantusyada suuqa iyadoo la baarayo xogta"""
+    """Muujinta jaantusyada suuqa oo qaabilsan dib-u-habaynta xogta"""
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
         st.warning("Ma jirto xog sugan oo loo isticmaalo Chart-ka.")
         return
 
-    # Si aad u aragto xogta dhabta ah ee soo gasha shaashaddaada
-    with st.expander("Debug: Eeg xogta DataFrame-ka"):
-        st.write(df.head())
-        st.write(df.columns)
+    # Haddii tiirarku yihiin MultiIndex (oo ka yimaada yfinance mararka qaar), nadiifi
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_0()
 
-    # Helida tiirarka iyadoo la raadinayo xarfaha yar ama weyn
-    cols = {str(col).lower(): col for col in df.columns}
-    
-    open_col = cols.get('open')
-    high_col = cols.get('high')
-    low_col = cols.get('low')
-    close_col = cols.get('close')
+    # Ka dhig dhammaan magacyada tiirarka kuwa yaryar si loo helo si fudud
+    df.columns = [str(c).lower() for c in df.columns]
 
-    # Haddii aysan si toos ah u helin, isticmaal tiirarka 0, 1, 2, 3
-    if not open_col or not high_col or not low_col or not close_col:
-        if len(df.columns) >= 4:
-            open_col, high_col, low_col, close_col = df.columns[0], df.columns[1], df.columns[2], df.columns[3]
-        else:
-            st.error(f"Tiirarka xogta lama helin si sax ah. Tiirarka jira waa: {list(df.columns)}")
-            return
+    # Hubinta tiirarka asaasiga ah
+    required = ['open', 'high', 'low', 'close']
+    for col in required:
+        if col not in df.columns:
+            # Haddii la waayo, ka raadi magacyo kale ama isticmaal tiirarka ugu dhow
+            matching = [c for c in df.columns if col in c]
+            if matching:
+                df[col] = df[matching[0]]
+            else:
+                st.error(f"Tiirka {col} lama helin xogta dhexdeeda. Tiirarka jira waa: {list(df.columns)}")
+                return
 
     x_vals = df.index if hasattr(df, 'index') else list(range(len(df)))
 
     fig = go.Figure(data=[go.Candlestick(
         x=x_vals,
-        open=df[open_col],
-        high=df[high_col],
-        low=df[low_col],
-        close=df[close_col]
+        open=df['open'],
+        high=df['high'],
+        low=df['low'],
+        close=df['close']
     )])
     
     fig.update_layout(
