@@ -11,16 +11,20 @@ from signals.signal import generate_signal
 from charts.chart import plot_market_chart
 
 # Page Configuration
-st.set_page_config(page_title="Mobile Analyzer - Live", layout="wide")
+st.set_page_config(page_title="Mobile Analyzer - yFinance", layout="wide")
 
-st.title("📈 Mobile Analyzer: Live Market Strategy")
+st.title("📈 Mobile Analyzer: Forex & Crypto (yFinance)")
 
 # Sidebar for settings
 st.sidebar.header("Market Settings")
-symbol = st.sidebar.selectbox("Select Market Pair", ["BTC/USDT", "ETH/USDT", "XRP/USDT"])
-timeframe = st.sidebar.selectbox("Select Timeframe", ["15m", "30m", "1h", "4h"], index=1)
 
-# Soo jiidashada xogta
+# 1. View-ga lagu qoro ama lagu doorto magaca lammaanaha (Symbol)
+symbol = st.sidebar.text_input("Enter Market Symbol", value="EURUSD=X")
+
+# 2. View-ga timeframe-ka lagu doorto
+timeframe = st.sidebar.selectbox("Select Timeframe", ["1m", "5m", "15m", "30m", "1h", "1d"], index=3)
+
+# Soo jiidashada xogta iyadoo la adeegsanayo yfinance
 @st.cache_data(ttl=60)
 def load_market_data(sym, tf):
     df = get_data(symbol=sym, timeframe=tf, limit=100)
@@ -30,12 +34,8 @@ with st.spinner(f"Soo jiidashada xogta {symbol}..."):
     df = load_market_data(symbol, timeframe)
 
 if df.empty:
-    st.error(f"Lama helin xogta suuqa ee {symbol}. Fadlan hubi xiriirkaaga ama xogta suuqa.")
+    st.error(f"Lama helin xogta suuqa ee {symbol}. Fadlan hubi in magacu sax yahay (Tusaale: EURUSD=X ee Forex ama BTC-USD ee Crypto).")
 else:
-    # Magacyada kolamyada (Columns) oo la waafajiyay wuxuu CCXT soo celiyo (Time, Open, High, Low, Close, Volume)
-    # Iyadoo la hubinayo in xarfaha ay yihiin kuwa yar yar (lowercase) si ay ugu shaqeeyaan indicators-ka
-    df.columns = [col.lower() for col in df.columns]
-    
     # Xisaabinta Tilmaamayaasha (Indicators)
     df['ema_50'] = calculate_ema(df, 50)
     df['rsi'] = calculate_rsi(df, 14)
@@ -58,7 +58,7 @@ else:
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        st.metric(label="Current Price", value=f"${current_price:,.2f}")
+        st.metric(label="Current Price", value=f"${current_price:,.4f}")
     with col2:
         st.metric(label="Market Trend", value=market_analysis.get("trend", "NEUTRAL"))
     with col3:
@@ -76,5 +76,5 @@ else:
         st.write("Detected Order Blocks:", order_blocks)
         st.write("Detected Fair Value Gaps (FVG):", fvgs)
 
-    st.success("Mashruucu wuxuu hadda si habsami leh uga shaqaynayaa xogta suuqa!")
+    st.success("App-ku wuxuu si guul leh uga shaqaynayaa xogta yfinance!")
     
