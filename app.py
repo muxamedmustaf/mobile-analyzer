@@ -25,17 +25,8 @@ app_mode = st.sidebar.radio("Navigation", ["Market Scanner (Fursadaha Otomaatigg
 def load_market_data(sym, tf):
     df = get_data(symbol=sym, timeframe=tf, limit=100)
     if not df.empty:
-        # Hubinta in labada tiir (close iyo Close) ay wada jiraan si uusan KeyError u dhicin
-        if 'Close' in df.columns and 'close' not in df.columns:
-            df['close'] = df['Close']
-        elif 'close' in df.columns and 'Close' not in df.columns:
-            df['Close'] = df['close']
-        df = df.reset_index(drop=False)
-        # Haddii index-kii hore uu ahaa Date ama Timestamp, dib u celi
-        if 'Date' in df.columns:
-            df = df.set_index('Date')
-        elif 'Datetime' in df.columns:
-            df = df.set_index('Datetime')
+        # Ka dhig dhammaan magacyada tiirarka kuwa yaryar (lowercase) si uusan KeyError uga dhalan indicators-ka
+        df.columns = [str(col).lower() for col in df.columns]
     return df
 
 if app_mode == "Market Scanner (Fursadaha Otomaatigga ah)":
@@ -54,11 +45,11 @@ if app_mode == "Market Scanner (Fursadaha Otomaatigga ah)":
                     signal_result = generate_signal(temp_df)
                     
                     if signal_result in ["BUY", "SELL"]:
-                        col_name = 'Close' if 'Close' in temp_df.columns else 'close'
+                        price_val = temp_df['close'].iloc[-1] if 'close' in temp_df.columns else temp_df.iloc[-1, 3]
                         scanner_results.append({
                             "Symbol": sym,
                             "Signal": signal_result,
-                            "Price": temp_df[col_name].iloc[-1]
+                            "Price": price_val
                         })
             except Exception as e:
                 continue
@@ -98,11 +89,11 @@ else:
     else:
         st.success(f"Xogta lammaanaha {symbol} waa la helay!")
         
-        # Xisaabinta tilmaamayaasha adigoo hubiyay in labada nooc (close / Close) ay sugan yihiin
+        # Xisaabinta tilmaamayaasha iyadoo tiirarku yihiin kuwo la jaanqaadaya dhammaan indicators-ka
         df = calculate_ema(df)
         df = calculate_rsi(df)
         df = calculate_atr(df)
         
-        # Soo bandhigida Jaantuskaaga
+        # Soo bandhigida Jaantuska
         plot_market_chart(df, symbol)
         
