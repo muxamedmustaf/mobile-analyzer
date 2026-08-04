@@ -24,6 +24,18 @@ app_mode = st.sidebar.radio("Navigation", ["Market Scanner (Fursadaha Otomaatigg
 @st.cache_data(ttl=60)
 def load_market_data(sym, tf):
     df = get_data(symbol=sym, timeframe=tf, limit=100)
+    if not df.empty:
+        # Hubinta in labada tiir (close iyo Close) ay wada jiraan si uusan KeyError u dhicin
+        if 'Close' in df.columns and 'close' not in df.columns:
+            df['close'] = df['Close']
+        elif 'close' in df.columns and 'Close' not in df.columns:
+            df['Close'] = df['close']
+        df = df.reset_index(drop=False)
+        # Haddii index-kii hore uu ahaa Date ama Timestamp, dib u celi
+        if 'Date' in df.columns:
+            df = df.set_index('Date')
+        elif 'Datetime' in df.columns:
+            df = df.set_index('Datetime')
     return df
 
 if app_mode == "Market Scanner (Fursadaha Otomaatigga ah)":
@@ -37,19 +49,16 @@ if app_mode == "Market Scanner (Fursadaha Otomaatigga ah)":
     with st.spinner("Waa la baaraa lammaanayaasha Forex-ka... Fadlan sug."):
         for sym in DEFAULT_FOREX_LIST:
             try:
-                temp_df = get_data(symbol=sym, timeframe=timeframe, limit=100)
+                temp_df = load_market_data(sym, timeframe)
                 if not temp_df.empty:
-                    # Hubinta tiirka Close (haddii uu yahay close ama Close)
-                    if 'close' in temp_df.columns and 'Close' not in temp_df.columns:
-                        temp_df['Close'] = temp_df['close']
-                    
                     signal_result = generate_signal(temp_df)
                     
                     if signal_result in ["BUY", "SELL"]:
+                        col_name = 'Close' if 'Close' in temp_df.columns else 'close'
                         scanner_results.append({
                             "Symbol": sym,
                             "Signal": signal_result,
-                            "Price": temp_df['Close'].iloc[-1]
+                            "Price": temp_df[col_name].iloc[-1]
                         })
             except Exception as e:
                 continue
@@ -89,15 +98,11 @@ else:
     else:
         st.success(f"Xogta lammaanaha {symbol} waa la helay!")
         
-        # Hubinta tiirka Close si uusan KeyError uga dhalan calculate_rsi
-        if 'close' in df.columns and 'Close' not in df.columns:
-            df['Close'] = df['close']
-
-        # Xisaabinta tilmaamayaasha sidii loogu talagalay
+        # Xisaabinta tilmaamayaasha adigoo hubiyay in labada nooc (close / Close) ay sugan yihiin
         df = calculate_ema(df)
         df = calculate_rsi(df)
         df = calculate_atr(df)
         
-        # Soo bandhigida Jaantuskaaga quruxda badnaa
+        # Soo bandhigida Jaantuskaaga
         plot_market_chart(df, symbol)
         
