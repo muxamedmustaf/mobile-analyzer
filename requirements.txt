@@ -3,5 +3,5 @@ ccxt
 pandas
 numpy
 plotly
-pandas-ta
+pandas_ta
 scipy
