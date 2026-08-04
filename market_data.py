@@ -1,39 +1,41 @@
 import yfinance as yf
 import pandas as pd
 
-def get_data(symbol="EURUSD=X", timeframe="30m", limit=100):
-    """
-    Soo jiidashada xogta suuqa iyadoo la adeegsanayo yfinance (Forex & Crypto)
-    """
+def get_data(symbol: str, timeframe: str = "30m", limit: int = 100) -> pd.DataFrame:
+    """Soo jiidashada xogta suuqa ee yFinance iyadoo la hubinayo badbaadada tiirarka"""
     try:
-        # Soo dejinta xogta adigoo isticmaalaya yfinance Ticker
-        ticker = yf.Ticker(symbol)
+        # Kala xulashada mudada (period) iyadoo la eegayo timeframe-ka
+        period_map = {
+            "1m": "7d",
+            "5m": "60d",
+            "15m": "60d",
+            "30m": "60d",
+            "1h": "730d",
+            "1d": "max"
+        }
         
-        # yfinance timeframe-keedu wuxuu qaataa shuruudaha sida '15m', '30m', '1h', '1d'
-        df = ticker.history(period="5d", interval=timeframe)
+        period = period_map.get(timeframe, "60d")
         
-        if df.empty:
+        # Soo dejinta xogta
+        df = yf.download(symbol, period=period, interval=timeframe, progress=False)
+        
+        if df is None or df.empty:
             return pd.DataFrame()
-            
-        # Nidaaminta kolamyada si ay ula jaanqaadaan app-kaaga (open, high, low, close, volume)
-        df = df.reset_index()
-        
-        # Hubinta magaca kolamka wakhtiga (Datetime ama Date)
-        time_col = 'Datetime' if 'Datetime' in df.columns else 'Date'
-        
-        clean_df = pd.DataFrame({
-            "Time": pd.to_datetime(df[time_col]),
-            "open": df['Open'].astype(float),
-            "high": df['High'].astype(float),
-            "low": df['Low'].astype(float),
-            "close": df['Close'].astype(float),
-            "volume": df['Volume'].astype(float)
-        })
-        
-        # Soo celinta xogta iyadoo la raacayo xadka 'limit' ee la cayimay
-        return clean_df.tail(limit).reset_index(drop=True)
-        
+
+        # Haddii tiirarku yihiin MultiIndex, ka dhig heerka kowaad mid caadi ah
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_0()
+
+        # Nadiifinta magacyada tiirarka si ay u noqdaan kuwa yaryar (lowercase)
+        df.columns = [str(col).lower() for col in df.columns]
+
+        # Xulashada inta xog ah ee ugu dambeysa (limit)
+        if len(df) > limit:
+            df = df.tail(limit)
+
+        return df
+
     except Exception as e:
-        print(f"Error fetching yfinance data: {e}")
+        print(f"Cilad ayaa ka dhacday soo jiidashada xogta: {e}")
         return pd.DataFrame()
         
