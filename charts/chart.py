@@ -1,20 +1,27 @@
 import streamlit as st
+import pandas as pd
 import plotly.graph_objects as go
 
 def plot_market_chart(df, symbol="Market"):
-    """Muujinta jaantusyada suuqa ee Streamlit"""
-    if df is None or df.empty:
-        st.warning("Ma jirto xog lagu soosaaro Chart-ka.")
+    """Muujinta jaantusyada suuqa ee Streamlit oo badbaado leh"""
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        st.warning("Ma jirto xog sugan oo loo isticmaalo Chart-ka.")
         return
 
-    # Hubinta in tiirarka la helay
-    x_vals = df.index if not isinstance(df.index, range) else df.iloc[:, 0]
+    # Hubinta badbaadada leh ee index-ka iyo x-axis
+    x_vals = df.index if hasattr(df, 'index') else list(range(len(df)))
     
-    # Hubinta magacyada tiirarka xarfaha yar ama weyn
-    open_col = 'open' if 'open' in df.columns else ('Open' if 'Open' in df.columns else df.columns[0])
-    high_col = 'high' if 'high' in df.columns else ('High' if 'High' in df.columns else df.columns[1])
-    low_col = 'low' if 'low' in df.columns else ('Low' if 'Low' in df.columns else df.columns[2])
-    close_col = 'close' if 'close' in df.columns else ('Close' if 'Close' in df.columns else df.columns[3])
+    # Helida magacyada tiirarka si dhab ah iyadoo la isticmaalayo dict ama list comprehension
+    cols = {str(col).lower(): col for col in df.columns}
+    
+    open_col = cols.get('open', df.columns[0] if len(df.columns) > 0 else None)
+    high_col = cols.get('high', df.columns[1] if len(df.columns) > 1 else None)
+    low_col = cols.get('low', df.columns[2] if len(df.columns) > 2 else None)
+    close_col = cols.get('close', df.columns[3] if len(df.columns) > 3 else None)
+
+    if not open_col or not high_col or not low_col or not close_col:
+        st.error("Tiirarka xogta candlestick lama helin si sax ah.")
+        return
 
     fig = go.Figure(data=[go.Candlestick(
         x=x_vals,
