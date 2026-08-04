@@ -32,7 +32,6 @@ if app_mode == "Market Scanner (Fursadaha Otomaatigga ah)":
     
     timeframe = st.selectbox("Select Scan Timeframe", ["15m", "30m", "1h", "1d"], index=1)
     
-    # Otomaatig ah: Si toos ah ayuu u baaraa adigoo aan badhan sugin markuu app-ku furmo ama refresh noqdo
     scanner_results = []
     
     with st.spinner("Waa la baaraa lammaanayaasha Forex-ka... Fadlan sug."):
@@ -40,7 +39,7 @@ if app_mode == "Market Scanner (Fursadaha Otomaatigga ah)":
             try:
                 temp_df = get_data(symbol=sym, timeframe=timeframe, limit=100)
                 if not temp_df.empty:
-                    signal_result = generate_signal(temp_df)  # Hubinta signal-ka
+                    signal_result = generate_signal(temp_df)
                     
                     if signal_result in ["BUY", "SELL"]:
                         scanner_results.append({
@@ -55,7 +54,6 @@ if app_mode == "Market Scanner (Fursadaha Otomaatigga ah)":
         result_df = pd.DataFrame(scanner_results)
         st.success("✨ Waxaa la helay lammaanayaal fursad wata!")
         
-        # Soo bandhigida miiska oo leh badhamo toos ah oo kuu furaya chart-ka
         for index, row in result_df.iterrows():
             col1, col2, col3, col4 = st.columns([2, 2, 2, 2])
             with col1:
@@ -67,16 +65,15 @@ if app_mode == "Market Scanner (Fursadaha Otomaatigga ah)":
             with col4:
                 if st.button(f"View Chart", key=f"btn_{row['Symbol']}"):
                     st.session_state['selected_symbol'] = row['Symbol']
-                    # Si toos ah ugu beddel bogga Single Chart Analysis
+                    st.session_state['app_mode_switch'] = "Single Chart Analysis"
                     st.rerun()
     else:
-        st.info("Waqtigan xaadirka ah lammaane soo saaray BUY ola SELL ma jiro. Waa la sii wadi doonaa baaritaanka.")
+        st.info("Waqtigan xaadirka ah lammaane soo saaray BUY ama SELL ma jiro. Waa la sii wadi doonaa baaritaanka.")
 
 else:
-    # Sidebar for settings (Muraayaddii faahfaahinta iyo chart-ka ee quruxda badneyd)
+    # Sidebar for settings (Muraayadda faahfaahinta iyo chart-ka)
     st.sidebar.header("Market Settings")
 
-    # Haddii laga soo doortay scanner-ka, halkaan ayay si otomaatig ah ugu soo gelaysaa
     default_sym = st.session_state.get('selected_symbol', "EURUSD=X")
     symbol = st.sidebar.text_input("Enter Market Symbol", value=default_sym)
 
@@ -90,7 +87,12 @@ else:
     else:
         st.success(f"Xogta lammaanaha {symbol} waa la helay!")
         
-        # Halkan geli koodkaagii hore ee falanqaynta, SMC, iyo plot_market_chart...
-        # tusaale ahaan:
-        # plot_market_chart(df, symbol)
+        # Halkan waxaa ku soo laabtay oo si buuxda u shaqaynaya Chart-kaagii iyo falanqayntaadii:
+        # 1. Xisaabinta tilmaamayaasha (Indicators & SMC)
+        df = calculate_ema(df)
+        df = calculate_rsi(df)
+        df = calculate_atr(df)
+        
+        # 2. Soo bandhigida Jaantuska (Chart Plot)
+        plot_market_chart(df, symbol)
         
