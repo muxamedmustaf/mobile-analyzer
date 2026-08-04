@@ -24,9 +24,6 @@ app_mode = st.sidebar.radio("Navigation", ["Market Scanner (Fursadaha Otomaatigg
 @st.cache_data(ttl=60)
 def load_market_data(sym, tf):
     df = get_data(symbol=sym, timeframe=tf, limit=100)
-    if not df.empty:
-        # Hubinta iyo ka dhigista magacyada tiirarka kuwo yaryar si uusan KeyError u dhicin
-        df.columns = [str(col).lower() for col in df.columns]
     return df
 
 if app_mode == "Market Scanner (Fursadaha Otomaatigga ah)":
@@ -42,14 +39,17 @@ if app_mode == "Market Scanner (Fursadaha Otomaatigga ah)":
             try:
                 temp_df = get_data(symbol=sym, timeframe=timeframe, limit=100)
                 if not temp_df.empty:
-                    temp_df.columns = [str(col).lower() for col in temp_df.columns]
+                    # Hubinta tiirka Close (haddii uu yahay close ama Close)
+                    if 'close' in temp_df.columns and 'Close' not in temp_df.columns:
+                        temp_df['Close'] = temp_df['close']
+                    
                     signal_result = generate_signal(temp_df)
                     
                     if signal_result in ["BUY", "SELL"]:
                         scanner_results.append({
                             "Symbol": sym,
                             "Signal": signal_result,
-                            "Price": temp_df['close'].iloc[-1]
+                            "Price": temp_df['Close'].iloc[-1]
                         })
             except Exception as e:
                 continue
@@ -89,11 +89,15 @@ else:
     else:
         st.success(f"Xogta lammaanaha {symbol} waa la helay!")
         
-        # Xisaabinta tilmaamayaasha adigoo hubiyay inaysan jirin dhibaato xarfaha ah
+        # Hubinta tiirka Close si uusan KeyError uga dhalan calculate_rsi
+        if 'close' in df.columns and 'Close' not in df.columns:
+            df['Close'] = df['close']
+
+        # Xisaabinta tilmaamayaasha sidii loogu talagalay
         df = calculate_ema(df)
         df = calculate_rsi(df)
         df = calculate_atr(df)
         
-        # Soo bandhigida Jaantuska
+        # Soo bandhigida Jaantuskaaga quruxda badnaa
         plot_market_chart(df, symbol)
         
