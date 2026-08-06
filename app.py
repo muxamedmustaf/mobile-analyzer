@@ -1,80 +1,40 @@
 import streamlit as st
 import pandas as pd
-from market_data import get_data
-from indicators.ema import calculate_ema
-from indicators.rsi import calculate_rsi
-from indicators.atr import calculate_atr
-from structure.market_structure import MarketStructureAnalyzer
-from smc.order_blocks import detect_order_blocks
-from smc.fvg import detect_fvg
-from signals.signal import generate_signal
-from charts.chart import plot_market_chart
+from data.market_data import fetch_market_data
+from structure.swings import detect_swings
 
-# Page Configuration
-st.set_page_config(page_title="Mobile Analyzer - yFinance", layout="wide")
+# Dejinta bogga Streamlit
+st.set_page_config(page_title="Market Structure AI", page_icon="📈", layout="wide")
 
-st.title("📈 Mobile Analyzer: Forex & Crypto (yFinance)")
+st.title("🚀 Market Structure AI - Engine")
+st.write("Marxaladda 1: Ogaanshaha Swings (Swing High & Swing Low)")
 
-# Sidebar for settings
-st.sidebar.header("Market Settings")
+# Qeybta dhinaca (Sidebar) ee kontoroolka
+st.sidebar.header("Goobaha Xogta (Settings)")
+symbol = st.sidebar.text_input("Calaamada Suuqa (Symbol)", value="GC=F")
+interval = st.sidebar.selectbox("Furan (Interval)", ["15m", "30m", "1h", "4h"], index=1)
+period = st.sidebar.selectbox("Mudada (Period)", ["1d", "5d", "1mo"], index=1)
 
-# 1. View-ga lagu qoro ama lagu doorto magaca lammaanaha (Symbol)
-symbol = st.sidebar.text_input("Enter Market Symbol", value="EURUSD=X")
-
-# 2. View-ga timeframe-ka lagu doorto
-timeframe = st.sidebar.selectbox("Select Timeframe", ["1m", "5m", "15m", "30m", "1h", "1d"], index=3)
-
-# Soo jiidashada xogta iyadoo la adeegsanayo yfinance
-@st.cache_data(ttl=60)
-def load_market_data(sym, tf):
-    df = get_data(symbol=sym, timeframe=tf, limit=100)
-    return df
-
-with st.spinner(f"Soo jiidashada xogta {symbol}..."):
-    df = load_market_data(symbol, timeframe)
-
-if df.empty:
-    st.error(f"Lama helin xogta suuqa ee {symbol}. Fadlan hubi in magacu sax yahay (Tusaale: EURUSD=X ee Forex ama BTC-USD ee Crypto).")
-else:
-    # Xisaabinta Tilmaamayaasha (Indicators)
-    df['ema_50'] = calculate_ema(df, 50)
-    df['rsi'] = calculate_rsi(df, 14)
-    df['atr'] = calculate_atr(df, 14)
-
-    current_price = df['close'].iloc[-1]
-
-    # Falanqaynta Qaab-dhismeedka (Structure) iyo SMC
-    structure_analyzer = MarketStructureAnalyzer(df)
-    market_analysis = structure_analyzer.analyze()
-
-    order_blocks = detect_order_blocks(df)
-    fvgs = detect_fvg(df)
-
-    # Soo saarista Signal-ka
-    signal = generate_signal(df, current_price)
-
-    # Daabacaadda Natiijada UI-ga (Dashboard)
-    st.subheader(f"Current Status for {symbol}")
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric(label="Current Price", value=f"${current_price:,.4f}")
-    with col2:
-        st.metric(label="Market Trend", value=market_analysis.get("trend", "NEUTRAL"))
-    with col3:
-        st.metric(label="Generated Signal", value=signal)
-
-    # Muujinta Jaantuska (Interactive Chart)
-    st.subheader("Market Price Chart")
-    plot_market_chart(df)
-
-    # Faahfaahinta Dheeraadka ah
-    with st.expander("View Raw Data & SMC Details"):
-        st.write("Recent Candles Data:")
-        st.dataframe(df.tail(10))
+if st.sidebar.button("Soo Jiido Xogta & Falanqee"):
+    with st.spinner("Falanqaynaya suuqa..."):
+        # 1. Soo qaadashada xogta
+        df = fetch_market_data(symbol=symbol, interval=interval, period=period)
         
-        st.write("Detected Order Blocks:", order_blocks)
-        st.write("Detected Fair Value Gaps (FVG):", fvgs)
-
-    st.success("App-ku wuxuu si guul leh uga shaqaynayaa xogta yfinance!")
+        if not df.empty:
+            # 2. Ogaanshaha Swings
+            analyzed_df = detect_swings(df)
+            
+            st.success("Xogta si guul leh ayaa loo falanqeeyay!")
+            
+            # Soo bandhigida shaxda (Chart / Table)
+            st.subheader("Xogta Suuqa & Swings")
+            st.dataframe(analyzed_df.tail(20))
+            
+            # Muujinta jaantus fudud (Line Chart) oo wata qiimaha Close-ka
+            st.subheader("Jaantuska Qiimaha (Close Price)")
+            st.line_chart(analyzed_df['Close'])
+        else:
+            st.error("Lama helin wax xog ah ama khalad ayaa dhacay.")
+else:
+    st.info("Guji badhanka 'Soo Jiido Xogta & Falanqee' si aad u bilowdo falanqaynta.")
     
