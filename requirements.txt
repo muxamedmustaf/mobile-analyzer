@@ -1,3 +1,5 @@
-streamlit run app.py
-
-
+streamlit
+pandas
+numpy
+yfinance
+pandas-ta
