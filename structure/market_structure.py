@@ -1,8 +1,23 @@
 import pandas as pd
-from .swings import identify_swings
-from .trend import determine_trend
-from .bos import detect_bos
-from .choch import detect_choch
+import numpy as np
+
+def identify_swings(df):
+    df['Swing_High'] = df['High'][(df['High'].shift(1) < df['High']) & (df['High'].shift(-1) < df['High'])]
+    df['Swing_Low'] = df['Low'][(df['Low'].shift(1) > df['Low']) & (df['Low'].shift(-1) > df['Low'])]
+    return df
+
+def determine_trend(df):
+    df['Trend'] = 'Bullish'
+    df['Trend'] = np.where(df['Close'] < df['Close'].rolling(20).mean(), 'Bearish', df['Trend'])
+    return df
+
+def detect_bos(df):
+    df['BOS'] = None
+    return df
+
+def detect_choch(df):
+    df['CHOCH'] = None
+    return df
 
 def analyze_market_structure(df: pd.DataFrame) -> pd.DataFrame:
     """
