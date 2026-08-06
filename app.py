@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from data.market_data import fetch_market_data
 from structure.market_structure import analyze_market_structure
-from structure.patterns import detect_chart_patterns  # <-- Halkan ayaad ku dartay
+from structure.patterns import detect_chart_patterns  # Shaqadaada asalka ah
 
 # 1. Qurxinta Shaashadda (UI Design & Layout)
 st.set_page_config(
@@ -41,24 +41,56 @@ period = st.sidebar.selectbox("Mudada (Period)", ["1d", "5d", "1mo", "3mo", "6mo
 run_button = st.sidebar.button("🚀 Falanqee Suuqa (Run Analysis)")
 
 if run_button:
-    with st.spinner("Waa la soo jiidayaa xogta suuqa..."):
+    with st.spinner("Waa la soo jiidayaa oo la falanqeynayaa xogta suuqa..."):
         df = fetch_market_data(symbol, interval, period)
         
         if df.empty:
             st.error("Calaamaddu ma shaqaynayso ama xog lama helin!")
         else:
-            # Falanqaynta Structure-ka iyo Patterns-ka
+            # Falanqaynta Structure-ka iyo Patterns-ka adigoo adeegsanaya script-kaaga
             df = analyze_market_structure(df)
-            df = detect_chart_patterns(df)  # <-- Halkan ayaad ku baareysaa patterns-ka
+            df = detect_chart_patterns(df) 
             
-            # Soo bandhigidda 3-da pattern ee ugu ixtimaalka badan
+            # Soo bandhigidda 3-da pattern ee ugu ixtimaalka badan safka ugu dambeeya
             latest_row = df.iloc[-1]
-            top_patterns = latest_row.get('Top_3_Patterns', 'No Pattern')
+            top_patterns = latest_row.get('Top_3_Patterns', 'No Pattern Found')
+            best_pattern = latest_row.get('Pattern', 'No Pattern')
             
-            st.subheader("🎯 3-da Chart Pattern ee ugu Ixtimaalka badan")
-            st.success(f"Siday ugu kala sarraysaan ixtimaalka ay suuqa uga dhici karaan:\n\n **{top_patterns}**")
+            st.subheader("🎯 Falanqaynta Qaababka Suuqa")
+            st.success(f"Siday ugu kala sarraysaan ixtimaalka suuqa:\n\n **{top_patterns}**")
             
-            # Sawiridda Shaxda (Candlestick Chart)
+            # --- DIYAARINTA ANNOTATION-KA KANU UGA JEEDO KAN UGU WEYN (LATEST PATTERN) ---
+            annotations_list = []
+            
+            # Maadaama shaqadaadu ay pattern-ka ugu xoogga badan geliso safka ugu dambeeya (df.iloc[-1])
+            if best_pattern != 'No Pattern':
+                last_time = df.index[-1]
+                last_price = latest_row['Close'] # Ama qiimaha High/Low ee u dhow
+                
+                # Kala saar midabka iyadoo la eegayo magaca pattern-ka (Bullish vs Bearish)
+                is_bullish = "Bottom" in best_pattern or "Inverse" in best_pattern or "Ascending" in best_pattern or "Falling" in best_pattern or "Bounce" in best_pattern
+                arrow_color = "#00E676" if is_bullish else "#FF1744"
+                
+                annotations_list.append(go.layout.Annotation(
+                    x=last_time,
+                    y=last_price,
+                    xref="x",
+                    yref="y",
+                    text=f"⭐ {best_pattern}",
+                    showarrow=True,
+                    arrowhead=2,
+                    arrowsize=1,
+                    arrowcolor=arrow_color,
+                    ax=0,
+                    ay=-50, # Kor ka dul saar shumaca ugu dambeeya
+                    bgcolor="rgba(0,0,0,0.85)",
+                    bordercolor=arrow_color,
+                    borderwidth=1.5,
+                    borderpad=5,
+                    font=dict(size=11, color="#FFFFFF")
+                ))
+
+            # --- Sawiridda Shaxda (Candlestick Chart oo wadata Annotation-ka Pattern-ka ugu xoogga badan) ---
             fig = go.Figure(data=[go.Candlestick(
                 x=df.index,
                 open=df['Open'],
@@ -69,11 +101,12 @@ if run_button:
             )])
             
             fig.update_layout(
-                title=f"Shaxda Suuqa ee {symbol}",
+                title=f"Shaxda Suuqa ee {symbol} iyo Pattern-ka ugu sarreeya",
                 xaxis_title="Wakhtiga",
                 yaxis_title="Qiimaha (Price)",
                 template="plotly_dark",
-                height=600
+                height=650,
+                annotations=annotations_list
             )
             
             st.plotly_chart(fig, use_container_width=True)
