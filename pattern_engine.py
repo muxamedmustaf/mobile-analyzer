@@ -17,17 +17,22 @@ def normalize_columns(df):
 
     for col in df.columns:
 
-        if col.lower() == "open":
+        name = str(col).lower()
+
+        if name == "open":
             rename[col] = "Open"
 
-        elif col.lower() == "high":
+        elif name == "high":
             rename[col] = "High"
 
-        elif col.lower() == "low":
+        elif name == "low":
             rename[col] = "Low"
 
-        elif col.lower() == "close":
+        elif name == "close":
             rename[col] = "Close"
+
+        elif name == "volume":
+            rename[col] = "Volume"
 
 
     return df.rename(columns=rename)
@@ -37,30 +42,54 @@ def normalize_columns(df):
 def analyze_market(df):
 
 
-    if df.empty:
+    if df is None or df.empty:
 
         return {
 
-            "signal":"WAIT",
-            "pattern":"No Data",
-            "confidence":0
+            "signal": "WAIT",
+            "pattern": "No Data",
+            "confidence": 0
 
         }
 
 
 
-    # Sax columns
+    # Normalize data
 
     df = normalize_columns(df)
 
 
 
+    required = [
+        "Open",
+        "High",
+        "Low",
+        "Close"
+    ]
+
+
+    for col in required:
+
+        if col not in df.columns:
+
+            return {
+
+                "signal":"WAIT",
+                "pattern":"Missing Data",
+                "confidence":0
+
+            }
+
+
+
     # Market Structure
+
     df = analyze_market_structure(df)
 
 
 
-    # Chart Patterns
+    # Pattern Detection
+
     df = detect_chart_patterns(df)
 
 
@@ -69,50 +98,59 @@ def analyze_market(df):
 
 
 
-    pattern = last.get(
-        "Pattern",
-        "No Pattern"
-    )
-
-
-    signal = last.get(
-        "Signal",
-        "WAIT"
-    )
-
-
-    score = last.get(
-        "Pattern_Score",
-        0
-    )
-
-
-
     return {
 
-        "signal": signal,
 
-        "pattern": pattern,
+        "signal": last.get(
+            "Signal",
+            "WAIT"
+        ),
 
-        "confidence": score,
+
+        "pattern": last.get(
+            "Pattern",
+            "No Pattern"
+        ),
+
+
+        "confidence": int(
+            last.get(
+                "Pattern_Score",
+                0
+            )
+        ),
+
+
 
         "trend": last.get(
             "Trend",
             "Unknown"
         ),
 
+
         "structure": last.get(
             "Structure",
             "Unknown"
         ),
 
+
         "BOS": last.get(
             "BOS",
-            None
+            False
         ),
+
 
         "CHOCH": last.get(
             "CHOCH",
+            False
+        ),
+
+
+
+        # Future chart marking
+
+        "pattern_points": last.get(
+            "Pattern_Points",
             None
         )
 
