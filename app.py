@@ -46,6 +46,7 @@ st.markdown(
 )
 
 
+
 # ===============================
 # SIDEBAR
 # ===============================
@@ -138,13 +139,12 @@ if run:
 
                     <h4>📈 Signal</h4>
 
-                    <h2>{result['signal']}</h2>
+                    <h2>{result.get('signal')}</h2>
 
                     </div>
                     """,
                     unsafe_allow_html=True
                 )
-
 
 
             with col2:
@@ -155,13 +155,12 @@ if run:
 
                     <h4>🎯 Pattern</h4>
 
-                    <h3>{result['pattern']}</h3>
+                    <h3>{result.get('pattern')}</h3>
 
                     </div>
                     """,
                     unsafe_allow_html=True
                 )
-
 
 
             with col3:
@@ -172,7 +171,7 @@ if run:
 
                     <h4>Confidence</h4>
 
-                    <h3>{result['confidence']}%</h3>
+                    <h3>{result.get('confidence')}%</h3>
 
                     </div>
                     """,
@@ -184,7 +183,6 @@ if run:
             # ===============================
             # STRUCTURE INFO
             # ===============================
-
 
             st.subheader(
                 "Market Structure"
@@ -206,7 +204,6 @@ if run:
             # CHART
             # ===============================
 
-
             fig = go.Figure()
 
 
@@ -222,29 +219,93 @@ if run:
             )
 
 
+            # Current price
+
             fig.add_hline(
                 y=last_price,
-                annotation_text=f"Price {last_price}"
+                annotation_text=f"Price {last_price}",
+                line_dash="dot"
             )
 
 
+
+            # ===============================
+            # PATTERN MARKER
+            # ===============================
+
+            pattern = result.get("pattern")
+
+
+            if pattern and pattern != "None":
+
+                pattern_x = df.index[-1]
+                pattern_y = df["High"].iloc[-1]
+
+
+                fig.add_annotation(
+                    x=pattern_x,
+                    y=pattern_y,
+                    text=f"⚡ {pattern}",
+                    showarrow=True,
+                    arrowhead=2,
+                    ax=0,
+                    ay=-80
+                )
+
+
+                fig.add_shape(
+                    type="line",
+                    x0=df.index[-5],
+                    y0=df["High"].iloc[-5],
+                    x1=pattern_x,
+                    y1=pattern_y
+                )
+
+
+
+            # TradingView style
+
             fig.update_layout(
                 template="plotly_dark",
-                height=650,
+                height=700,
                 xaxis_rangeslider_visible=False
             )
 
 
-            st.plotly_chart(
-                fig,
-                use_container_width=True
+            fig.update_xaxes(
+                fixedrange=False
             )
 
 
-            # raw result
+            fig.update_yaxes(
+                fixedrange=False
+            )
+
+
+
+            st.plotly_chart(
+                fig,
+                use_container_width=True,
+                config={
+                    "scrollZoom": True,
+                    "displaylogo": False,
+                    "modeBarButtonsToAdd": [
+                        "pan2d",
+                        "zoom2d",
+                        "resetScale2d"
+                    ]
+                }
+            )
+
+
+
+            # ===============================
+            # ENGINE OUTPUT
+            # ===============================
 
             st.subheader(
                 "Engine Output"
             )
+
 
             st.json(result)
