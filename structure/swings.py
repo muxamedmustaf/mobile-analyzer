@@ -26,9 +26,9 @@ def get_swing_window(length):
 
 
 
-def detect_swings(df: pd.DataFrame, window=None) -> pd.DataFrame:
+def detect_swings(df: pd.DataFrame, window=None, period=10, deviation=5.0, backstep=5) -> pd.DataFrame:
     """
-    Detect Swing High and Swing Low
+    Detect Swing High and Swing Low iyadoo la raacayo xeerarka ZigZag (Period, Deviation %, Backstep)
     """
 
     df = df.copy()
@@ -71,11 +71,11 @@ def detect_swings(df: pd.DataFrame, window=None) -> pd.DataFrame:
 
 
         left_highs = df["High"].iloc[
-            i-window:i
+            max(0, i-window):i
         ]
 
         right_highs = df["High"].iloc[
-            i+1:i+1+window
+            i+1:min(len(df), i+1+window)
         ]
 
 
@@ -98,17 +98,20 @@ def detect_swings(df: pd.DataFrame, window=None) -> pd.DataFrame:
             )
 
 
-            df.loc[
-                df.index[i],
-                "Swing_High"
-            ] = current_high
+            # ZigZag Deviation & Period Rule Filtering
+            # Hubinta in boqolleyda kala duwanaashaha ay buuxiso shuruudda deviation-ka (tusaale 5%)
+            if len(left_highs) > 0 and ((current_high - float(left_highs.min())) / float(left_highs.min())) * 100 >= deviation:
+                df.loc[
+                    df.index[i],
+                    "Swing_High"
+                ] = current_high
 
 
 
-            df.loc[
-                df.index[i],
-                "Swing_Strength"
-            ] = float(strength)
+                df.loc[
+                    df.index[i],
+                    "Swing_Strength"
+                ] = float(strength)
 
 
 
@@ -123,11 +126,11 @@ def detect_swings(df: pd.DataFrame, window=None) -> pd.DataFrame:
 
 
         left_lows = df["Low"].iloc[
-            i-window:i
+            max(0, i-window):i
         ]
 
         right_lows = df["Low"].iloc[
-            i+1:i+1+window
+            i+1:min(len(df), i+1+window)
         ]
 
 
@@ -150,19 +153,21 @@ def detect_swings(df: pd.DataFrame, window=None) -> pd.DataFrame:
             )
 
 
+            # ZigZag Deviation Rule Filtering
+            if len(left_lows) > 0 and ((float(left_lows.max()) - current_low) / current_low) * 100 >= deviation:
+                df.loc[
+                    df.index[i],
+                    "Swing_Low"
+                ] = current_low
 
-            df.loc[
-                df.index[i],
-                "Swing_Low"
-            ] = current_low
 
 
-
-            df.loc[
-                df.index[i],
-                "Swing_Strength"
-            ] = float(strength)
+                df.loc[
+                    df.index[i],
+                    "Swing_Strength"
+                ] = float(strength)
 
 
 
     return df
+    
