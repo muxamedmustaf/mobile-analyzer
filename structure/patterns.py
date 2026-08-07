@@ -5,8 +5,10 @@ def detect_chart_patterns(df: pd.DataFrame) -> pd.DataFrame:
     """
     Aqoonsada 15-ka Chart Patterns ee ugu caansan, qiimeeya ixtimaalka (Probability),
     kuna soo kala sooca sida ay ugu kala ixtimaal badan yihiin adigoo ilaalinaya qaabkii hore.
+    Waxaa la raaciyay keydinta dhibcaha taabashada (Pattern_Points) si loogu sawiro fallaarahooda.
     """
     df['Pattern'] = 'No Pattern'
+    df['Pattern_Points'] = "" # Kudarista kolamka lagu keydiyo dhibcaha fallaarahooda
     
     if 'Swing_High' not in df.columns or 'Swing_Low' not in df.columns:
         df['Top_3_Patterns'] = "None"
@@ -16,6 +18,7 @@ def detect_chart_patterns(df: pd.DataFrame) -> pd.DataFrame:
     lows = df['Swing_Low'].dropna()
     
     scored_patterns = []
+    pattern_markers = {} # Keydinta dhibcaha taabashada ee pattern walba
 
     if len(highs) >= 5 and len(lows) >= 5:
         h1, h2, h3, h4, h5 = highs.iloc[-5], highs.iloc[-4], highs.iloc[-3], highs.iloc[-2], highs.iloc[-1]
@@ -25,55 +28,88 @@ def detect_chart_patterns(df: pd.DataFrame) -> pd.DataFrame:
         dt_diff = abs(h5 - h4) / h4
         if dt_diff < 0.003:
             prob = round(92 - (dt_diff * 1000), 1)
-            scored_patterns.append(("Double Top (Reversal)", prob))
+            p_name = "Double Top (Reversal)"
+            scored_patterns.append((p_name, prob))
+            pattern_markers[p_name] = [h4.name, h5.name]
 
         db_diff = abs(l5 - l4) / l4
         if db_diff < 0.003:
             prob = round(92 - (db_diff * 1000), 1)
-            scored_patterns.append(("Double Bottom (Reversal)", prob))
+            p_name = "Double Bottom (Reversal)"
+            scored_patterns.append((p_name, prob))
+            pattern_markers[p_name] = [l4.name, l5.name]
 
         # 2. Triple Top & Triple Bottom
         if abs(h5 - h4) < 0.003 and abs(h4 - h3) < 0.003:
-            scored_patterns.append(("Triple Top (Strong Reversal)", 94.0))
+            p_name = "Triple Top (Strong Reversal)"
+            scored_patterns.append((p_name, 94.0))
+            pattern_markers[p_name] = [h3.name, h4.name, h5.name]
+            
         if abs(l5 - l4) < 0.003 and abs(l4 - l3) < 0.003:
-            scored_patterns.append(("Triple Bottom (Strong Reversal)", 94.5))
+            p_name = "Triple Bottom (Strong Reversal)"
+            scored_patterns.append((p_name, 94.5))
+            pattern_markers[p_name] = [l3.name, l4.name, l5.name]
 
         # 3. Head and Shoulders & Inverse Head and Shoulders
         if h4 > h3 and h4 > h5 and abs(h3 - h5) / h5 < 0.01:
-            scored_patterns.append(("Head and Shoulders", 88.5))
+            p_name = "Head and Shoulders"
+            scored_patterns.append((p_name, 88.5))
+            pattern_markers[p_name] = [h3.name, h4.name, h5.name]
+            
         if l4 < l3 and l4 < l5 and abs(l3 - l5) / l5 < 0.01:
-            scored_patterns.append(("Inverse Head and Shoulders", 89.0))
+            p_name = "Inverse Head and Shoulders"
+            scored_patterns.append((p_name, 89.0))
+            pattern_markers[p_name] = [l3.name, l4.name, l5.name]
 
         # 4. Triangles (Symmetrical, Ascending, Descending)
         if h5 < h4 and l5 > l4:
-            scored_patterns.append(("Symmetrical Triangle", 85.0))
+            p_name = "Symmetrical Triangle"
+            scored_patterns.append((p_name, 85.0))
+            pattern_markers[p_name] = [h4.name, h5.name, l4.name, l5.name]
         elif abs(h5 - h4) < 0.002 and l5 > l4:
-            scored_patterns.append(("Ascending Triangle", 87.2))
+            p_name = "Ascending Triangle"
+            scored_patterns.append((p_name, 87.2))
+            pattern_markers[p_name] = [h4.name, h5.name, l4.name, l5.name]
         elif h5 < h4 and abs(l5 - l4) < 0.002:
-            scored_patterns.append(("Descending Triangle", 86.5))
+            p_name = "Descending Triangle"
+            scored_patterns.append((p_name, 86.5))
+            pattern_markers[p_name] = [h4.name, h5.name, l4.name, l5.name]
 
         # 5. Wedges (Rising & Falling)
         if h5 > h4 and l5 > l4 and (h5 - h4) < (l5 - l4):
-            scored_patterns.append(("Rising Wedge", 82.4))
+            p_name = "Rising Wedge"
+            scored_patterns.append((p_name, 82.4))
+            pattern_markers[p_name] = [h4.name, h5.name, l4.name, l5.name]
         elif h5 < h4 and l5 < l4 and (h4 - h5) < (l4 - l5):
-            scored_patterns.append(("Falling Wedge", 84.1))
+            p_name = "Falling Wedge"
+            scored_patterns.append((p_name, 84.1))
+            pattern_markers[p_name] = [h4.name, h5.name, l4.name, l5.name]
 
         # 6. Rectangles (Bullish & Bearish)
         if abs(h5 - h3) < 0.002 and abs(l5 - l3) < 0.002:
             if h5 > l3:
-                scored_patterns.append(("Bullish Rectangle", 83.0))
+                p_name = "Bullish Rectangle"
+                scored_patterns.append((p_name, 83.0))
             else:
-                scored_patterns.append(("Bearish Rectangle", 83.0))
+                p_name = "Bearish Rectangle"
+                scored_patterns.append((p_name, 83.0))
+            pattern_markers[p_name] = [h3.name, h5.name, l3.name, l5.name]
 
         # 7. Flags & Pennants
         if abs(h5 - h4) < 0.001 and abs(l5 - l4) < 0.001 and h5 > l5:
-            scored_patterns.append(("Bullish Flag / Pennant", 81.5))
+            p_name = "Bullish Flag / Pennant"
+            scored_patterns.append((p_name, 81.5))
+            pattern_markers[p_name] = [h4.name, h5.name]
         elif abs(h5 - h4) < 0.001 and abs(l5 - l4) < 0.001 and h5 < l5:
-            scored_patterns.append(("Bearish Flag / Pennant", 81.5))
+            p_name = "Bearish Flag / Pennant"
+            scored_patterns.append((p_name, 81.5))
+            pattern_markers[p_name] = [h4.name, h5.name]
 
         # 8. Cup and Handle
         if l4 < l3 and l4 < l5 and h5 > h3 * 0.98 and abs(l5 - l4) < abs(l4 - l3) * 0.5:
-            scored_patterns.append(("Cup and Handle", 90.0))
+            p_name = "Cup and Handle"
+            scored_patterns.append((p_name, 90.0))
+            pattern_markers[p_name] = [l3.name, l4.name, l5.name, h5.name]
 
     # Heerarka guud haddii aysan ku filnaan
     defaults = [
@@ -85,8 +121,9 @@ def detect_chart_patterns(df: pd.DataFrame) -> pd.DataFrame:
     for p, pr in defaults:
         if not any(p == existing[0] for existing in scored_patterns):
             scored_patterns.append((p, pr))
+            pattern_markers[p] = []
 
-    # U kala saar sida uu ixtimaalkoodu u sarreeyo
+    # U kala saار sida uu ixtimaalkoodu u sarreeyo
     scored_patterns.sort(key=lambda x: x[1], reverse=True)
     
     # Soo qaadashada 3-da ugu sarreeya
@@ -94,8 +131,13 @@ def detect_chart_patterns(df: pd.DataFrame) -> pd.DataFrame:
     
     formatted_str = " | ".join([f"{name} ({prob}%)" for name, prob in top_three])
 
+    best_pattern = top_three[0][0]
     df['Top_3_Patterns'] = formatted_str
-    df.loc[df.index[-1], 'Pattern'] = top_three[0][0]
+    df.loc[df.index[-1], 'Pattern'] = best_pattern
+    
+    # Kaydinta dhibcaha pattern-ka ugu sarreeya si loogu saaro fallaaro/calaamado
+    if best_pattern in pattern_markers:
+        df.loc[df.index[-1], 'Pattern_Points'] = str(pattern_markers[best_pattern])
 
     return df
-    
+        
