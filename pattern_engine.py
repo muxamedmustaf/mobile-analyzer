@@ -1,262 +1,641 @@
-import pandas as pd
+"""
+PATTERN ENGINE - MAJOR SWING + CONFIRMATION
+============================================
+
+Standalone engine for OHLC market data.
+
+Design:
+    OHLC
+      -> major swing detection
+      -> pattern structure detection
+      -> breakout / candle-close confirmation
+      -> quality score
+      -> standardized results
+
+Patterns:
+    Double Top / Bottom
+    Triple Top / Bottom
+    Head & Shoulders / Inverse
+    Ascending / Descending / Symmetrical Triangle
+    Rising / Falling Wedge
+    Rectangle
+    Bull / Bear Flag
+    Bull / Bear Pennant
+    Cup & Handle
+    Rounding Bottom
+    Channel
+    Diamond
+
+No look-ahead is used for confirmation: the last closed candle is used.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, asdict
+from typing import Dict, List, Optional, Tuple
+import math
+
 import numpy as np
+import pandas as pd
 
-def calculate_zigzag(df: pd.DataFrame, period=10, deviation=5.0, backstep=5) -> pd.DataFrame:
+
+# ---------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------
+
+@dataclass
+class EngineConfig:
+    pivot_left: int = 3
+    pivot_right: int = 3
+    min_swings: int = 5
+    max_swings: int = 18
+
+    # Swing significance
+    min_swing_pct: float = 0.004
+
+    # Pattern tolerances
+    level_tolerance: float = 0.025
+    tight_level_tolerance: float = 0.018
+    neckline_tolerance: float = 0.035
+
+    # Confirmation
+    breakout_buffer: float = 0.001
+    min_confidence: int = 60
+
+    # Avoid treating tiny ranges as patterns
+    min_pattern_range_pct: float = 0.01
+
+
+# ---------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------
+
+def _safe_float(x) -> Optional[float]:
+    try:
+        value = float(x)
+        return value if math.isfinite(value) else None
+    except Exception:
+        return None
+
+
+def _norm_columns(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    mapping = {str(c).lower().strip(): c for c in out.columns}
+
+    aliases = {
+        "open": ["open", "o"],
+        "high": ["high", "h"],
+        "low": ["low", "l"],
+        "close": ["close", "c"],
+        "volume": ["volume", "vol"],
+    }
+
+    rename = {}
+    for target, names in aliases.items():
+        for name in names:
+            if name in mapping:
+                rename[mapping[name]] = target
+                break
+
+    out = out.rename(columns=rename)
+
+    required = {"high", "low", "close"}
+    missing = required - set(out.columns)
+    if missing:
+        raise ValueError(f"Missing OHLC columns: {sorted(missing)}")
+
+    for c in ["high", "low", "close"]:
+        out[c] = pd.to_numeric(out[c], errors="coerce")
+
+    if "open" not in out:
+        out["open"] = out["close"].shift(1)
+
+    if "volume" not in out:
+        out["volume"] = np.nan
+
+    return out.dropna(subset=["high", "low", "close"]).reset_index(drop=True)
+
+
+def _pct(a: float, b: float) -> float:
+    return abs(a - b) / max(abs(b), 1e-12)
+
+
+def _same_level(a: float, b: float, tolerance: float) -> bool:
+    return _pct(a, b) <= tolerance
+
+
+def _line_value(p1: Tuple[int, float], p2: Tuple[int, float], x: int) -> float:
+    i1, y1 = p1
+    i2, y2 = p2
+    if i2 == i1:
+        return float(y1)
+    return float(y1 + (y2 - y1) * ((x - i1) / (i2 - i1)))
+
+
+def _slope(p1: Tuple[int, float], p2: Tuple[int, float]) -> float:
+    if p2[0] == p1[0]:
+        return 0.0
+    return (p2[1] - p1[1]) / (p2[0] - p1[0])
+
+
+# ---------------------------------------------------------------------
+# Major Swing Scanner
+# ---------------------------------------------------------------------
+
+def find_major_swings(
+    df: pd.DataFrame,
+    config: EngineConfig,
+) -> List[Dict]:
     """
-    Xisaabinta ZigZag dhab ah oo ku saleysan Period, Deviation (%), iyo Backstep 
-    adigoo meesha ka saaray ATR gebi ahaanba.
+    Detect local pivots and remove nearby/insignificant pivots.
+
+    A pivot is only accepted when its left/right neighborhood confirms it.
+    This intentionally uses closed historical candles, not future candles
+    after the analysis point.
     """
-    df = df.copy()
-    df['ZigZag'] = np.nan
-    df['Swing_Type'] = None
-    
-    highs = df['High'].values
-    lows = df['Low'].values
+    highs = df["high"].to_numpy(dtype=float)
+    lows = df["low"].to_numpy(dtype=float)
     n = len(df)
-    
-    if n < period:
-        return df
 
-    last_pivot_idx = 0
-    last_pivot_val = highs[0]
-    trend = 0  # 1 = up, -1 = down
-    
-    for i in range(period, n):
-        current_high = highs[i]
-        current_low = lows[i]
-        
-        if trend == 0:
-            if current_high >= last_pivot_val * (1 + deviation / 100.0):
-                trend = 1
-                last_pivot_idx = i
-                last_pivot_val = current_high
-            elif current_low <= last_pivot_val * (1 - deviation / 100.0):
-                trend = -1
-                last_pivot_idx = i
-                last_pivot_val = current_low
-        elif trend == 1:
-            if current_high >= last_pivot_val:
-                last_pivot_val = current_high
-                last_pivot_idx = i
-            elif current_low <= last_pivot_val * (1 - deviation / 100.0):
-                # Saxitaanka Swing High oo la xaqiijiyay
-                df.loc[df.index[last_pivot_idx], 'ZigZag'] = last_pivot_val
-                df.loc[df.index[last_pivot_idx], 'Swing_Type'] = 'High'
-                trend = -1
-                last_pivot_val = current_low
-                last_pivot_idx = i
-        elif trend == -1:
-            if current_low <= last_pivot_val:
-                last_pivot_val = current_low
-                last_pivot_idx = i
-            elif current_high >= last_pivot_val * (1 + deviation / 100.0):
-                # Saxitaanka Swing Low oo la xaqiijiyay
-                df.loc[df.index[last_pivot_idx], 'ZigZag'] = last_pivot_val
-                df.loc[df.index[last_pivot_idx], 'Swing_Type'] = 'Low'
-                trend = 1
-                last_pivot_val = current_high
-                last_pivot_idx = i
-                
-    return df
+    L = max(1, int(config.pivot_left))
+    R = max(1, int(config.pivot_right))
 
-def detect_chart_patterns(df: pd.DataFrame) -> pd.DataFrame:
-    df['Pattern'] = 'No Pattern'
-    df['Pattern_Points'] = ""
-    
-    required = ['High', 'Low', 'Close']
-    for col in required:
-        if col not in df.columns:
-            return df
+    raw: List[Dict] = []
 
-    # Ku shaqaynta ZigZag oo kaliya (Period=10, Deviation=5.0, Backstep=5)
-    df = calculate_zigzag(df, period=10, deviation=5.0, backstep=5)
-    
-    highs = df[df['Swing_Type'] == 'High']['ZigZag'].dropna()
-    lows = df[df['Swing_Type'] == 'Low']['ZigZag'].dropna()
-    
-    if len(highs) < 5 or len(lows) < 5:
-        return df
+    for i in range(L, n - R):
+        h = highs[i]
+        l = lows[i]
 
-    scored_patterns = []
-    pattern_coords = {}
-    
-    current_close = df['Close'].iloc[-1]
+        left_h = highs[i-L:i]
+        right_h = highs[i+1:i+R+1]
+        left_l = lows[i-L:i]
+        right_l = lows[i+1:i+R+1]
 
-    h_dates = highs.index[-5:]
-    l_dates = lows.index[-5:]
-    
-    h1, h2, h3, h4, h5 = highs.iloc[-5], highs.iloc[-4], highs.iloc[-3], highs.iloc[-2], highs.iloc[-1]
-    l1, l2, l3, l4, l5 = lows.iloc[-5], lows.iloc[-4], lows.iloc[-3], lows.iloc[-2], lows.iloc[-1]
+        is_high = h >= np.max(left_h) and h >= np.max(right_h)
+        is_low = l <= np.min(left_l) and l <= np.min(right_l)
 
-    # --- 1. DOUBLE TOP (Farqiga ≤ 0.5%) ---
-    if abs(h5 - h4) / h4 <= 0.005:
-        between_lows = lows[(lows.index > h_dates[3]) & (lows.index < h_dates[4])]
-        if not between_lows.empty and current_close < between_lows.iloc[-1]:
-            scored_patterns.append(("Double Top", 96.0))
-            pattern_coords["Double Top"] = [(h_dates[3], h4, "Top 1"), (h_dates[4], h5, "Top 2")]
+        if is_high:
+            raw.append({"index": i, "price": h, "type": "H"})
+        if is_low:
+            raw.append({"index": i, "price": l, "type": "L"})
 
-    # --- 2. DOUBLE BOTTOM (Farqiga ≤ 0.5%) ---
-    if abs(l5 - l4) / l4 <= 0.005:
-        between_highs = highs[(highs.index > l_dates[3]) & (highs.index < l_dates[4])]
-        if not between_highs.empty and current_close > between_highs.iloc[-1]:
-            scored_patterns.append(("Double Bottom", 96.0))
-            pattern_coords["Double Bottom"] = [(l_dates[3], l4, "Bottom 1"), (l_dates[4], l5, "Bottom 2")]
+    raw.sort(key=lambda x: x["index"])
 
-    # --- 3. TRIPLE TOP (Farqiga kasta ≤ 0.5%) ---
-    if (abs(h5 - h4) / h4 <= 0.005) and (abs(h4 - h3) / h3 <= 0.005):
-        between_lows = lows[(lows.index > h_dates[2]) & (lows.index < h_dates[4])]
-        if not between_lows.empty and current_close < between_lows.min():
-            scored_patterns.append(("Triple Top", 97.0))
-            pattern_coords["Triple Top"] = [(h_dates[2], h3, "Top 1"), (h_dates[3], h4, "Top 2"), (h_dates[4], h5, "Top 3")]
+    # Remove same-type nearby pivots and insignificant movement.
+    filtered: List[Dict] = []
+    last_price = None
 
-    # --- 4. TRIPLE BOTTOM (Farqiga kasta ≤ 0.5%) ---
-    if (abs(l5 - l4) / l4 <= 0.005) and (abs(l4 - l3) / l3 <= 0.005):
-        between_highs = highs[(highs.index > l_dates[2]) & (highs.index < l_dates[4])]
-        if not between_highs.empty and current_close > between_highs.max():
-            scored_patterns.append(("Triple Bottom", 97.0))
-            pattern_coords["Triple Bottom"] = [(l_dates[2], l3, "Bottom 1"), (l_dates[3], l4, "Bottom 2"), (l_dates[4], l5, "Bottom 3")]
+    for p in raw:
+        if not filtered:
+            filtered.append(p)
+            last_price = p["price"]
+            continue
 
-    # --- 5. HEAD AND SHOULDERS ---
-    if h4 > h3 and h4 > h5 and abs(h3 - h5) / h5 <= 0.01:
-        between_lows = lows[(lows.index > h_dates[2]) & (lows.index < h_dates[4])]
-        if not between_lows.empty and current_close < between_lows.min():
-            scored_patterns.append(("Head and Shoulders", 95.0))
-            pattern_coords["Head and Shoulders"] = [(h_dates[2], h3, "Left Shoulder"), (h_dates[3], h4, "Head"), (h_dates[4], h5, "Right Shoulder")]
+        prev = filtered[-1]
 
-    # --- 6. INVERSE HEAD AND SHOULDERS ---
-    if l4 < l3 and l4 < l5 and abs(l3 - l5) / l5 <= 0.01:
-        between_highs = highs[(highs.index > l_dates[2]) & (highs.index < l_dates[4])]
-        if not between_highs.empty and current_close > between_highs.max():
-            scored_patterns.append(("Inverse Head and Shoulders", 95.0))
-            pattern_coords["Inverse Head and Shoulders"] = [(l_dates[2], l3, "Left Low"), (l_dates[3], l4, "Head Low"), (l_dates[4], l5, "Right Low")]
+        # Same type: keep the more extreme pivot.
+        if p["type"] == prev["type"]:
+            if p["type"] == "H" and p["price"] >= prev["price"]:
+                filtered[-1] = p
+                last_price = p["price"]
+            elif p["type"] == "L" and p["price"] <= prev["price"]:
+                filtered[-1] = p
+                last_price = p["price"]
+            continue
 
-    # --- 7. ASCENDING TRIANGLE ---
-    if abs(h5 - h4) / h4 <= 0.005 and l5 > l4 and current_close > h5:
-        scored_patterns.append(("Ascending Triangle", 93.0))
-        pattern_coords["Ascending Triangle"] = [(h_dates[3], h4, "Resistance 1"), (h_dates[4], h5, "Resistance 2")]
+        move = abs(p["price"] - prev["price"]) / max(abs(prev["price"]), 1e-12)
+        if move >= config.min_swing_pct:
+            filtered.append(p)
+            last_price = p["price"]
 
-    # --- 8. DESCENDING TRIANGLE ---
-    if abs(l5 - l4) / l4 <= 0.005 and h5 < h4 and current_close < l5:
-        scored_patterns.append(("Descending Triangle", 93.0))
-        pattern_coords["Descending Triangle"] = [(l_dates[3], l4, "Support 1"), (l_dates[4], l5, "Support 2")]
+    # Alternation cleanup.
+    clean: List[Dict] = []
+    for p in filtered:
+        if not clean:
+            clean.append(p)
+            continue
 
-    # --- 9. SYMMETRICAL TRIANGLE ---
-    if h5 < h4 and l5 > l4:
-        scored_patterns.append(("Symmetrical Triangle", 90.0))
-        pattern_coords["Symmetrical Triangle"] = [(h_dates[4], h5, "High"), (l_dates[4], l5, "Low")]
+        if p["type"] == clean[-1]["type"]:
+            if p["type"] == "H":
+                if p["price"] > clean[-1]["price"]:
+                    clean[-1] = p
+            else:
+                if p["price"] < clean[-1]["price"]:
+                    clean[-1] = p
+        else:
+            clean.append(p)
 
-    # --- 10. RISING WEDGE ---
-    if h5 > h4 and l5 > l4 and (h5 - h4) < (l5 - l4) and current_close < l5:
-        scored_patterns.append(("Rising Wedge", 91.0))
-        pattern_coords["Rising Wedge"] = [(h_dates[4], h5, "High"), (l_dates[4], l5, "Low")]
+    return clean[-config.max_swings:]
 
-    # --- 11. FALLING WEDGE ---
-    if h5 < h4 and l5 < l4 and (h4 - h5) < (l4 - l5) and current_close > h5:
-        scored_patterns.append(("Falling Wedge", 91.0))
-        pattern_coords["Falling Wedge"] = [(h_dates[4], h5, "High"), (l_dates[4], l5, "Low")]
 
-    # --- 12. BULL FLAG ---
-    if h5 > h3 and l5 > l3 and current_close > h5:
-        scored_patterns.append(("Bull Flag", 92.0))
-        pattern_coords["Bull Flag"] = [(h_dates[4], h5, "Flag High"), (l_dates[4], l5, "Flag Low")]
+# ---------------------------------------------------------------------
+# Result format
+# ---------------------------------------------------------------------
 
-    # --- 13. BEAR FLAG ---
-    if h5 < h3 and l5 < l3 and current_close < l5:
-        scored_patterns.append(("Bear Flag", 92.0))
-        pattern_coords["Bear Flag"] = [(h_dates[4], h5, "Flag High"), (l_dates[4], l5, "Flag Low")]
+def _result(
+    pattern: str,
+    status: str,
+    direction: str,
+    confidence: int,
+    *,
+    swings=None,
+    neckline=None,
+    resistance=None,
+    support=None,
+    entry=None,
+    stop_loss=None,
+    target=None,
+    invalidation=None,
+    reason="",
+) -> Dict:
+    return {
+        "pattern": pattern,
+        "status": status,
+        "direction": direction,
+        "confidence": int(max(0, min(100, confidence))),
+        "swings": swings or [],
+        "neckline": neckline,
+        "resistance": resistance,
+        "support": support,
+        "entry": entry,
+        "stop_loss": stop_loss,
+        "target": target,
+        "invalidation": invalidation,
+        "reason": reason,
+    }
 
-    # --- 14. BULL PENNANT ---
-    if h5 < h4 and l5 > l4 and current_close > h5:
-        scored_patterns.append(("Bull Pennant", 90.0))
-        pattern_coords["Bull Pennant"] = [(h_dates[4], h5, "Pennant Top"), (l_dates[4], l5, "Pennant Bottom")]
 
-    # --- 15. BEAR PENNANT ---
-    if h5 < h4 and l5 > l4 and current_close < l5:
-        scored_patterns.append(("Bear Pennant", 90.0))
-        pattern_coords["Bear Pennant"] = [(h_dates[4], h5, "Pennant Top"), (l_dates[4], l5, "Pennant Bottom")]
+def _confirmed_breakout(
+    close: float,
+    level: float,
+    direction: str,
+    buffer: float,
+) -> bool:
+    if direction == "BULLISH":
+        return close > level * (1 + buffer)
+    return close < level * (1 - buffer)
 
-    # --- 16. RECTANGLE ---
-    if abs(h5 - h4) / h4 <= 0.005 and abs(l5 - l4) / l4 <= 0.005:
-        scored_patterns.append(("Rectangle", 92.0))
-        pattern_coords["Rectangle"] = [(h_dates[4], h5, "Resistance"), (l_dates[4], l5, "Support")]
 
-    # --- 17. CUP AND HANDLE ---
-    if l5 > l4 and h5 < h4 and current_close > h4:
-        scored_patterns.append(("Cup and Handle", 94.0))
-        pattern_coords["Cup and Handle"] = [(l_dates[4], l5, "Handle Low"), (h_dates[4], h4, "Rim")]
+def _trade_levels(
+    direction: str,
+    entry: float,
+    reference: float,
+    target_distance: float,
+) -> Tuple[float, float]:
+    if direction == "BULLISH":
+        stop = min(reference, entry - target_distance * 0.35)
+        target = entry + target_distance
+    else:
+        stop = max(reference, entry + target_distance * 0.35)
+        target = entry - target_distance
+    return stop, target
 
-    # --- 18. ROUNDING BOTTOM ---
-    if l5 > l4 and l4 < l3 and current_close > h5:
-        scored_patterns.append(("Rounding Bottom", 93.0))
-        pattern_coords["Rounding Bottom"] = [(l_dates[4], l5, "Bottom Center")]
 
-    # --- 19. BROADENING FORMATION ---
-    if h5 > h4 and l5 < l4:
-        scored_patterns.append(("Broadening Formation", 89.0))
-        pattern_coords["Broadening Formation"] = [(h_dates[4], h5, "High"), (l_dates[4], l5, "Low")]
+# ---------------------------------------------------------------------
+# Individual detectors
+# ---------------------------------------------------------------------
 
-    # --- 20. DIAMOND TOP ---
-    if h5 < h4 and l5 > l4 and current_close < l5:
-        scored_patterns.append(("Diamond Top", 95.0))
-        pattern_coords["Diamond Top"] = [(h_dates[4], h5, "Apex High"), (l_dates[4], l5, "Apex Low")]
+def detect_double_top(sw: List[Dict], close: float, cfg: EngineConfig):
+    if len(sw) < 3:
+        return None
+    s = sw[-3:]
+    if [x["type"] for x in s] != ["H", "L", "H"]:
+        return None
 
-    # --- 21. TRIPLE TOP REVERSAL ---
-    if (abs(h5 - h4) / h4 <= 0.005) and current_close < l5:
-        scored_patterns.append(("Triple Top Reversal", 96.0))
-        pattern_coords["Triple Top Reversal"] = [(h_dates[4], h5, "Top 3")]
+    h1, valley, h2 = s
+    if not _same_level(h1["price"], h2["price"], cfg.tight_level_tolerance):
+        return None
+    if valley["price"] >= min(h1["price"], h2["price"]) * (1 - cfg.min_pattern_range_pct):
+        return None
 
-    # --- 22. TRIPLE BOTTOM REVERSAL ---
-    if (abs(l5 - l4) / l4 <= 0.005) and current_close > h5:
-        scored_patterns.append(("Triple Bottom Reversal", 96.0))
-        pattern_coords["Triple Bottom Reversal"] = [(l_dates[4], l5, "Bottom 3")]
+    neckline = valley["price"]
+    rng = max(h1["price"], h2["price"]) - neckline
+    confirmed = _confirmed_breakout(close, neckline, "BEARISH", cfg.breakout_buffer)
+    conf = 78 if confirmed else 66
 
-    # --- 23. BUMP AND RUN REVERSAL ---
-    if h5 > h4 * 1.05:
-        scored_patterns.append(("Bump and Run Reversal", 91.0))
-        pattern_coords["Bump and Run Reversal"] = [(h_dates[4], h5, "Bump High")]
+    if confirmed:
+        sl, tp = _trade_levels("BEARISH", close, max(h1["price"], h2["price"]), rng)
+        return _result(
+            "Double Top", "CONFIRMED", "BEARISH", conf,
+            swings=s, neckline=neckline, entry=close,
+            stop_loss=sl, target=tp, invalidation=max(h1["price"], h2["price"]),
+            reason="Two major highs are near the same level and the neckline has closed below.",
+        )
 
-    # --- 24. HOOK REVERSAL ---
-    if h5 > h4 and current_close < df['Close'].iloc[-2]:
-        scored_patterns.append(("Hook Reversal", 88.0))
-        pattern_coords["Hook Reversal"] = [(h_dates[4], h5, "Hook High")]
+    return _result(
+        "Double Top", "FORMING", "BEARISH", conf,
+        swings=s, neckline=neckline,
+        invalidation=max(h1["price"], h2["price"]),
+        reason="Structure is present; waiting for a candle close below the neckline.",
+    )
 
-    # --- 25. ISLAND REVERSAL ---
-    if abs(df['Low'].iloc[-1] - df['High'].iloc[-2]) > (df['Close'].iloc[-1] * 0.01):
-        scored_patterns.append(("Island Reversal", 94.0))
-        pattern_coords["Island Reversal"] = [(df.index[-1], current_close, "Island")]
 
-    # --- 26. TRAY PATTERN ---
-    if abs(l5 - l4) / l4 <= 0.005 and h5 > h4:
-        scored_patterns.append(("Tray Pattern", 89.0))
-        pattern_coords["Tray Pattern"] = [(l_dates[4], l5, "Tray Base")]
+def detect_double_bottom(sw: List[Dict], close: float, cfg: EngineConfig):
+    if len(sw) < 3:
+        return None
+    s = sw[-3:]
+    if [x["type"] for x in s] != ["L", "H", "L"]:
+        return None
 
-    # --- 27. PIPE TOP ---
-    if abs(h5 - h4) / h4 <= 0.002 and current_close < l5:
-        scored_patterns.append(("Pipe Top", 90.0))
-        pattern_coords["Pipe Top"] = [(h_dates[4], h5, "Pipe")]
+    l1, peak, l2 = s
+    if not _same_level(l1["price"], l2["price"], cfg.tight_level_tolerance):
+        return None
+    if peak["price"] <= max(l1["price"], l2["price"]) * (1 + cfg.min_pattern_range_pct):
+        return None
 
-    # --- 28. PIPE BOTTOM ---
-    if abs(l5 - l4) / l4 <= 0.002 and current_close > h5:
-        scored_patterns.append(("Pipe Bottom", 90.0))
-        pattern_coords["Pipe Bottom"] = [(l_dates[4], l5, "Pipe")]
+    neckline = peak["price"]
+    rng = neckline - min(l1["price"], l2["price"])
+    confirmed = _confirmed_breakout(close, neckline, "BULLISH", cfg.breakout_buffer)
+    conf = 78 if confirmed else 66
 
-    # --- 29. TOWER TOP ---
-    if h5 > h4 and current_close < l5:
-        scored_patterns.append(("Tower Top", 91.0))
-        pattern_coords["Tower Top"] = [(h_dates[4], h5, "Tower")]
+    if confirmed:
+        sl, tp = _trade_levels("BULLISH", close, min(l1["price"], l2["price"]), rng)
+        return _result(
+            "Double Bottom", "CONFIRMED", "BULLISH", conf,
+            swings=s, neckline=neckline, entry=close,
+            stop_loss=sl, target=tp, invalidation=min(l1["price"], l2["price"]),
+            reason="Two major lows are near the same level and the neckline has closed above.",
+        )
 
-    # --- 30. TOWER BOTTOM ---
-    if l5 < l4 and current_close > h5:
-        scored_patterns.append(("Tower Bottom", 91.0))
-        pattern_coords["Tower Bottom"] = [(l_dates[4], l5, "Tower")]
+    return _result(
+        "Double Bottom", "FORMING", "BULLISH", conf,
+        swings=s, neckline=neckline,
+        invalidation=min(l1["price"], l2["price"]),
+        reason="Structure is present; waiting for a candle close above the neckline.",
+    )
 
-    if scored_patterns:
-        scored_patterns.sort(key=lambda x: x[1], reverse=True)
-        best = scored_patterns[0]
-        df.loc[df.index[-1], 'Pattern'] = best[0]
-        if best[0] in pattern_coords:
-            pts = [f"{time}_{val}_{label}" for time, val, label in pattern_coords[best[0]]]
-            df.loc[df.index[-1], 'Pattern_Points'] = ",".join(pts)
 
-    return df
-    
+def detect_triple_top_bottom(sw: List[Dict], close: float, cfg: EngineConfig):
+    if len(sw) < 5:
+        return None
+    s = sw[-5:]
+    types = [x["type"] for x in s]
+
+    if types == ["H", "L", "H", "L", "H"]:
+        highs = [s[0]["price"], s[2]["price"], s[4]["price"]]
+        lows = [s[1]["price"], s[3]["price"]]
+        if max(highs) - min(highs) <= np.mean(highs) * cfg.level_tolerance:
+            neckline = min(lows)
+            rng = np.mean(highs) - neckline
+            confirmed = _confirmed_breakout(close, neckline, "BEARISH", cfg.breakout_buffer)
+            return _result(
+                "Triple Top",
+                "CONFIRMED" if confirmed else "FORMING",
+                "BEARISH",
+                82 if confirmed else 67,
+                swings=s, neckline=neckline,
+                entry=close if confirmed else None,
+                stop_loss=(close + rng * .35) if confirmed else None,
+                target=(close - rng) if confirmed else None,
+                invalidation=max(highs),
+                reason="Three major highs cluster at a similar resistance level.",
+            )
+
+    if types == ["L", "H", "L", "H", "L"]:
+        lows = [s[0]["price"], s[2]["price"], s[4]["price"]]
+        highs = [s[1]["price"], s[3]["price"]]
+        if max(lows) - min(lows) <= np.mean(lows) * cfg.level_tolerance:
+            neckline = max(highs)
+            rng = neckline - np.mean(lows)
+            confirmed = _confirmed_breakout(close, neckline, "BULLISH", cfg.breakout_buffer)
+            return _result(
+                "Triple Bottom",
+                "CONFIRMED" if confirmed else "FORMING",
+                "BULLISH",
+                82 if confirmed else 67,
+                swings=s, neckline=neckline,
+                entry=close if confirmed else None,
+                stop_loss=(close - rng * .35) if confirmed else None,
+                target=(close + rng) if confirmed else None,
+                invalidation=min(lows),
+                reason="Three major lows cluster at a similar support level.",
+            )
+
+    return None
+
+
+def detect_head_shoulders(sw: List[Dict], close: float, cfg: EngineConfig):
+    if len(sw) < 5:
+        return None
+    s = sw[-5:]
+    if [x["type"] for x in s] != ["H", "L", "H", "L", "H"]:
+        return None
+
+    ls, nl1, head, nl2, rs = s
+
+    head_is_higher = head["price"] > ls["price"] and head["price"] > rs["price"]
+    shoulders_similar = _same_level(
+        ls["price"], rs["price"], cfg.level_tolerance
+    )
+    if not (head_is_higher and shoulders_similar):
+        return None
+
+    neckline = (nl1["price"] + nl2["price"]) / 2
+    confirmed = _confirmed_breakout(close, neckline, "BEARISH", cfg.breakout_buffer)
+    rng = head["price"] - neckline
+
+    return _result(
+        "Head & Shoulders",
+        "CONFIRMED" if confirmed else "FORMING",
+        "BEARISH",
+        86 if confirmed else 72,
+        swings=s, neckline=neckline,
+        entry=close if confirmed else None,
+        stop_loss=(head["price"]) if confirmed else None,
+        target=(close - rng) if confirmed else None,
+        invalidation=head["price"],
+        reason="Head is above both shoulders and the neckline is used for confirmation.",
+    )
+
+
+def detect_inverse_head_shoulders(sw: List[Dict], close: float, cfg: EngineConfig):
+    if len(sw) < 5:
+        return None
+    s = sw[-5:]
+    if [x["type"] for x in s] != ["L", "H", "L", "H", "L"]:
+        return None
+
+    ls, nl1, head, nl2, rs = s
+
+    head_is_lower = head["price"] < ls["price"] and head["price"] < rs["price"]
+    shoulders_similar = _same_level(
+        ls["price"], rs["price"], cfg.level_tolerance
+    )
+    if not (head_is_lower and shoulders_similar):
+        return None
+
+    neckline = (nl1["price"] + nl2["price"]) / 2
+    confirmed = _confirmed_breakout(close, neckline, "BULLISH", cfg.breakout_buffer)
+    rng = neckline - head["price"]
+
+    return _result(
+        "Inverse Head & Shoulders",
+        "CONFIRMED" if confirmed else "FORMING",
+        "BULLISH",
+        86 if confirmed else 72,
+        swings=s, neckline=neckline,
+        entry=close if confirmed else None,
+        stop_loss=head["price"] if confirmed else None,
+        target=(close + rng) if confirmed else None,
+        invalidation=head["price"],
+        reason="Head is below both shoulders and the neckline is used for confirmation.",
+    )
+
+
+def detect_triangles(sw: List[Dict], close: float, cfg: EngineConfig):
+    if len(sw) < 6:
+        return None
+
+    s = sw[-6:]
+    highs = [x for x in s if x["type"] == "H"]
+    lows = [x for x in s if x["type"] == "L"]
+
+    if len(highs) < 3 or len(lows) < 3:
+        return None
+
+    hs = _slope((highs[0]["index"], highs[0]["price"]),
+                (highs[-1]["index"], highs[-1]["price"]))
+    ls = _slope((lows[0]["index"], lows[0]["price"]),
+                (lows[-1]["index"], lows[-1]["price"]))
+
+    last_h = highs[-1]["price"]
+    last_l = lows[-1]["price"]
+
+    # Flat resistance + rising lows.
+    h_flat = abs(hs) <= np.mean([x["price"] for x in highs]) * 0.0025
+    l_up = ls > 0
+
+    if h_flat and l_up:
+        resistance = np.mean([x["price"] for x in highs])
+        confirmed = _confirmed_breakout(close, resistance, "BULLISH", cfg.breakout_buffer)
+        return _result(
+            "Ascending Triangle",
+            "CONFIRMED" if confirmed else "FORMING",
+            "BULLISH",
+            82 if confirmed else 68,
+            swings=s, resistance=resistance,
+            entry=close if confirmed else None,
+            reason="Flat resistance with rising major lows.",
+        )
+
+    # Flat support + falling highs.
+    l_flat = abs(ls) <= np.mean([x["price"] for x in lows]) * 0.0025
+    h_down = hs < 0
+
+    if l_flat and h_down:
+        support = np.mean([x["price"] for x in lows])
+        confirmed = _confirmed_breakout(close, support, "BEARISH", cfg.breakout_buffer)
+        return _result(
+            "Descending Triangle",
+            "CONFIRMED" if confirmed else "FORMING",
+            "BEARISH",
+            82 if confirmed else 68,
+            swings=s, support=support,
+            entry=close if confirmed else None,
+            reason="Flat support with falling major highs.",
+        )
+
+    # Converging highs/lows.
+    if hs < 0 and ls > 0:
+        upper = _line_value(
+            (highs[0]["index"], highs[0]["price"]),
+            (highs[-1]["index"], highs[-1]["price"]),
+            len(s) + highs[-1]["index"] - s[0]["index"],
+        )
+        lower = _line_value(
+            (lows[0]["index"], lows[0]["price"]),
+            (lows[-1]["index"], lows[-1]["price"]),
+            len(s) + lows[-1]["index"] - s[0]["index"],
+        )
+
+        if lower < close < upper:
+            return _result(
+                "Symmetrical Triangle",
+                "FORMING",
+                "NEUTRAL",
+                65,
+                swings=s, resistance=upper, support=lower,
+                reason="Major highs are falling while major lows are rising.",
+            )
+
+    return None
+
+
+def detect_wedges(sw: List[Dict], close: float, cfg: EngineConfig):
+    if len(sw) < 6:
+        return None
+
+    s = sw[-6:]
+    highs = [x for x in s if x["type"] == "H"]
+    lows = [x for x in s if x["type"] == "L"]
+
+    if len(highs) < 3 or len(lows) < 3:
+        return None
+
+    hs = _slope((highs[0]["index"], highs[0]["price"]),
+                (highs[-1]["index"], highs[-1]["price"]))
+    ls = _slope((lows[0]["index"], lows[0]["price"]),
+                (lows[-1]["index"], lows[-1]["price"]))
+
+    avg = np.mean([x["price"] for x in s])
+
+    if hs > 0 and ls > 0 and ls > hs * 0.75:
+        support = _line_value(
+            (lows[0]["index"], lows[0]["price"]),
+            (lows[-1]["index"], lows[-1]["price"]),
+            len(s) + lows[-1]["index"] - s[0]["index"],
+        )
+        confirmed = _confirmed_breakout(close, support, "BEARISH", cfg.breakout_buffer)
+        return _result(
+            "Rising Wedge",
+            "CONFIRMED" if confirmed else "FORMING",
+            "BEARISH",
+            80 if confirmed else 64,
+            swings=s, support=support,
+            entry=close if confirmed else None,
+            reason="Both boundaries rise and converge; downside break confirms.",
+        )
+
+    if hs < 0 and ls < 0 and hs < ls * 0.75:
+        resistance = _line_value(
+            (highs[0]["index"], highs[0]["price"]),
+            (highs[-1]["index"], highs[-1]["price"]),
+            len(s) + highs[-1]["index"] - s[0]["index"],
+        )
+        confirmed = _confirmed_breakout(close, resistance, "BULLISH", cfg.breakout_buffer)
+        return _result(
+            "Falling Wedge",
+            "CONFIRMED" if confirmed else "FORMING",
+            "BULLISH",
+            80 if confirmed else 64,
+            swings=s, resistance=resistance,
+            entry=close if confirmed else None,
+            reason="Both boundaries fall and converge; upside break confirms.",
+        )
+
+    return None
+
+
+def detect_rectangle(sw: List[Dict], close: float, cfg: EngineConfig):
+    if len(sw) < 6:
+        return None
+
+    s = sw[-6:]
+    highs = [x["price"] for x in s if x["type"] == "H"]
+    lows = [x["price"] for x in s if x["type"] == "L"]
+
+    if len(highs) < 3 or len(lows) < 3:
+        return None
+
+    resistance = np.mean(highs)
+    support = np.mean(lows)
+
+    if resistance <= support:
+        return None
+
+    if (
+        max(highs) - min(highs) <= resistance * cfg.level_tolerance
+        and max(lows) - min(lows) <= support * cfg.level_tolerance
+    ):
+        up = _confirmed_breakout(close, resistance, "BULLISH", cfg.breakout_buffer)
+        down = _confirmed_breakout(close, support, "BEARISH", cfg.breakou
