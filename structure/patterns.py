@@ -3,11 +3,11 @@ import numpy as np
 
 def detect_chart_patterns(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Aqoonsada 15-ka Chart Patterns ee ugu caansan, qiimeeya ixtimaalka (Probability),
-    kuna soo kala sooca sida ay ugu kala ixtimaal badan yihiin adigoo ilaalinaya qaabkii hore.
+    Aqoonsada 15-ka Chart Patterns iyadoo la adeegsanayo shuruudo adag (Strict Rules)
+    si loo hubiyo macquulnimada dhibcaha iyo qaab-dhismeedka suuqa.
     """
     df['Pattern'] = 'No Pattern'
-    df['Pattern_Points'] = "" # Kolamkan cusub wuxuu kaydinayaa dhibcaha dhabta ah ee pattern-ka
+    df['Pattern_Points'] = ""
     
     if 'Swing_High' not in df.columns or 'Swing_Low' not in df.columns:
         df['Top_3_Patterns'] = "None"
@@ -17,26 +17,26 @@ def detect_chart_patterns(df: pd.DataFrame) -> pd.DataFrame:
     lows = df['Swing_Low'].dropna()
     
     scored_patterns = []
-    pattern_coords = {} # Halkaan waxaa ku jira dhibcaha taabashada ee pattern walba
+    pattern_coords = {}
 
     if len(highs) >= 5 and len(lows) >= 5:
+        # Isticmaalka swing-yadii ugu dambeeyay
         h1, h2, h3, h4, h5 = highs.iloc[-5], highs.iloc[-4], highs.iloc[-3], highs.iloc[-2], highs.iloc[-1]
         l1, l2, l3, l4, l5 = lows.iloc[-5], lows.iloc[-4], lows.iloc[-3], lows.iloc[-2], lows.iloc[-1]
         
-        # Helitaanka Index-yada (Taariikhaha/Waqtiyada) dhibcaha
         h_dates = highs.index[-5:]
         l_dates = lows.index[-5:]
 
-        # 1. Double Top & Double Bottom
+        # 1. Double Top & Double Bottom (Shuruud: Waa in labada hoos ama sare ay isku dhow yihiin oo dhexda peak/trough ka dhexeeyo)
         dt_diff = abs(h5 - h4) / h4
-        if dt_diff < 0.003:
+        if dt_diff < 0.003 and h3 > h4 and h3 > h5:  # H3 waa inuu ka sarreeyaa labada Top
             prob = round(92 - (dt_diff * 1000), 1)
             p_name = "Double Top (Reversal)"
             scored_patterns.append((p_name, prob))
             pattern_coords[p_name] = [(h_dates[3], h4), (h_dates[4], h5)]
 
         db_diff = abs(l5 - l4) / l4
-        if db_diff < 0.003:
+        if db_diff < 0.003 and l3 < l4 and l3 < l5:  # L3 waa inuu ka hooseeyaa labada Bottom (W-shape dhab ah)
             prob = round(92 - (db_diff * 1000), 1)
             p_name = "Double Bottom (Reversal)"
             scored_patterns.append((p_name, prob))
@@ -54,12 +54,12 @@ def detect_chart_patterns(df: pd.DataFrame) -> pd.DataFrame:
             pattern_coords[p_name] = [(l_dates[2], l3), (l_dates[3], l4), (l_dates[4], l5)]
 
         # 3. Head and Shoulders & Inverse Head and Shoulders
-        if h4 > h3 and h4 > h5 and abs(h3 - h5) / h5 < 0.01:
+        if h4 > h3 and h4 > h5 and abs(h3 - h5) / h5 < 0.015:
             p_name = "Head and Shoulders"
             scored_patterns.append((p_name, 88.5))
-            pattern_coords[p_name] = [(h_dates[2], h3), (h_dates[3], h4), (h_dates[4], h5)] # Garabka bidix, Madaxa, Garabka midig
+            pattern_coords[p_name] = [(h_dates[2], h3), (h_dates[3], h4), (h_dates[4], h5)]
             
-        if l4 < l3 and l4 < l5 and abs(l3 - l5) / l5 < 0.01:
+        if l4 < l3 and l4 < l5 and abs(l3 - l5) / l5 < 0.015:
             p_name = "Inverse Head and Shoulders"
             scored_patterns.append((p_name, 89.0))
             pattern_coords[p_name] = [(l_dates[2], l3), (l_dates[3], l4), (l_dates[4], l5)]
@@ -89,7 +89,7 @@ def detect_chart_patterns(df: pd.DataFrame) -> pd.DataFrame:
             pattern_coords[p_name] = [(h_dates[4], h5), (l_dates[4], l5)]
 
         # 6. Rectangles (Bullish & Bearish)
-        if abs(h5 - h3) < 0.002 and abs(l5 - l3) < 0.002:
+        if abs(h5 - h3) < 0.003 and abs(l5 - l3) < 0.003:
             if h5 > l3:
                 p_name = "Bullish Rectangle"
                 scored_patterns.append((p_name, 83.0))
@@ -99,11 +99,11 @@ def detect_chart_patterns(df: pd.DataFrame) -> pd.DataFrame:
             pattern_coords[p_name] = [(h_dates[4], h5), (l_dates[4], l5)]
 
         # 7. Flags & Pennants
-        if abs(h5 - h4) < 0.001 and abs(l5 - l4) < 0.001 and h5 > l5:
+        if abs(h5 - h4) < 0.0015 and abs(l5 - l4) < 0.0015 and h5 > l5:
             p_name = "Bullish Flag / Pennant"
             scored_patterns.append((p_name, 81.5))
             pattern_coords[p_name] = [(h_dates[4], h5)]
-        elif abs(h5 - h4) < 0.001 and abs(l5 - l4) < 0.001 and h5 < l5:
+        elif abs(h5 - h4) < 0.0015 and abs(l5 - l4) < 0.0015 and h5 < l5:
             p_name = "Bearish Flag / Pennant"
             scored_patterns.append((p_name, 81.5))
             pattern_coords[p_name] = [(h_dates[4], h5)]
@@ -114,7 +114,7 @@ def detect_chart_patterns(df: pd.DataFrame) -> pd.DataFrame:
             scored_patterns.append((p_name, 90.0))
             pattern_coords[p_name] = [(l_dates[3], l4), (h_dates[4], h5)]
 
-    # Heerarka guud haddii aysan ku filnaan
+    # Fallbacks haddii aysan helin kuwa adag
     defaults = [
         ("Support / Resistance Bounce", 78.0),
         ("Consolidation Channel", 75.5),
@@ -126,17 +126,12 @@ def detect_chart_patterns(df: pd.DataFrame) -> pd.DataFrame:
             scored_patterns.append((p, pr))
             pattern_coords[p] = []
 
-    # U kala saar sida uu ixtimaalkoodu u sarreeyo
     scored_patterns.sort(key=lambda x: x[1], reverse=True)
-    
-    # Soo qaadashada 3-da ugu sarreeya
     top_three = scored_patterns[:3]
     
     formatted_str = " | ".join([f"{name} ({prob}%)" for name, prob in top_three])
-
     df['Top_3_Patterns'] = formatted_str
     
-    # Ku darista fallaarta muujineysa jihada pattern-ka iyadoo la ilaalinayo qaabkii hore
     best_pattern = top_three[0][0]
     if any(x in best_pattern for x in ["Bottom", "Inverse", "Bullish", "Falling Wedge", "Ascending", "Bounce"]):
         df.loc[df.index[-1], 'Pattern'] = f"▲ {best_pattern}"
@@ -145,7 +140,6 @@ def detect_chart_patterns(df: pd.DataFrame) -> pd.DataFrame:
     else:
         df.loc[df.index[-1], 'Pattern'] = f"◆ {best_pattern}"
 
-    # Kaydinta dhibcaha pattern-ka ugu sarreeya si app-kaagu u isticmaalo
     if best_pattern in pattern_coords and pattern_coords[best_pattern]:
         coords_str = ",".join([f"{time}_{val}" for time, val in pattern_coords[best_pattern]])
         df.loc[df.index[-1], 'Pattern_Points'] = coords_str
