@@ -1,240 +1,119 @@
 # ==========================================
 # PROFESSIONAL PATTERN ENGINE
-# CONNECTOR FOR APP.PY
+# CONNECTOR FOR CURRENT PROJECT
 # ==========================================
 
 
-from pivot_scanner import PivotScanner
-
-from patterns.double import DoublePatternDetector
-
-from patterns.head_shoulders import HeadShouldersDetector
-
-from filters.confirmation import PatternConfirmationEngine
-
-from filters.market import MarketContextFilter
-
-from signal import FinalSignalGenerator
+from structure.market_structure import analyze_market_structure
+from structure.patterns import detect_chart_patterns
 
 
 
 def normalize_columns(df):
-    """
-    Sax columns-ka app.py-gaaga
-    oo isticmaala:
-    Open High Low Close
-    """
+
+    df = df.copy()
 
     rename = {}
 
     for col in df.columns:
 
         if col.lower() == "open":
-            rename[col] = "open"
+            rename[col] = "Open"
 
         elif col.lower() == "high":
-            rename[col] = "high"
+            rename[col] = "High"
 
         elif col.lower() == "low":
-            rename[col] = "low"
+            rename[col] = "Low"
 
         elif col.lower() == "close":
-            rename[col] = "close"
+            rename[col] = "Close"
 
 
-
-    return df.rename(
-        columns=rename
-    )
-
-
+    return df.rename(columns=rename)
 
 
 
 def analyze_market(df):
 
 
-    # 1. Column normalization
+    if df.empty:
+
+        return {
+
+            "signal":"WAIT",
+            "pattern":"No Data",
+            "confidence":0
+
+        }
+
+
+
+    # Sax columns
 
     df = normalize_columns(df)
 
 
 
-    # 2. Pivot Scanner
+    # Market Structure
+    df = analyze_market_structure(df)
 
-    scanner = PivotScanner(
-        depth=5
+
+
+    # Chart Patterns
+    df = detect_chart_patterns(df)
+
+
+
+    last = df.iloc[-1]
+
+
+
+    pattern = last.get(
+        "Pattern",
+        "No Pattern"
     )
 
 
-    pivots = scanner.find_pivots(
-        df
+    signal = last.get(
+        "Signal",
+        "WAIT"
+    )
+
+
+    score = last.get(
+        "Pattern_Score",
+        0
     )
 
 
 
-    if len(pivots) < 5:
+    return {
 
-        return {
+        "signal": signal,
 
-            "signal":
-            "WAIT",
+        "pattern": pattern,
 
-            "pattern":
-            "No Pattern",
+        "confidence": score,
 
-            "confidence":
-            0,
+        "trend": last.get(
+            "Trend",
+            "Unknown"
+        ),
 
-            "reason":
-            "Pivots not enough"
+        "structure": last.get(
+            "Structure",
+            "Unknown"
+        ),
 
-        }
+        "BOS": last.get(
+            "BOS",
+            None
+        ),
 
-
-
-
-    # 3. Pattern Detection
-
-    patterns=[]
-
-
-
-    double = DoublePatternDetector()
-
-
-    patterns += (
-        double.detect_double_top(
-            pivots
+        "CHOCH": last.get(
+            "CHOCH",
+            None
         )
-    )
 
-
-    patterns += (
-        double.detect_double_bottom(
-            pivots
-        )
-    )
-
-
-
-    hs = HeadShouldersDetector()
-
-
-
-    patterns += (
-        hs.detect_head_shoulders(
-            pivots
-        )
-    )
-
-
-    patterns += (
-        hs.detect_inverse_head_shoulders(
-            pivots
-        )
-    )
-
-
-
-    if not patterns:
-
-        return {
-
-            "signal":
-            "WAIT",
-
-            "pattern":
-            "No Pattern",
-
-            "confidence":
-            0
-
-        }
-
-
-
-    # Dooro pattern-ka ugu fiican
-
-    best_pattern = max(
-        patterns,
-        key=lambda x:x["score"]
-    )
-
-
-
-    # 4. Confirmation
-
-    confirmation_engine = (
-        PatternConfirmationEngine()
-    )
-
-
-    confirmation = (
-        confirmation_engine.confirm(
-            best_pattern,
-            df
-        )
-    )
-
-
-
-    if not confirmation["confirmed"]:
-
-        return {
-
-            "signal":
-            "WAIT",
-
-            "pattern":
-            best_pattern["pattern"],
-
-            "confidence":
-            confirmation["final_score"],
-
-            "reason":
-            "Breakout not confirmed"
-
-        }
-
-
-
-
-
-    # 5. Market Filter
-
-    market_filter = (
-        MarketContextFilter()
-    )
-
-
-    market = (
-        market_filter.check(
-            df,
-            best_pattern
-        )
-    )
-
-
-
-    # 6. Final Decision
-
-    generator = FinalSignalGenerator()
-
-
-
-    result = generator.generate(
-
-        best_pattern,
-
-        confirmation,
-
-        market,
-
-        df
-
-    )
-
-
-
-    return result
+    }
