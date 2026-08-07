@@ -9,7 +9,7 @@ import numpy as np
 
 def get_swing_window(length):
     """
-    Window adaptive ah si uu ula qabsado xogta
+    Doorashada window iyadoo ku xiran xogta
     """
 
     if length < 100:
@@ -28,30 +28,47 @@ def get_swing_window(length):
 
 def detect_swings(df: pd.DataFrame, window=None) -> pd.DataFrame:
     """
-    Detects strong Swing High / Swing Low
-
-    Waxaa loogu talagalay:
-    1m ilaa 1Y charts
+    Detect Swing High and Swing Low
     """
 
     df = df.copy()
+
+
+    # Hubi columns
+    required = [
+        "High",
+        "Low"
+    ]
+
+    for col in required:
+        if col not in df.columns:
+            return df
+
 
 
     if window is None:
         window = get_swing_window(len(df))
 
 
+
+    # Ku samee float columns
     df["Swing_High"] = np.nan
     df["Swing_Low"] = np.nan
-
-    df["Swing_Strength"] = 0
-
+    df["Swing_Strength"] = np.nan
 
 
-    for i in range(window, len(df)-window):
+
+    for i in range(window, len(df) - window):
 
 
-        current_high = df["High"].iloc[i]
+        # ===============================
+        # SWING HIGH
+        # ===============================
+
+        current_high = float(
+            df["High"].iloc[i]
+        )
+
 
         left_highs = df["High"].iloc[
             i-window:i
@@ -63,18 +80,21 @@ def detect_swings(df: pd.DataFrame, window=None) -> pd.DataFrame:
 
 
 
-        # Swing High
-
         if (
             current_high > left_highs.max()
             and
             current_high > right_highs.max()
         ):
 
+
             strength = (
-                (current_high - left_highs.max())
+                abs(
+                    current_high - float(left_highs.max())
+                )
                 +
-                (current_high - right_highs.max())
+                abs(
+                    current_high - float(right_highs.max())
+                )
             )
 
 
@@ -84,15 +104,22 @@ def detect_swings(df: pd.DataFrame, window=None) -> pd.DataFrame:
             ] = current_high
 
 
+
             df.loc[
                 df.index[i],
                 "Swing_Strength"
-            ] = strength
+            ] = float(strength)
 
 
 
 
-        current_low = df["Low"].iloc[i]
+        # ===============================
+        # SWING LOW
+        # ===============================
+
+        current_low = float(
+            df["Low"].iloc[i]
+        )
 
 
         left_lows = df["Low"].iloc[
@@ -105,19 +132,23 @@ def detect_swings(df: pd.DataFrame, window=None) -> pd.DataFrame:
 
 
 
-        # Swing Low
-
         if (
             current_low < left_lows.min()
             and
             current_low < right_lows.min()
         ):
 
+
             strength = (
-                (left_lows.min() - current_low)
+                abs(
+                    float(left_lows.min()) - current_low
+                )
                 +
-                (right_lows.min() - current_low)
+                abs(
+                    float(right_lows.min()) - current_low
+                )
             )
+
 
 
             df.loc[
@@ -126,10 +157,11 @@ def detect_swings(df: pd.DataFrame, window=None) -> pd.DataFrame:
             ] = current_low
 
 
+
             df.loc[
                 df.index[i],
                 "Swing_Strength"
-            ] = strength
+            ] = float(strength)
 
 
 
