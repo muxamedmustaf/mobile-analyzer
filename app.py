@@ -1,311 +1,287 @@
 import streamlit as st
-import plotly.graph_objects as go
-
-from data.market_data import fetch_market_data
-from pattern_engine import analyze_market
-
-
-# ===============================
-# PAGE CONFIG
-# ===============================
+import pandas as pd
+import numpy as np
+from pattern_engine import PatternEngine, EngineConfig
 
 st.set_page_config(
-    page_title="SMC Market Structure AI",
-    page_icon="⚡",
-    layout="wide"
+    page_title="Major Pattern Analyzer",
+    page_icon="📊",
+    layout="wide",
 )
 
+st.title("📊 Major Pattern Analyzer")
+st.caption("Chart-pattern analysis using major swings and candle-close confirmation.")
 
-# ===============================
-# STYLE
-# ===============================
+# -----------------------------
+# Sidebar
+# -----------------------------
+with st.sidebar:
+    st.header("Engine Settings")
 
-st.markdown(
-    """
-    <style>
-    .main-title {
-        font-size:2.2rem;
-        text-align:center;
-        font-weight:bold;
-        color:#FF4B4B;
-    }
-    .card {
-        background:#1e1e1e;
-        padding:15px;
-        border-radius:10px;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
+    pivot_left = st.number_input(
+        "Pivot left candles",
+        min_value=1,
+        max_value=10,
+        value=3,
+        step=1,
+    )
+
+    pivot_right = st.number_input(
+        "Pivot right candles",
+        min_value=1,
+        max_value=10,
+        value=3,
+        step=1,
+    )
+
+    min_swing_pct = st.number_input(
+        "Minimum swing %",
+        min_value=0.1,
+        max_value=10.0,
+        value=0.4,
+        step=0.1,
+        format="%.1f",
+    ) / 100
+
+    level_tolerance = st.number_input(
+        "Pattern level tolerance %",
+        min_value=0.5,
+        max_value=10.0,
+        value=2.5,
+        step=0.5,
+        format="%.1f",
+    ) / 100
+
+    breakout_buffer = st.number_input(
+        "Breakout buffer %",
+        min_value=0.0,
+        max_value=2.0,
+        value=0.1,
+        step=0.1,
+        format="%.1f",
+    ) / 100
+
+    min_confidence = st.slider(
+        "Minimum confidence",
+        min_value=50,
+        max_value=95,
+        value=60,
+    )
+
+    st.divider()
+    st.info(
+        "Pattern-ka lama xaqiijinayo wick keliya. "
+        "Engine-ku wuxuu sugayaa candle close marka breakout loo baahan yahay."
+    )
+
+# -----------------------------
+# Config
+# -----------------------------
+config = EngineConfig(
+    pivot_left=int(pivot_left),
+    pivot_right=int(pivot_right),
+    min_swing_pct=float(min_swing_pct),
+    level_tolerance=float(level_tolerance),
+    tight_level_tolerance=min(float(level_tolerance), 0.02),
+    breakout_buffer=float(breakout_buffer),
+    min_confidence=int(min_confidence),
 )
 
+engine = PatternEngine(config)
 
-st.markdown(
-    '<p class="main-title">⚡ SMC Market Structure Engine AI</p>',
-    unsafe_allow_html=True
+# -----------------------------
+# Data input
+# -----------------------------
+st.subheader("1. Geli OHLC Data")
+
+uploaded = st.file_uploader(
+    "Upload CSV file",
+    type=["csv"],
+    help="CSV-ga waa inuu leeyahay High, Low, Close. Open iyo Volume waa optional.",
 )
 
+df = None
 
+if uploaded is not None:
+    try:
+        df = pd.read_csv(uploaded)
+    except Exception as e:
+        st.error(f"CSV lama akhrin karin: {e}")
 
-# ===============================
-# SIDEBAR
-# ===============================
+else:
+    st.markdown(
+        "CSV ma haysatid? Hoos ku geli xogta OHLC oo tusaale ahaan leh "
+        "`Open, High, Low, Close, Volume`."
+    )
 
-st.sidebar.header("⚙️ Market Settings")
+    sample = pd.DataFrame(
+        {
+            "Open": [100, 101, 103, 102, 105, 108, 106, 104],
+            "High": [102, 104, 105, 106, 109, 110, 108, 106],
+            "Low": [99, 100, 101, 101, 103, 105, 104, 102],
+            "Close": [101, 103, 102, 105, 108, 106, 104, 105],
+            "Volume": [1000] * 8,
+        }
+    )
 
+    if st.checkbox("Show example data"):
+        st.dataframe(sample, use_container_width=True)
 
-symbol = st.sidebar.text_input(
-    "Symbol",
-    value="GC=F"
-)
+# -----------------------------
+# Analysis
+# -----------------------------
+if df is not None:
+    st.subheader("2. Analysis")
 
+    try:
+        result = engine.analyze(df)
 
-interval = st.sidebar.selectbox(
-    "Interval",
-    [
-        "1m",
-        "5m",
-        "15m",
-        "30m",
-        "1h",
-        "4h",
-        "1d"
-    ],
-    index=5
-)
-
-
-period = st.sidebar.selectbox(
-    "Period",
-    [
-        "1d",
-        "5d",
-        "1mo",
-        "3mo",
-        "6mo",
-        "1y"
-    ],
-    index=3
-)
-
-
-run = st.sidebar.button(
-    "🚀 Analyze"
-)
-
-
-
-# ===============================
-# ANALYSIS
-# ===============================
-
-if run:
-
-    with st.spinner("Analyzing market..."):
-
-
-        df = fetch_market_data(
-            symbol,
-            interval,
-            period
-        )
-
-
-        if df.empty:
-
-            st.error(
-                "No market data found"
-            )
-
-
+        if result.get("error"):
+            st.warning(result["error"])
         else:
+            patterns = result["patterns"]
+            swings = result["major_swings"]
+            best = result["best_pattern"]
 
+            # Summary
+            c1, c2, c3, c4 = st.columns(4)
 
-            result = analyze_market(df)
+            c1.metric("Candles", len(df))
+            c2.metric("Major Swings", len(swings))
+            c3.metric("Patterns", len(patterns))
 
+            if best:
+                c4.metric("Best Pattern", best["pattern"])
+            else:
+                c4.metric("Best Pattern", "None")
 
-            last_price = df["Close"].iloc[-1]
+            st.divider()
 
+            # Best signal
+            if best:
+                status = best["status"]
+                direction = best["direction"]
 
+                if status == "CONFIRMED":
+                    st.success(
+                        f"✅ CONFIRMED: {best['pattern']} — {direction} "
+                        f"({best['confidence']}%)"
+                    )
+                elif status == "FORMING":
+                    st.warning(
+                        f"⏳ FORMING: {best['pattern']} — {direction} "
+                        f"({best['confidence']}%)"
+                    )
 
-            col1, col2, col3 = st.columns(3)
+                col1, col2, col3 = st.columns(3)
 
+                col1.write("**Entry**")
+                col1.write(best.get("entry") if best.get("entry") is not None else "-")
 
-            with col1:
-
-                st.markdown(
-                    f"""
-                    <div class="card">
-
-                    <h4>📈 Signal</h4>
-
-                    <h2>{result.get('signal')}</h2>
-
-                    </div>
-                    """,
-                    unsafe_allow_html=True
+                col2.write("**Stop Loss**")
+                col2.write(
+                    best.get("stop_loss")
+                    if best.get("stop_loss") is not None
+                    else "-"
                 )
 
-
-            with col2:
-
-                st.markdown(
-                    f"""
-                    <div class="card">
-
-                    <h4>🎯 Pattern</h4>
-
-                    <h3>{result.get('pattern')}</h3>
-
-                    </div>
-                    """,
-                    unsafe_allow_html=True
+                col3.write("**Target**")
+                col3.write(
+                    best.get("target")
+                    if best.get("target") is not None
+                    else "-"
                 )
 
+                st.write(f"**Reason:** {best.get('reason', '')}")
 
-            with col3:
-
-                st.markdown(
-                    f"""
-                    <div class="card">
-
-                    <h4>Confidence</h4>
-
-                    <h3>{result.get('confidence')}%</h3>
-
-                    </div>
-                    """,
-                    unsafe_allow_html=True
+            else:
+                st.info(
+                    "Pattern la xaqiijiyey lama helin. "
+                    "Engine-ku wuxuu sugayaa major structure ku habboon."
                 )
 
+            # Pattern table
+            st.subheader("Detected Patterns")
 
+            if patterns:
+                rows = []
 
-            # ===============================
-            # STRUCTURE INFO
-            # ===============================
+                for p in patterns:
+                    rows.append(
+                        {
+                            "Pattern": p["pattern"],
+                            "Status": p["status"],
+                            "Direction": p["direction"],
+                            "Confidence": f"{p['confidence']}%",
+                            "Entry": (
+                                round(p["entry"], 6)
+                                if p.get("entry") is not None
+                                else "-"
+                            ),
+                            "SL": (
+                                round(p["stop_loss"], 6)
+                                if p.get("stop_loss") is not None
+                                else "-"
+                            ),
+                            "Target": (
+                                round(p["target"], 6)
+                                if p.get("target") is not None
+                                else "-"
+                            ),
+                        }
+                    )
 
-            st.subheader(
-                "Market Structure"
-            )
+                table = pd.DataFrame(rows)
+                st.dataframe(table, use_container_width=True, hide_index=True)
 
+                with st.expander("Pattern details"):
+                    for p in patterns:
+                        st.markdown(
+                            f"### {p['pattern']} — {p['status']}"
+                        )
+                        st.write(
+                            {
+                                "direction": p["direction"],
+                                "confidence": p["confidence"],
+                                "neckline": p.get("neckline"),
+                                "resistance": p.get("resistance"),
+                                "support": p.get("support"),
+                                "entry": p.get("entry"),
+                                "stop_loss": p.get("stop_loss"),
+                                "target": p.get("target"),
+                                "invalidation": p.get("invalidation"),
+                                "reason": p.get("reason"),
+                            }
+                        )
 
-            st.write(
-                {
-                    "Trend": result.get("trend"),
-                    "Structure": result.get("structure"),
-                    "BOS": result.get("BOS"),
-                    "CHOCH": result.get("CHOCH")
-                }
-            )
+            # Major swings
+            st.subheader("Major Swings")
 
-
-
-            # ===============================
-            # CHART
-            # ===============================
-
-            fig = go.Figure()
-
-
-            fig.add_trace(
-                go.Candlestick(
-                    x=df.index,
-                    open=df["Open"],
-                    high=df["High"],
-                    low=df["Low"],
-                    close=df["Close"],
-                    name="Price"
+            if swings:
+                swing_df = pd.DataFrame(swings)
+                st.dataframe(
+                    swing_df,
+                    use_container_width=True,
+                    hide_index=True,
                 )
-            )
+            else:
+                st.info("Major swings lama helin.")
 
+            # Raw data
+            with st.expander("OHLC Data"):
+                st.dataframe(df.tail(100), use_container_width=True)
 
-            # Current price
+    except Exception as e:
+        st.error(f"Analysis error: {e}")
+        st.exception(e)
 
-            fig.add_hline(
-                y=last_price,
-                annotation_text=f"Price {last_price}",
-                line_dash="dot"
-            )
+else:
+    st.info(
+        "Ku bilow adigoo upload-gareynaya CSV leh High, Low, Close. "
+        "Engine-ku wuxuu markaas baarayaa major swings iyo patterns."
+    )
 
-
-
-            # ===============================
-            # PATTERN MARKER
-            # ===============================
-
-            pattern = result.get("pattern")
-
-
-            if pattern and pattern != "None":
-
-                pattern_x = df.index[-1]
-                pattern_y = df["High"].iloc[-1]
-
-
-                fig.add_annotation(
-                    x=pattern_x,
-                    y=pattern_y,
-                    text=f"⚡ {pattern}",
-                    showarrow=True,
-                    arrowhead=2,
-                    ax=0,
-                    ay=-80
-                )
-
-
-                fig.add_shape(
-                    type="line",
-                    x0=df.index[-5],
-                    y0=df["High"].iloc[-5],
-                    x1=pattern_x,
-                    y1=pattern_y
-                )
-
-
-
-            # TradingView style
-
-            fig.update_layout(
-                template="plotly_dark",
-                height=700,
-                xaxis_rangeslider_visible=False
-            )
-
-
-            fig.update_xaxes(
-                fixedrange=False
-            )
-
-
-            fig.update_yaxes(
-                fixedrange=False
-            )
-
-
-
-            st.plotly_chart(
-                fig,
-                use_container_width=True,
-                config={
-                    "scrollZoom": True,
-                    "displaylogo": False,
-                    "modeBarButtonsToAdd": [
-                        "pan2d",
-                        "zoom2d",
-                        "resetScale2d"
-                    ]
-                }
-            )
-
-
-
-            # ===============================
-            # ENGINE OUTPUT
-            # ===============================
-
-            st.subheader(
-                "Engine Output"
-            )
-
-
-            st.json(result)
+st.divider()
+st.caption(
+    "Pattern Analyzer v1 — Structure → Major Swings → Confirmation → Confidence"
+)
