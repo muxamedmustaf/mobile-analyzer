@@ -61,10 +61,10 @@ if run_button:
             latest_row = df.iloc[-1]
             top_patterns = latest_row.get('Top_3_Patterns', 'No Pattern Found')
             best_pattern = latest_row.get('Pattern', 'No Pattern')
+            pattern_points_str = latest_row.get('Pattern_Points', '')
             current_price = latest_row['Close']
             
             # --- QODOBKA 2AAD: GO'AAMINTA TREND-KA ---
-            # Waxaan ku cabiraynaa EMA ama isbarbardhigga qiimaha iyo Swing-yada
             prev_price = df.iloc[-5]['Close'] if len(df) >= 5 else current_price
             is_uptrend = current_price >= prev_price
             trend_text = "🟢 Kor u socda (Bullish Trend)" if is_uptrend else "🔴 Hoos u socda (Bearish Trend)"
@@ -92,18 +92,17 @@ if run_button:
             # --- QODOBKA 3AAD: ISTARAATIIIJIYADDA GANACSIGA EE PATTERN-KA ---
             st.subheader("💡 Qorshaha Ganacsiga (Trading Plan & Execution)")
             
-            # Xisaabinta loogiga saxda ah ee Entry, SL, iyo TP (iyadoo TP uu ka sarreeyo xaaladda Buy)
             if "Bottom" in best_pattern or "Inverse" in best_pattern or "Ascending" in best_pattern or "Bounce" in best_pattern:
                 action = "BUY (Iibso)"
                 entry_price = current_price
-                stop_loss = current_price - (current_price * 0.005)  # 0.5% hoos
-                take_profit = current_price + (current_price * 0.012) # 1.2% kor (TP waa ka sarreeyaa qiimaha)
+                stop_loss = current_price - (current_price * 0.005)  
+                take_profit = current_price + (current_price * 0.012) 
                 strat_desc = "Qaabkani wuxuu tilmaamayaa in suuqu ka helayo taageero hoose oo uu u jeesanayo kor u kac."
             elif "Top" in best_pattern or "Head and Shoulders" in best_pattern or "Descending" in best_pattern or "Wedge" in best_pattern:
                 action = "SELL (Iibi / Gaab)"
                 entry_price = current_price
-                stop_loss = current_price + (current_price * 0.005)  # 0.5% kor
-                take_profit = current_price - (current_price * 0.012) # 1.2% hoos
+                stop_loss = current_price + (current_price * 0.005)  
+                take_profit = current_price - (current_price * 0.012) 
                 strat_desc = "Qaabkani wuxuu tilmaamayaa cadaadis iib ah oo keeni kara in qiimuhu hoos u dhaco."
             else:
                 action = "HOLD / WAIT (Sug inuu suuqu caddaado)"
@@ -120,11 +119,50 @@ if run_button:
             * **Faahfaahin:** {strat_desc}
             """)
 
-            # --- QODOBKA 1AAD: SHAADHA CANDLESTICK OO WADATA PRICE LINE (TRADINGVIEW STYLE) ---
+            # --- QODOBKA 1AAD: SHAADHA CANDLESTICK OO WADATA PRICE LINE & MULTI-POINT PATTERN ARROWS ---
             annotations_list = []
+            arrow_color = "#00E676" if "BUY" in action or "Bottom" in best_pattern else "#FF1744"
             
+            # 1. Ku darista Fallaaraha meelaha taabashada dhabta ah (Pattern Points: Bottoms, Tops, Shoulders, Head)
+            if pattern_points_str:
+                points = pattern_points_str.split(",")
+                for idx, pt in enumerate(points):
+                    if "_" in pt:
+                        t_val, p_val = pt.split("_", 1)
+                        try:
+                            price_val = float(p_val)
+                            # Si aan u kala saarno magacyada dhibcaha hadba tiradooda
+                            label_txt = f"Point {idx+1}"
+                            if len(points) == 2:
+                                label_txt = "Bottom 1" if idx == 0 else "Bottom 2" if "Bottom" in best_pattern else f"Target {idx+1}"
+                            elif len(points) == 3:
+                                if "Head" in best_pattern:
+                                    label_txt = "Left Shoulder" if idx == 0 else ("Head" if idx == 1 else "Right Shoulder")
+                                else:
+                                    label_txt = f"Touch {idx+1}"
+                            
+                            annotations_list.append(go.layout.Annotation(
+                                x=t_val,
+                                y=price_val,
+                                xref="x",
+                                yref="y",
+                                text=label_txt,
+                                showarrow=True,
+                                arrowhead=2,
+                                arrowsize=1,
+                                arrowcolor=arrow_color,
+                                ax=0,
+                                ay=35 if "Bottom" in action or "BUY" in best_pattern else -35,
+                                bgcolor="rgba(0,0,0,0.8)",
+                                bordercolor=arrow_color,
+                                borderwidth=1,
+                                font=dict(size=9, color="#FFFFFF")
+                            ))
+                        except ValueError:
+                            pass
+
+            # 2. Sanduuqa ugu weyn ee dusha sare ku yaal ee muujinaya Pattern-ka guud
             if best_pattern != 'No Pattern':
-                arrow_color = "#00E676" if "BUY" in action or "Bottom" in best_pattern else "#FF1744"
                 annotations_list.append(go.layout.Annotation(
                     x=df.index[-1],
                     y=current_price,
@@ -169,8 +207,8 @@ if run_button:
                 template="plotly_dark",
                 height=600,
                 annotations=annotations_list,
-                yaxis=dict(tickformat=".4f", side="right") # Xariiqda qiimaha iyo lambarada oo dhinaca midig la geeyay
+                yaxis=dict(tickformat=".4f", side="right") 
             )
             
             st.plotly_chart(fig, use_container_width=True)
-                
+                            
