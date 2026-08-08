@@ -1,287 +1,663 @@
+# ============================================================
+# MOBILE ANALYZER
+# APP.PY
+# ============================================================
+
 import streamlit as st
 import pandas as pd
-import numpy as np
-from pattern_engine import PatternEngine, EngineConfig
+import plotly.graph_objects as go
+
+from swing import (
+    detect_major_swings,
+    analyze_market_structure,
+)
+
+from patterns import (
+    detect_patterns,
+)
+
+
+# ============================================================
+# PAGE
+# ============================================================
 
 st.set_page_config(
-    page_title="Major Pattern Analyzer",
+    page_title="Mobile Analyzer",
     page_icon="📊",
     layout="wide",
 )
 
-st.title("📊 Major Pattern Analyzer")
-st.caption("Chart-pattern analysis using major swings and candle-close confirmation.")
 
-# -----------------------------
-# Sidebar
-# -----------------------------
-with st.sidebar:
-    st.header("Engine Settings")
+# ============================================================
+# TITLE
+# ============================================================
 
-    pivot_left = st.number_input(
-        "Pivot left candles",
-        min_value=1,
-        max_value=10,
-        value=3,
-        step=1,
-    )
-
-    pivot_right = st.number_input(
-        "Pivot right candles",
-        min_value=1,
-        max_value=10,
-        value=3,
-        step=1,
-    )
-
-    min_swing_pct = st.number_input(
-        "Minimum swing %",
-        min_value=0.1,
-        max_value=10.0,
-        value=0.4,
-        step=0.1,
-        format="%.1f",
-    ) / 100
-
-    level_tolerance = st.number_input(
-        "Pattern level tolerance %",
-        min_value=0.5,
-        max_value=10.0,
-        value=2.5,
-        step=0.5,
-        format="%.1f",
-    ) / 100
-
-    breakout_buffer = st.number_input(
-        "Breakout buffer %",
-        min_value=0.0,
-        max_value=2.0,
-        value=0.1,
-        step=0.1,
-        format="%.1f",
-    ) / 100
-
-    min_confidence = st.slider(
-        "Minimum confidence",
-        min_value=50,
-        max_value=95,
-        value=60,
-    )
-
-    st.divider()
-    st.info(
-        "Pattern-ka lama xaqiijinayo wick keliya. "
-        "Engine-ku wuxuu sugayaa candle close marka breakout loo baahan yahay."
-    )
-
-# -----------------------------
-# Config
-# -----------------------------
-config = EngineConfig(
-    pivot_left=int(pivot_left),
-    pivot_right=int(pivot_right),
-    min_swing_pct=float(min_swing_pct),
-    level_tolerance=float(level_tolerance),
-    tight_level_tolerance=min(float(level_tolerance), 0.02),
-    breakout_buffer=float(breakout_buffer),
-    min_confidence=int(min_confidence),
-)
-
-engine = PatternEngine(config)
-
-# -----------------------------
-# Data input
-# -----------------------------
-st.subheader("1. Geli OHLC Data")
-
-uploaded = st.file_uploader(
-    "Upload CSV file",
-    type=["csv"],
-    help="CSV-ga waa inuu leeyahay High, Low, Close. Open iyo Volume waa optional.",
-)
-
-df = None
-
-if uploaded is not None:
-    try:
-        df = pd.read_csv(uploaded)
-    except Exception as e:
-        st.error(f"CSV lama akhrin karin: {e}")
-
-else:
-    st.markdown(
-        "CSV ma haysatid? Hoos ku geli xogta OHLC oo tusaale ahaan leh "
-        "`Open, High, Low, Close, Volume`."
-    )
-
-    sample = pd.DataFrame(
-        {
-            "Open": [100, 101, 103, 102, 105, 108, 106, 104],
-            "High": [102, 104, 105, 106, 109, 110, 108, 106],
-            "Low": [99, 100, 101, 101, 103, 105, 104, 102],
-            "Close": [101, 103, 102, 105, 108, 106, 104, 105],
-            "Volume": [1000] * 8,
-        }
-    )
-
-    if st.checkbox("Show example data"):
-        st.dataframe(sample, use_container_width=True)
-
-# -----------------------------
-# Analysis
-# -----------------------------
-if df is not None:
-    st.subheader("2. Analysis")
-
-    try:
-        result = engine.analyze(df)
-
-        if result.get("error"):
-            st.warning(result["error"])
-        else:
-            patterns = result["patterns"]
-            swings = result["major_swings"]
-            best = result["best_pattern"]
-
-            # Summary
-            c1, c2, c3, c4 = st.columns(4)
-
-            c1.metric("Candles", len(df))
-            c2.metric("Major Swings", len(swings))
-            c3.metric("Patterns", len(patterns))
-
-            if best:
-                c4.metric("Best Pattern", best["pattern"])
-            else:
-                c4.metric("Best Pattern", "None")
-
-            st.divider()
-
-            # Best signal
-            if best:
-                status = best["status"]
-                direction = best["direction"]
-
-                if status == "CONFIRMED":
-                    st.success(
-                        f"✅ CONFIRMED: {best['pattern']} — {direction} "
-                        f"({best['confidence']}%)"
-                    )
-                elif status == "FORMING":
-                    st.warning(
-                        f"⏳ FORMING: {best['pattern']} — {direction} "
-                        f"({best['confidence']}%)"
-                    )
-
-                col1, col2, col3 = st.columns(3)
-
-                col1.write("**Entry**")
-                col1.write(best.get("entry") if best.get("entry") is not None else "-")
-
-                col2.write("**Stop Loss**")
-                col2.write(
-                    best.get("stop_loss")
-                    if best.get("stop_loss") is not None
-                    else "-"
-                )
-
-                col3.write("**Target**")
-                col3.write(
-                    best.get("target")
-                    if best.get("target") is not None
-                    else "-"
-                )
-
-                st.write(f"**Reason:** {best.get('reason', '')}")
-
-            else:
-                st.info(
-                    "Pattern la xaqiijiyey lama helin. "
-                    "Engine-ku wuxuu sugayaa major structure ku habboon."
-                )
-
-            # Pattern table
-            st.subheader("Detected Patterns")
-
-            if patterns:
-                rows = []
-
-                for p in patterns:
-                    rows.append(
-                        {
-                            "Pattern": p["pattern"],
-                            "Status": p["status"],
-                            "Direction": p["direction"],
-                            "Confidence": f"{p['confidence']}%",
-                            "Entry": (
-                                round(p["entry"], 6)
-                                if p.get("entry") is not None
-                                else "-"
-                            ),
-                            "SL": (
-                                round(p["stop_loss"], 6)
-                                if p.get("stop_loss") is not None
-                                else "-"
-                            ),
-                            "Target": (
-                                round(p["target"], 6)
-                                if p.get("target") is not None
-                                else "-"
-                            ),
-                        }
-                    )
-
-                table = pd.DataFrame(rows)
-                st.dataframe(table, use_container_width=True, hide_index=True)
-
-                with st.expander("Pattern details"):
-                    for p in patterns:
-                        st.markdown(
-                            f"### {p['pattern']} — {p['status']}"
-                        )
-                        st.write(
-                            {
-                                "direction": p["direction"],
-                                "confidence": p["confidence"],
-                                "neckline": p.get("neckline"),
-                                "resistance": p.get("resistance"),
-                                "support": p.get("support"),
-                                "entry": p.get("entry"),
-                                "stop_loss": p.get("stop_loss"),
-                                "target": p.get("target"),
-                                "invalidation": p.get("invalidation"),
-                                "reason": p.get("reason"),
-                            }
-                        )
-
-            # Major swings
-            st.subheader("Major Swings")
-
-            if swings:
-                swing_df = pd.DataFrame(swings)
-                st.dataframe(
-                    swing_df,
-                    use_container_width=True,
-                    hide_index=True,
-                )
-            else:
-                st.info("Major swings lama helin.")
-
-            # Raw data
-            with st.expander("OHLC Data"):
-                st.dataframe(df.tail(100), use_container_width=True)
-
-    except Exception as e:
-        st.error(f"Analysis error: {e}")
-        st.exception(e)
-
-else:
-    st.info(
-        "Ku bilow adigoo upload-gareynaya CSV leh High, Low, Close. "
-        "Engine-ku wuxuu markaas baarayaa major swings iyo patterns."
-    )
-
-st.divider()
+st.title("📊 Mobile Analyzer")
 st.caption(
-    "Pattern Analyzer v1 — Structure → Major Swings → Confirmation → Confidence"
+    "Major Swing + ZigZag + Market Structure + Pattern Engine"
 )
+
+
+# ============================================================
+# SIDEBAR
+# ============================================================
+
+st.sidebar.header("Market Data")
+
+uploaded_file = st.sidebar.file_uploader(
+    "Upload OHLC CSV",
+    type=["csv"],
+)
+
+
+# ============================================================
+# DATA LOADER
+# ============================================================
+
+def load_csv(file):
+
+    df = pd.read_csv(file)
+
+    # Normalize column names
+    df.columns = [
+        str(c).strip().lower()
+        for c in df.columns
+    ]
+
+    # Common timestamp names
+    rename = {}
+
+    if "date" in df.columns:
+        rename["date"] = "timestamp"
+
+    if "datetime" in df.columns:
+        rename["datetime"] = "timestamp"
+
+    if "time" in df.columns:
+        rename["time"] = "timestamp"
+
+    df = df.rename(
+        columns=rename
+    )
+
+    required = [
+        "open",
+        "high",
+        "low",
+        "close",
+    ]
+
+    missing = [
+        c for c in required
+        if c not in df.columns
+    ]
+
+    if missing:
+        st.error(
+            f"CSV-ga waxaa ka maqan: {missing}"
+        )
+        st.stop()
+
+    for col in required:
+        df[col] = pd.to_numeric(
+            df[col],
+            errors="coerce"
+        )
+
+    df = df.dropna(
+        subset=required
+    ).reset_index(
+        drop=True
+    )
+
+    return df
+
+
+# ============================================================
+# DEMO DATA
+# ============================================================
+
+def generate_demo():
+
+    import numpy as np
+
+    np.random.seed(42)
+
+    n = 250
+
+    returns = np.random.normal(
+        0,
+        0.008,
+        n
+    )
+
+    close = (
+        100
+        *
+        np.exp(
+            np.cumsum(returns)
+        )
+    )
+
+    open_price = np.roll(
+        close,
+        1
+    )
+
+    open_price[0] = close[0]
+
+    high = np.maximum(
+        open_price,
+        close
+    ) * (
+        1
+        +
+        np.random.uniform(
+            0,
+            0.008,
+            n
+        )
+    )
+
+    low = np.minimum(
+        open_price,
+        close
+    ) * (
+        1
+        -
+        np.random.uniform(
+            0,
+            0.008,
+            n
+        )
+    )
+
+    return pd.DataFrame({
+        "open": open_price,
+        "high": high,
+        "low": low,
+        "close": close,
+    })
+
+
+# ============================================================
+# LOAD DATA
+# ============================================================
+
+if uploaded_file is not None:
+
+    df = load_csv(
+        uploaded_file
+    )
+
+else:
+
+    st.info(
+        "Upload OHLC CSV si aad u falanqayso market-ka."
+    )
+
+    if st.button(
+        "▶ Run Demo"
+    ):
+
+        df = generate_demo()
+
+    else:
+
+        st.stop()
+
+
+# ============================================================
+# DATA CHECK
+# ============================================================
+
+if len(df) < 50:
+
+    st.error(
+        "Engine-ku wuxuu u baahan yahay ugu yaraan 50 candles."
+    )
+
+    st.stop()
+
+
+# ============================================================
+# RUN SWING ENGINE
+# ============================================================
+
+try:
+
+    swing_df = detect_major_swings(
+        df
+    )
+
+except Exception as e:
+
+    st.error(
+        f"Swing Engine Error: {e}"
+    )
+
+    st.stop()
+
+
+# ============================================================
+# MARKET STRUCTURE
+# ============================================================
+
+try:
+
+    structure_result = (
+        analyze_market_structure(
+            swing_df
+        )
+    )
+
+    analysis_df = (
+        structure_result["data"]
+    )
+
+    trend = (
+        structure_result["trend"]
+    )
+
+    latest_bos = (
+        structure_result["bos"]
+    )
+
+    latest_choch = (
+        structure_result["choch"]
+    )
+
+except Exception as e:
+
+    st.error(
+        f"Market Structure Error: {e}"
+    )
+
+    st.stop()
+
+
+# ============================================================
+# PATTERN ENGINE
+# ============================================================
+
+try:
+
+    detected_patterns = detect_patterns(
+        analysis_df
+    )
+
+except Exception as e:
+
+    st.error(
+        f"Pattern Engine Error: {e}"
+    )
+
+    detected_patterns = []
+
+
+# ============================================================
+# TOP METRICS
+# ============================================================
+
+major_swings = (
+    analysis_df[
+        (
+            analysis_df["swing_high"]
+            |
+            analysis_df["swing_low"]
+        )
+    ]
+)
+
+confirmed_patterns = [
+    p
+    for p in detected_patterns
+    if p["confirmation"]
+    == "CONFIRMED"
+]
+
+
+c1, c2, c3, c4, c5 = st.columns(5)
+
+with c1:
+
+    st.metric(
+        "Trend",
+        trend
+    )
+
+with c2:
+
+    st.metric(
+        "Major Swings",
+        len(major_swings)
+    )
+
+with c3:
+
+    st.metric(
+        "BOS",
+        latest_bos or "None"
+    )
+
+with c4:
+
+    st.metric(
+        "CHOCH",
+        latest_choch or "None"
+    )
+
+with c5:
+
+    st.metric(
+        "Confirmed",
+        len(confirmed_patterns)
+    )
+
+
+# ============================================================
+# MAIN CHART
+# ============================================================
+
+st.subheader(
+    "📈 Market Structure Chart"
+)
+
+fig = go.Figure()
+
+
+# ------------------------------------------------------------
+# Candles
+# ------------------------------------------------------------
+
+fig.add_trace(
+    go.Candlestick(
+        x=df.index,
+        open=df["open"],
+        high=df["high"],
+        low=df["low"],
+        close=df["close"],
+        name="Price",
+    )
+)
+
+
+# ============================================================
+# ZIGZAG
+# ============================================================
+
+zigzag = analysis_df[
+    analysis_df["zigzag"].notna()
+]
+
+if len(zigzag) > 1:
+
+    fig.add_trace(
+        go.Scatter(
+            x=zigzag.index,
+            y=zigzag["zigzag"],
+            mode="lines+markers",
+            name="Major ZigZag",
+            line=dict(
+                width=2
+            ),
+        )
+    )
+
+
+# ============================================================
+# SWING HIGH
+# ============================================================
+
+swh = analysis_df[
+    analysis_df["swing_high"]
+]
+
+if len(swh) > 0:
+
+    fig.add_trace(
+        go.Scatter(
+            x=swh.index,
+            y=swh["high"],
+            mode="markers+text",
+            text=["SH"] * len(swh),
+            textposition="top center",
+            name="Major High",
+            marker=dict(
+                size=9,
+                symbol="triangle-up",
+            ),
+        )
+    )
+
+
+# ============================================================
+# SWING LOW
+# ============================================================
+
+swl = analysis_df[
+    analysis_df["swing_low"]
+]
+
+if len(swl) > 0:
+
+    fig.add_trace(
+        go.Scatter(
+            x=swl.index,
+            y=swl["low"],
+            mode="markers+text",
+            text=["SL"] * len(swl),
+            textposition="bottom center",
+            name="Major Low",
+            marker=dict(
+                size=9,
+                symbol="triangle-down",
+            ),
+        )
+    )
+
+
+# ============================================================
+# STRUCTURE LABELS
+# ============================================================
+
+structure_rows = analysis_df[
+    analysis_df["structure"].notna()
+]
+
+if len(structure_rows) > 0:
+
+    fig.add_trace(
+        go.Scatter(
+            x=structure_rows.index,
+            y=structure_rows["close"],
+            mode="text",
+            text=structure_rows[
+                "structure"
+            ],
+            textposition="middle center",
+            name="Structure",
+        )
+    )
+
+
+# ============================================================
+# BOS / CHOCH
+# ============================================================
+
+bos_rows = analysis_df[
+    analysis_df["BOS"].notna()
+]
+
+if len(bos_rows) > 0:
+
+    fig.add_trace(
+        go.Scatter(
+            x=bos_rows.index,
+            y=bos_rows["close"],
+            mode="markers+text",
+            text=bos_rows["BOS"],
+            textposition="top center",
+            name="BOS",
+            marker=dict(
+                size=11,
+                symbol="diamond",
+            ),
+        )
+    )
+
+
+choch_rows = analysis_df[
+    analysis_df["CHOCH"].notna()
+]
+
+if len(choch_rows) > 0:
+
+    fig.add_trace(
+        go.Scatter(
+            x=choch_rows.index,
+            y=choch_rows["close"],
+            mode="markers+text",
+            text=choch_rows["CHOCH"],
+            textposition="bottom center",
+            name="CHOCH",
+            marker=dict(
+                size=11,
+                symbol="star",
+            ),
+        )
+    )
+
+
+# ============================================================
+# LAYOUT
+# ============================================================
+
+fig.update_layout(
+    height=700,
+    xaxis_rangeslider_visible=False,
+    hovermode="x unified",
+)
+
+st.plotly_chart(
+    fig,
+    use_container_width=True
+)
+
+
+# ============================================================
+# PATTERN RESULTS
+# ============================================================
+
+st.subheader(
+    "🔎 Detected Patterns"
+)
+
+if not detected_patterns:
+
+    st.warning(
+        "Pattern lama helin oo buuxiyay shuruudaha strict engine-ka."
+    )
+
+else:
+
+    rows = []
+
+    for p in detected_patterns:
+
+        rows.append({
+            "Pattern": p["pattern"],
+            "Direction": p["direction"],
+            "Confidence": f'{p["confidence"]}%',
+            "Quality": p["quality"],
+            "Status": p["confirmation"],
+        })
+
+    st.dataframe(
+        pd.DataFrame(rows),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
+# ============================================================
+# BEST PATTERN
+# ============================================================
+
+if detected_patterns:
+
+    best = detected_patterns[0]
+
+    st.subheader(
+        "🏆 Best Pattern"
+    )
+
+    b1, b2, b3, b4 = st.columns(4)
+
+    with b1:
+        st.metric(
+            "Pattern",
+            best["pattern"]
+        )
+
+    with b2:
+        st.metric(
+            "Direction",
+            best["direction"]
+        )
+
+    with b3:
+        st.metric(
+            "Confidence",
+            f'{best["confidence"]}%'
+        )
+
+    with b4:
+        st.metric(
+            "Status",
+            best["confirmation"]
+        )
+
+    st.write(
+        "### Pattern Details"
+    )
+
+    st.json(
+        best["details"]
+    )
+
+
+# ============================================================
+# RAW STRUCTURE DATA
+# ============================================================
+
+with st.expander(
+    "🧩 Show Market Structure Data"
+):
+
+    columns = [
+        "open",
+        "high",
+        "low",
+        "close",
+        "swing_high",
+        "swing_low",
+        "zigzag",
+        "zigzag_type",
+        "structure",
+        "BOS",
+        "CHOCH",
+    ]
+
+    available = [
+        c
+        for c in columns
+        if c in analysis_df.columns
+    ]
+
+    st.dataframe(
+        analysis_df[
+            available
+        ].tail(100),
+        use_container_width=True,
+        )
