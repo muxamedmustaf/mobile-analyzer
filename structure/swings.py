@@ -1,262 +1,704 @@
-import pandas as pd
+# ============================================================
+# MOBILE ANALYZER
+# SWING.PY
+# STRICT 50-CANDLE MAJOR ZIGZAG ENGINE
+# ============================================================
+
 import numpy as np
+import pandas as pd
 
-def calculate_zigzag(df: pd.DataFrame, period=10, deviation=5.0, backstep=5) -> pd.DataFrame:
-    """
-    Xisaabinta ZigZag dhab ah oo ku saleysan Period, Deviation (%), iyo Backstep 
-    adigoo meesha ka saaray ATR gebi ahaanba.
-    """
+
+# ============================================================
+# SETTINGS
+# ============================================================
+
+LOOKBACK = 50
+
+# Higher = fewer but stronger major swings
+ZIGZAG_THRESHOLD = 0.012
+
+# Minimum candles between major swings
+MIN_SWING_DISTANCE = 2
+
+# Maximum swings retained
+MAX_SWINGS = 30
+
+
+# ============================================================
+# VALIDATION
+# ============================================================
+
+def _validate(df):
+
+    required = [
+        "open",
+        "high",
+        "low",
+        "close",
+    ]
+
+    missing = [
+        c for c in required
+        if c not in df.columns
+    ]
+
+    if missing:
+        raise ValueError(
+            f"Missing OHLC columns: {missing}"
+        )
+
+    if len(df) < LOOKBACK:
+        raise ValueError(
+            f"At least {LOOKBACK} candles are required."
+        )
+
+
+# ============================================================
+# PIVOT DETECTION
+# ============================================================
+
+def _candidate_pivots(df):
+
+    pivots = []
+
+    high_values = df["high"].values
+    low_values = df["low"].values
+
+    # Use local neighborhood
+    window = 3
+
+    for i in range(
+        window,
+        len(df) - window
+    ):
+
+        current_high = high_values[i]
+        current_low = low_values[i]
+
+        left_highs = high_values[
+            i - window:i
+        ]
+
+        right_highs = high_values[
+            i + 1:i + window + 1
+        ]
+
+        left_lows = low_values[
+            i - window:i
+        ]
+
+        right_lows = low_values[
+            i + 1:i + window + 1
+        ]
+
+        is_high = (
+            current_high >= left_highs.max()
+            and
+            current_high >= right_highs.max()
+        )
+
+        is_low = (
+            current_low <= left_lows.min()
+            and
+            current_low <= right_lows.min()
+        )
+
+        if is_high:
+            pivots.append({
+                "index": i,
+                "type": "HIGH",
+                "price": float(
+                    current_high
+                ),
+            })
+
+        if is_low:
+            pivots.append({
+                "index": i,
+                "type": "LOW",
+                "price": float(
+                    current_low
+                ),
+            })
+
+    return pivots
+
+
+# ============================================================
+# ZIGZAG FILTER
+# ============================================================
+
+def _build_zigzag(
+    pivots,
+    threshold=ZIGZAG_THRESHOLD
+):
+
+    if not pivots:
+        return []
+
+    pivots = sorted(
+        pivots,
+        key=lambda x: x["index"]
+    )
+
+    result = []
+
+    for pivot in pivots:
+
+        if not result:
+
+            result.append(
+                pivot.copy()
+            )
+            continue
+
+        last = result[-1]
+
+        # ----------------------------------------------------
+        # Same type:
+        # keep the stronger extreme
+        # ----------------------------------------------------
+
+        if pivot["type"] == last["type"]:
+
+            if pivot["type"] == "HIGH":
+
+                if pivot["price"] > last["price"]:
+                    result[-1] = pivot.copy()
+
+            else:
+
+                if pivot["price"] < last["price"]:
+                    result[-1] = pivot.copy()
+
+            continue
+
+        # ----------------------------------------------------
+        # Opposite type:
+        # check price movement
+        # ----------------------------------------------------
+
+        movement = (
+            abs(
+                pivot["price"]
+                -
+                last["price"]
+            )
+            /
+            last["price"]
+        )
+
+        if movement < threshold:
+            continue
+
+        candle_gap = (
+            pivot["index"]
+            -
+            last["index"]
+        )
+
+        if candle_gap < MIN_SWING_DISTANCE:
+            continue
+
+        result.append(
+            pivot.copy()
+        )
+
+    return result
+
+
+# ============================================================
+# STRUCTURE CLASSIFICATION
+# ============================================================
+
+def _classify_structure(swings):
+
+    labels = []
+
+    previous_high = None
+    previous_low = None
+
+    for swing in swings:
+
+        label = None
+
+        if swing["type"] == "HIGH":
+
+            if previous_high is None:
+
+                label = "H"
+
+            elif swing["price"] > previous_high:
+
+                label = "HH"
+
+            else:
+
+                label = "LH"
+
+            previous_high = swing["price"]
+
+        else:
+
+            if previous_low is None:
+
+                label = "L"
+
+            elif swing["price"] > previous_low:
+
+                label = "HL"
+
+            else:
+
+                label = "LL"
+
+            previous_low = swing["price"]
+
+        item = swing.copy()
+
+        item["structure"] = label
+
+        labels.append(item)
+
+    return labels
+
+
+# ============================================================
+# TREND
+# ============================================================
+
+def _get_trend(swings):
+
+    if len(swings) < 4:
+        return "UNKNOWN"
+
+    recent = swings[-6:]
+
+    highs = [
+        s for s in recent
+        if s["type"] == "HIGH"
+    ]
+
+    lows = [
+        s for s in recent
+        if s["type"] == "LOW"
+    ]
+
+    bullish = False
+    bearish = False
+
+    if len(highs) >= 2:
+
+        bullish_highs = (
+            highs[-1]["price"]
+            >
+            highs[-2]["price"]
+        )
+
+        bearish_highs = (
+            highs[-1]["price"]
+            <
+            highs[-2]["price"]
+        )
+
+    else:
+
+        bullish_highs = False
+        bearish_highs = False
+
+    if len(lows) >= 2:
+
+        bullish_lows = (
+            lows[-1]["price"]
+            >
+            lows[-2]["price"]
+        )
+
+        bearish_lows = (
+            lows[-1]["price"]
+            <
+            lows[-2]["price"]
+        )
+
+    else:
+
+        bullish_lows = False
+        bearish_lows = False
+
+    if (
+        bullish_highs
+        and
+        bullish_lows
+    ):
+        bullish = True
+
+    if (
+        bearish_highs
+        and
+        bearish_lows
+    ):
+        bearish = True
+
+    if bullish:
+        return "BULLISH"
+
+    if bearish:
+        return "BEARISH"
+
+    return "RANGING"
+
+
+# ============================================================
+# BOS / CHOCH
+# ============================================================
+
+def _structure_events(
+    df,
+    swings
+):
+
+    bos = [None] * len(df)
+    choch = [None] * len(df)
+
+    if len(swings) < 3:
+        return bos, choch
+
+    trend = "UNKNOWN"
+
+    last_high = None
+    last_low = None
+
+    for swing in swings:
+
+        if swing["type"] == "HIGH":
+
+            if last_high is not None:
+
+                if (
+                    swing["price"]
+                    >
+                    last_high
+                ):
+
+                    if trend == "BEARISH":
+
+                        choch[
+                            swing["index"]
+                        ] = "CHOCH ↑"
+
+                    else:
+
+                        bos[
+                            swing["index"]
+                        ] = "BOS ↑"
+
+                    trend = "BULLISH"
+
+            last_high = swing["price"]
+
+        else:
+
+            if last_low is not None:
+
+                if (
+                    swing["price"]
+                    <
+                    last_low
+                ):
+
+                    if trend == "BULLISH":
+
+                        choch[
+                            swing["index"]
+                        ] = "CHOCH ↓"
+
+                    else:
+
+                        bos[
+                            swing["index"]
+                        ] = "BOS ↓"
+
+                    trend = "BEARISH"
+
+            last_low = swing["price"]
+
+    return bos, choch
+
+
+# ============================================================
+# MAIN ENGINE
+# ============================================================
+
+def detect_major_swings(
+    df,
+    threshold=ZIGZAG_THRESHOLD
+):
+
+    _validate(df)
+
     df = df.copy()
-    df['ZigZag'] = np.nan
-    df['Swing_Type'] = None
-    
-    highs = df['High'].values
-    lows = df['Low'].values
-    n = len(df)
-    
-    if n < period:
-        return df
 
-    last_pivot_idx = 0
-    last_pivot_val = highs[0]
-    trend = 0  # 1 = up, -1 = down
-    
-    for i in range(period, n):
-        current_high = highs[i]
-        current_low = lows[i]
-        
-        if trend == 0:
-            if current_high >= last_pivot_val * (1 + deviation / 100.0):
-                trend = 1
-                last_pivot_idx = i
-                last_pivot_val = current_high
-            elif current_low <= last_pivot_val * (1 - deviation / 100.0):
-                trend = -1
-                last_pivot_idx = i
-                last_pivot_val = current_low
-        elif trend == 1:
-            if current_high >= last_pivot_val:
-                last_pivot_val = current_high
-                last_pivot_idx = i
-            elif current_low <= last_pivot_val * (1 - deviation / 100.0):
-                # Saxitaanka Swing High oo la xaqiijiyay
-                df.loc[df.index[last_pivot_idx], 'ZigZag'] = last_pivot_val
-                df.loc[df.index[last_pivot_idx], 'Swing_Type'] = 'High'
-                trend = -1
-                last_pivot_val = current_low
-                last_pivot_idx = i
-        elif trend == -1:
-            if current_low <= last_pivot_val:
-                last_pivot_val = current_low
-                last_pivot_idx = i
-            elif current_high >= last_pivot_val * (1 + deviation / 100.0):
-                # Saxitaanka Swing Low oo la xaqiijiyay
-                df.loc[df.index[last_pivot_idx], 'ZigZag'] = last_pivot_val
-                df.loc[df.index[last_pivot_idx], 'Swing_Type'] = 'Low'
-                trend = 1
-                last_pivot_val = current_high
-                last_pivot_idx = i
-                
-    return df
+    # --------------------------------------------------------
+    # Keep original index
+    # --------------------------------------------------------
 
-def detect_chart_patterns(df: pd.DataFrame) -> pd.DataFrame:
-    df['Pattern'] = 'No Pattern'
-    df['Pattern_Points'] = ""
-    
-    required = ['High', 'Low', 'Close']
-    for col in required:
-        if col not in df.columns:
-            return df
+    df = df.reset_index(
+        drop=True
+    )
 
-    # Ku shaqaynta ZigZag oo kaliya (Period=10, Deviation=5.0, Backstep=5)
-    df = calculate_zigzag(df, period=10, deviation=5.0, backstep=5)
-    
-    highs = df[df['Swing_Type'] == 'High']['ZigZag'].dropna()
-    lows = df[df['Swing_Type'] == 'Low']['ZigZag'].dropna()
-    
-    if len(highs) < 5 or len(lows) < 5:
-        return df
+    # --------------------------------------------------------
+    # Only last 50 candles are used
+    # for major swing analysis
+    # --------------------------------------------------------
 
-    scored_patterns = []
-    pattern_coords = {}
-    
-    current_close = df['Close'].iloc[-1]
+    analysis_start = max(
+        0,
+        len(df) - LOOKBACK
+    )
 
-    h_dates = highs.index[-5:]
-    l_dates = lows.index[-5:]
-    
-    h1, h2, h3, h4, h5 = highs.iloc[-5], highs.iloc[-4], highs.iloc[-3], highs.iloc[-2], highs.iloc[-1]
-    l1, l2, l3, l4, l5 = lows.iloc[-5], lows.iloc[-4], lows.iloc[-3], lows.iloc[-2], lows.iloc[-1]
+    work = df.iloc[
+        analysis_start:
+    ].copy()
 
-    # --- 1. DOUBLE TOP (Farqiga ≤ 0.5%) ---
-    if abs(h5 - h4) / h4 <= 0.005:
-        between_lows = lows[(lows.index > h_dates[3]) & (lows.index < h_dates[4])]
-        if not between_lows.empty and current_close < between_lows.iloc[-1]:
-            scored_patterns.append(("Double Top", 96.0))
-            pattern_coords["Double Top"] = [(h_dates[3], h4, "Top 1"), (h_dates[4], h5, "Top 2")]
+    # --------------------------------------------------------
+    # Candidate pivots
+    # --------------------------------------------------------
 
-    # --- 2. DOUBLE BOTTOM (Farqiga ≤ 0.5%) ---
-    if abs(l5 - l4) / l4 <= 0.005:
-        between_highs = highs[(highs.index > l_dates[3]) & (highs.index < l_dates[4])]
-        if not between_highs.empty and current_close > between_highs.iloc[-1]:
-            scored_patterns.append(("Double Bottom", 96.0))
-            pattern_coords["Double Bottom"] = [(l_dates[3], l4, "Bottom 1"), (l_dates[4], l5, "Bottom 2")]
+    candidates = _candidate_pivots(
+        work
+    )
 
-    # --- 3. TRIPLE TOP (Farqiga kasta ≤ 0.5%) ---
-    if (abs(h5 - h4) / h4 <= 0.005) and (abs(h4 - h3) / h3 <= 0.005):
-        between_lows = lows[(lows.index > h_dates[2]) & (lows.index < h_dates[4])]
-        if not between_lows.empty and current_close < between_lows.min():
-            scored_patterns.append(("Triple Top", 97.0))
-            pattern_coords["Triple Top"] = [(h_dates[2], h3, "Top 1"), (h_dates[3], h4, "Top 2"), (h_dates[4], h5, "Top 3")]
+    # Convert local indexes to global indexes
+    for pivot in candidates:
 
-    # --- 4. TRIPLE BOTTOM (Farqiga kasta ≤ 0.5%) ---
-    if (abs(l5 - l4) / l4 <= 0.005) and (abs(l4 - l3) / l3 <= 0.005):
-        between_highs = highs[(highs.index > l_dates[2]) & (highs.index < l_dates[4])]
-        if not between_highs.empty and current_close > between_highs.max():
-            scored_patterns.append(("Triple Bottom", 97.0))
-            pattern_coords["Triple Bottom"] = [(l_dates[2], l3, "Bottom 1"), (l_dates[3], l4, "Bottom 2"), (l_dates[4], l5, "Bottom 3")]
+        pivot["index"] += analysis_start
 
-    # --- 5. HEAD AND SHOULDERS ---
-    if h4 > h3 and h4 > h5 and abs(h3 - h5) / h5 <= 0.01:
-        between_lows = lows[(lows.index > h_dates[2]) & (lows.index < h_dates[4])]
-        if not between_lows.empty and current_close < between_lows.min():
-            scored_patterns.append(("Head and Shoulders", 95.0))
-            pattern_coords["Head and Shoulders"] = [(h_dates[2], h3, "Left Shoulder"), (h_dates[3], h4, "Head"), (h_dates[4], h5, "Right Shoulder")]
+    # --------------------------------------------------------
+    # Strict ZigZag
+    # --------------------------------------------------------
 
-    # --- 6. INVERSE HEAD AND SHOULDERS ---
-    if l4 < l3 and l4 < l5 and abs(l3 - l5) / l5 <= 0.01:
-        between_highs = highs[(highs.index > l_dates[2]) & (highs.index < l_dates[4])]
-        if not between_highs.empty and current_close > between_highs.max():
-            scored_patterns.append(("Inverse Head and Shoulders", 95.0))
-            pattern_coords["Inverse Head and Shoulders"] = [(l_dates[2], l3, "Left Low"), (l_dates[3], l4, "Head Low"), (l_dates[4], l5, "Right Low")]
+    zigzag = _build_zigzag(
+        candidates,
+        threshold
+    )
 
-    # --- 7. ASCENDING TRIANGLE ---
-    if abs(h5 - h4) / h4 <= 0.005 and l5 > l4 and current_close > h5:
-        scored_patterns.append(("Ascending Triangle", 93.0))
-        pattern_coords["Ascending Triangle"] = [(h_dates[3], h4, "Resistance 1"), (h_dates[4], h5, "Resistance 2")]
+    # --------------------------------------------------------
+    # Structure
+    # --------------------------------------------------------
 
-    # --- 8. DESCENDING TRIANGLE ---
-    if abs(l5 - l4) / l4 <= 0.005 and h5 < h4 and current_close < l5:
-        scored_patterns.append(("Descending Triangle", 93.0))
-        pattern_coords["Descending Triangle"] = [(l_dates[3], l4, "Support 1"), (l_dates[4], l5, "Support 2")]
+    structured = _classify_structure(
+        zigzag
+    )
 
-    # --- 9. SYMMETRICAL TRIANGLE ---
-    if h5 < h4 and l5 > l4:
-        scored_patterns.append(("Symmetrical Triangle", 90.0))
-        pattern_coords["Symmetrical Triangle"] = [(h_dates[4], h5, "High"), (l_dates[4], l5, "Low")]
+    # --------------------------------------------------------
+    # Output columns
+    # --------------------------------------------------------
 
-    # --- 10. RISING WEDGE ---
-    if h5 > h4 and l5 > l4 and (h5 - h4) < (l5 - l4) and current_close < l5:
-        scored_patterns.append(("Rising Wedge", 91.0))
-        pattern_coords["Rising Wedge"] = [(h_dates[4], h5, "High"), (l_dates[4], l5, "Low")]
+    df["swing_high"] = False
+    df["swing_low"] = False
 
-    # --- 11. FALLING WEDGE ---
-    if h5 < h4 and l5 < l4 and (h4 - h5) < (l4 - l5) and current_close > h5:
-        scored_patterns.append(("Falling Wedge", 91.0))
-        pattern_coords["Falling Wedge"] = [(h_dates[4], h5, "High"), (l_dates[4], l5, "Low")]
+    df["zigzag"] = np.nan
+    df["zigzag_type"] = None
 
-    # --- 12. BULL FLAG ---
-    if h5 > h3 and l5 > l3 and current_close > h5:
-        scored_patterns.append(("Bull Flag", 92.0))
-        pattern_coords["Bull Flag"] = [(h_dates[4], h5, "Flag High"), (l_dates[4], l5, "Flag Low")]
+    df["structure"] = None
 
-    # --- 13. BEAR FLAG ---
-    if h5 < h3 and l5 < l3 and current_close < l5:
-        scored_patterns.append(("Bear Flag", 92.0))
-        pattern_coords["Bear Flag"] = [(h_dates[4], h5, "Flag High"), (l_dates[4], l5, "Flag Low")]
+    # --------------------------------------------------------
+    # Mark swings
+    # --------------------------------------------------------
 
-    # --- 14. BULL PENNANT ---
-    if h5 < h4 and l5 > l4 and current_close > h5:
-        scored_patterns.append(("Bull Pennant", 90.0))
-        pattern_coords["Bull Pennant"] = [(h_dates[4], h5, "Pennant Top"), (l_dates[4], l5, "Pennant Bottom")]
+    for swing in structured:
 
-    # --- 15. BEAR PENNANT ---
-    if h5 < h4 and l5 > l4 and current_close < l5:
-        scored_patterns.append(("Bear Pennant", 90.0))
-        pattern_coords["Bear Pennant"] = [(h_dates[4], h5, "Pennant Top"), (l_dates[4], l5, "Pennant Bottom")]
+        idx = swing["index"]
 
-    # --- 16. RECTANGLE ---
-    if abs(h5 - h4) / h4 <= 0.005 and abs(l5 - l4) / l4 <= 0.005:
-        scored_patterns.append(("Rectangle", 92.0))
-        pattern_coords["Rectangle"] = [(h_dates[4], h5, "Resistance"), (l_dates[4], l5, "Support")]
+        if idx < 0 or idx >= len(df):
+            continue
 
-    # --- 17. CUP AND HANDLE ---
-    if l5 > l4 and h5 < h4 and current_close > h4:
-        scored_patterns.append(("Cup and Handle", 94.0))
-        pattern_coords["Cup and Handle"] = [(l_dates[4], l5, "Handle Low"), (h_dates[4], h4, "Rim")]
+        if swing["type"] == "HIGH":
 
-    # --- 18. ROUNDING BOTTOM ---
-    if l5 > l4 and l4 < l3 and current_close > h5:
-        scored_patterns.append(("Rounding Bottom", 93.0))
-        pattern_coords["Rounding Bottom"] = [(l_dates[4], l5, "Bottom Center")]
+            df.loc[
+                idx,
+                "swing_high"
+            ] = True
 
-    # --- 19. BROADENING FORMATION ---
-    if h5 > h4 and l5 < l4:
-        scored_patterns.append(("Broadening Formation", 89.0))
-        pattern_coords["Broadening Formation"] = [(h_dates[4], h5, "High"), (l_dates[4], l5, "Low")]
+        else:
 
-    # --- 20. DIAMOND TOP ---
-    if h5 < h4 and l5 > l4 and current_close < l5:
-        scored_patterns.append(("Diamond Top", 95.0))
-        pattern_coords["Diamond Top"] = [(h_dates[4], h5, "Apex High"), (l_dates[4], l5, "Apex Low")]
+            df.loc[
+                idx,
+                "swing_low"
+            ] = True
 
-    # --- 21. TRIPLE TOP REVERSAL ---
-    if (abs(h5 - h4) / h4 <= 0.005) and current_close < l5:
-        scored_patterns.append(("Triple Top Reversal", 96.0))
-        pattern_coords["Triple Top Reversal"] = [(h_dates[4], h5, "Top 3")]
+        df.loc[
+            idx,
+            "zigzag"
+        ] = swing["price"]
 
-    # --- 22. TRIPLE BOTTOM REVERSAL ---
-    if (abs(l5 - l4) / l4 <= 0.005) and current_close > h5:
-        scored_patterns.append(("Triple Bottom Reversal", 96.0))
-        pattern_coords["Triple Bottom Reversal"] = [(l_dates[4], l5, "Bottom 3")]
+        df.loc[
+            idx,
+            "zigzag_type"
+        ] = swing["type"]
 
-    # --- 23. BUMP AND RUN REVERSAL ---
-    if h5 > h4 * 1.05:
-        scored_patterns.append(("Bump and Run Reversal", 91.0))
-        pattern_coords["Bump and Run Reversal"] = [(h_dates[4], h5, "Bump High")]
+        df.loc[
+            idx,
+            "structure"
+        ] = swing["structure"]
 
-    # --- 24. HOOK REVERSAL ---
-    if h5 > h4 and current_close < df['Close'].iloc[-2]:
-        scored_patterns.append(("Hook Reversal", 88.0))
-        pattern_coords["Hook Reversal"] = [(h_dates[4], h5, "Hook High")]
+    # --------------------------------------------------------
+    # BOS / CHOCH
+    # --------------------------------------------------------
 
-    # --- 25. ISLAND REVERSAL ---
-    if abs(df['Low'].iloc[-1] - df['High'].iloc[-2]) > (df['Close'].iloc[-1] * 0.01):
-        scored_patterns.append(("Island Reversal", 94.0))
-        pattern_coords["Island Reversal"] = [(df.index[-1], current_close, "Island")]
+    bos, choch = _structure_events(
+        df,
+        structured
+    )
 
-    # --- 26. TRAY PATTERN ---
-    if abs(l5 - l4) / l4 <= 0.005 and h5 > h4:
-        scored_patterns.append(("Tray Pattern", 89.0))
-        pattern_coords["Tray Pattern"] = [(l_dates[4], l5, "Tray Base")]
+    df["BOS"] = bos
+    df["CHOCH"] = choch
 
-    # --- 27. PIPE TOP ---
-    if abs(h5 - h4) / h4 <= 0.002 and current_close < l5:
-        scored_patterns.append(("Pipe Top", 90.0))
-        pattern_coords["Pipe Top"] = [(h_dates[4], h5, "Pipe")]
+    # --------------------------------------------------------
+    # Trend
+    # --------------------------------------------------------
 
-    # --- 28. PIPE BOTTOM ---
-    if abs(l5 - l4) / l4 <= 0.002 and current_close > h5:
-        scored_patterns.append(("Pipe Bottom", 90.0))
-        pattern_coords["Pipe Bottom"] = [(l_dates[4], l5, "Pipe")]
+    trend = _get_trend(
+        structured
+    )
 
-    # --- 29. TOWER TOP ---
-    if h5 > h4 and current_close < l5:
-        scored_patterns.append(("Tower Top", 91.0))
-        pattern_coords["Tower Top"] = [(h_dates[4], h5, "Tower")]
+    # --------------------------------------------------------
+    # Swing list
+    # --------------------------------------------------------
 
-    # --- 30. TOWER BOTTOM ---
-    if l5 < l4 and current_close > h5:
-        scored_patterns.append(("Tower Bottom", 91.0))
-        pattern_coords["Tower Bottom"] = [(l_dates[4], l5, "Tower")]
+    recent_swings = structured[
+        -MAX_SWINGS:
+    ]
 
-    if scored_patterns:
-        scored_patterns.sort(key=lambda x: x[1], reverse=True)
-        best = scored_patterns[0]
-        df.loc[df.index[-1], 'Pattern'] = best[0]
-        if best[0] in pattern_coords:
-            pts = [f"{time}_{val}_{label}" for time, val, label in pattern_coords[best[0]]]
-            df.loc[df.index[-1], 'Pattern_Points'] = ",".join(pts)
+    # --------------------------------------------------------
+    # Attach useful metadata
+    # --------------------------------------------------------
+
+    df.attrs["major_swings"] = (
+        recent_swings
+    )
+
+    df.attrs["trend"] = trend
+
+    df.attrs["zigzag_threshold"] = (
+        threshold
+    )
+
+    df.attrs["lookback"] = LOOKBACK
 
     return df
-    
+
+
+# ============================================================
+# MARKET STRUCTURE ANALYSIS
+# ============================================================
+
+def analyze_market_structure(
+    df,
+    threshold=ZIGZAG_THRESHOLD
+):
+
+    result = detect_major_swings(
+        df,
+        threshold
+    )
+
+    swings = result.attrs.get(
+        "major_swings",
+        []
+    )
+
+    trend = result.attrs.get(
+        "trend",
+        "UNKNOWN"
+    )
+
+    # Latest BOS
+    bos_values = result[
+        result["BOS"].notna()
+    ]["BOS"]
+
+    latest_bos = (
+        bos_values.iloc[-1]
+        if len(bos_values)
+        else None
+    )
+
+    # Latest CHOCH
+    choch_values = result[
+        result["CHOCH"].notna()
+    ]["CHOCH"]
+
+    latest_choch = (
+        choch_values.iloc[-1]
+        if len(choch_values)
+        else None
+    )
+
+    return {
+        "data": result,
+        "swings": swings,
+        "trend": trend,
+        "bos": latest_bos,
+        "choch": latest_choch,
+    }
+
+
+# ============================================================
+# GET MAJOR SWINGS ONLY
+# ============================================================
+
+def get_major_swings(
+    df,
+    threshold=ZIGZAG_THRESHOLD
+):
+
+    result = detect_major_swings(
+        df,
+        threshold
+    )
+
+    return result.attrs.get(
+        "major_swings",
+        []
+    )
+
+
+# ============================================================
+# GET LATEST STRUCTURE
+# ============================================================
+
+def get_latest_structure(
+    df,
+    threshold=ZIGZAG_THRESHOLD
+):
+
+    swings = get_major_swings(
+        df,
+        threshold
+    )
+
+    if not swings:
+        return None
+
+    return swings[-1]
+
+
+# ============================================================
+# GET TREND
+# ============================================================
+
+def get_trend(
+    df,
+    threshold=ZIGZAG_THRESHOLD
+):
+
+    result = detect_major_swings(
+        df,
+        threshold
+    )
+
+    return result.attrs.get(
+        "trend",
+        "UNKNOWN"
+        )
