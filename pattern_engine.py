@@ -881,4 +881,710 @@ def detect_head_shoulders(swings, close):
                 ),
                 entry=neckline,
                 tp1=(
-                    ne
+                    neckline - target_distance
+                ),
+                tp2=(
+                    neckline -
+                    target_distance * 1.5
+                ),
+                sl=head["price"] * 1.003,
+                confirmation=_confirmation_text(
+                    confirmed,
+                    "bearish"
+                ),
+                metadata={
+                    "shoulder_similarity":
+                        shoulder_similarity,
+                    "swing_count": 5,
+                },
+            )
+        )
+
+    return _best_candidate(candidates)
+
+
+# ============================================================
+# INVERSE HEAD & SHOULDERS
+# ============================================================
+
+def detect_inverse_head_shoulders(swings, close):
+    candidates = []
+
+    for s in _scan_windows(swings, 5):
+        if not _valid_alternating_window(
+            s,
+            ["LOW", "HIGH", "LOW", "HIGH", "LOW"]
+        ):
+            continue
+
+        left, neck1, head, neck2, right = s
+
+        shoulder_similarity = _distance(
+            left["price"],
+            right["price"]
+        )
+
+        if shoulder_similarity > SIMILARITY_SHOULDER:
+            continue
+
+        if not (
+            head["price"] < left["price"]
+            and
+            head["price"] < right["price"]
+        ):
+            continue
+
+        neckline = (
+            neck1["price"] +
+            neck2["price"]
+        ) / 2.0
+
+        target_distance = (
+            neckline - head["price"]
+        )
+
+        if target_distance <= 0:
+            continue
+
+        left_head_gap = _safe_div(
+            left["price"] - head["price"],
+            max(abs(head["price"]), 1e-12)
+        )
+
+        right_head_gap = _safe_div(
+            right["price"] - head["price"],
+            max(abs(head["price"]), 1e-12)
+        )
+
+        if (
+            left_head_gap < MIN_STRUCTURE_RATIO
+            or
+            right_head_gap < MIN_STRUCTURE_RATIO
+        ):
+            continue
+
+        confirmed = _bullish_confirmation(
+            close,
+            neckline
+        )
+
+        quality = 84
+
+        if shoulder_similarity <= 0.015:
+            quality += 6
+        elif shoulder_similarity <= 0.03:
+            quality += 3
+
+        if confirmed:
+            quality += 8
+
+        candidates.append(
+            _make_pattern(
+                name="Inverse Head & Shoulders",
+                direction="BULLISH",
+                quality=quality,
+                status=(
+                    "CONFIRMED"
+                    if confirmed
+                    else "FORMING"
+                ),
+                reason=(
+                    "Major left shoulder, lower head, "
+                    "and structurally similar right "
+                    "shoulder are detected."
+                ),
+                entry=neckline,
+                tp1=(
+                    neckline + target_distance
+                ),
+                tp2=(
+                    neckline +
+                    target_distance * 1.5
+                ),
+                sl=head["price"] * 0.997,
+                confirmation=_confirmation_text(
+                    confirmed,
+                    "bullish"
+                ),
+                metadata={
+                    "shoulder_similarity":
+                        shoulder_similarity,
+                    "swing_count": 5,
+                },
+            )
+        )
+
+    return _best_candidate(candidates)
+
+
+# ============================================================
+# ASCENDING TRIANGLE
+# ============================================================
+
+def detect_ascending_triangle(swings, close):
+    candidates = []
+
+    for s in _scan_windows(swings, 4):
+        if not _valid_alternating_window(
+            s,
+            ["HIGH", "LOW", "HIGH", "LOW"]
+        ):
+            continue
+
+        h1, l1, h2, l2 = s
+
+        resistance_similarity = _distance(
+            h1["price"],
+            h2["price"]
+        )
+
+        if resistance_similarity > TRIANGLE_RESISTANCE_TOL:
+            continue
+
+        if not (
+            l2["price"] > l1["price"]
+        ):
+            continue
+
+        resistance = (
+            h1["price"] +
+            h2["price"]
+        ) / 2.0
+
+        lower_support = min(
+            l1["price"],
+            l2["price"]
+        )
+
+        height = resistance - lower_support
+
+        if height <= 0:
+            continue
+
+        confirmed = _bullish_confirmation(
+            close,
+            resistance
+        )
+
+        quality = 78
+
+        if resistance_similarity <= 0.01:
+            quality += 6
+        elif resistance_similarity <= 0.018:
+            quality += 3
+
+        if confirmed:
+            quality += 8
+
+        candidates.append(
+            _make_pattern(
+                name="Ascending Triangle",
+                direction="BULLISH",
+                quality=quality,
+                status=(
+                    "CONFIRMED"
+                    if confirmed
+                    else "FORMING"
+                ),
+                reason=(
+                    "Two major highs form a common "
+                    "resistance while the two major "
+                    "lows rise."
+                ),
+                entry=resistance,
+                tp1=resistance + height,
+                tp2=resistance + height * 1.5,
+                sl=lower_support * 0.997,
+                confirmation=_confirmation_text(
+                    confirmed,
+                    "bullish"
+                ),
+                metadata={
+                    "resistance_similarity":
+                        resistance_similarity,
+                    "swing_count": 4,
+                },
+            )
+        )
+
+    return _best_candidate(candidates)
+
+
+# ============================================================
+# DESCENDING TRIANGLE
+# ============================================================
+
+def detect_descending_triangle(swings, close):
+    candidates = []
+
+    for s in _scan_windows(swings, 4):
+        if not _valid_alternating_window(
+            s,
+            ["HIGH", "LOW", "HIGH", "LOW"]
+        ):
+            continue
+
+        h1, l1, h2, l2 = s
+
+        support_similarity = _distance(
+            l1["price"],
+            l2["price"]
+        )
+
+        if support_similarity > TRIANGLE_SUPPORT_TOL:
+            continue
+
+        if not (
+            h2["price"] < h1["price"]
+        ):
+            continue
+
+        support = (
+            l1["price"] +
+            l2["price"]
+        ) / 2.0
+
+        upper_resistance = max(
+            h1["price"],
+            h2["price"]
+        )
+
+        height = upper_resistance - support
+
+        if height <= 0:
+            continue
+
+        confirmed = _bearish_confirmation(
+            close,
+            support
+        )
+
+        quality = 78
+
+        if support_similarity <= 0.01:
+            quality += 6
+        elif support_similarity <= 0.018:
+            quality += 3
+
+        if confirmed:
+            quality += 8
+
+        candidates.append(
+            _make_pattern(
+                name="Descending Triangle",
+                direction="BEARISH",
+                quality=quality,
+                status=(
+                    "CONFIRMED"
+                    if confirmed
+                    else "FORMING"
+                ),
+                reason=(
+                    "Two major lows form a common "
+                    "support while the two major "
+                    "highs fall."
+                ),
+                entry=support,
+                tp1=support - height,
+                tp2=support - height * 1.5,
+                sl=upper_resistance * 1.003,
+                confirmation=_confirmation_text(
+                    confirmed,
+                    "bearish"
+                ),
+                metadata={
+                    "support_similarity":
+                        support_similarity,
+                    "swing_count": 4,
+                },
+            )
+        )
+
+    return _best_candidate(candidates)
+
+
+# ============================================================
+# SYMMETRICAL TRIANGLE
+# ============================================================
+
+def detect_symmetrical_triangle(
+    swings,
+    close=None,
+):
+    candidates = []
+
+    for s in _scan_windows(swings, 4):
+        if not _valid_alternating_window(
+            s,
+            ["HIGH", "LOW", "HIGH", "LOW"]
+        ):
+            continue
+
+        h1, l1, h2, l2 = s
+
+        falling_highs = (
+            h2["price"] < h1["price"]
+        )
+
+        rising_lows = (
+            l2["price"] > l1["price"]
+        )
+
+        if not (
+            falling_highs
+            and
+            rising_lows
+        ):
+            continue
+
+        upper_range = (
+            h1["price"] - h2["price"]
+        )
+
+        lower_range = (
+            l2["price"] - l1["price"]
+        )
+
+        total_range = (
+            h1["price"] - l1["price"]
+        )
+
+        if total_range <= 0:
+            continue
+
+        # Both sides should actually converge.
+        if upper_range <= 0 or lower_range <= 0:
+            continue
+
+        # Require the two sides to be reasonably balanced.
+        slope_balance = _distance(
+            upper_range,
+            lower_range
+        )
+
+        if slope_balance > 0.85:
+            continue
+
+        upper_boundary = h2["price"]
+        lower_boundary = l2["price"]
+
+        if close is None:
+            confirmed = False
+            direction = "NEUTRAL"
+            status = "FORMING"
+        else:
+            bullish_break = (
+                _safe_float(close)
+                >
+                upper_boundary *
+                (1.0 + BREAKOUT_BUFFER)
+            )
+
+            bearish_break = (
+                _safe_float(close)
+                <
+                lower_boundary *
+                (1.0 - BREAKOUT_BUFFER)
+            )
+
+            if bullish_break:
+                confirmed = True
+                direction = "BULLISH"
+                status = "CONFIRMED"
+            elif bearish_break:
+                confirmed = True
+                direction = "BEARISH"
+                status = "CONFIRMED"
+            else:
+                confirmed = False
+                direction = "NEUTRAL"
+                status = "FORMING"
+
+        height = h1["price"] - l1["price"]
+
+        if direction == "BULLISH":
+            entry = upper_boundary
+            tp1 = upper_boundary + height
+            tp2 = upper_boundary + height * 1.5
+            sl = lower_boundary * 0.997
+        elif direction == "BEARISH":
+            entry = lower_boundary
+            tp1 = lower_boundary - height
+            tp2 = lower_boundary - height * 1.5
+            sl = upper_boundary * 1.003
+        else:
+            entry = None
+            tp1 = None
+            tp2 = None
+            sl = None
+
+        quality = 72
+
+        if slope_balance <= 0.35:
+            quality += 8
+        elif slope_balance <= 0.60:
+            quality += 4
+
+        if confirmed:
+            quality += 8
+
+        candidates.append(
+            _make_pattern(
+                name="Symmetrical Triangle",
+                direction=direction,
+                quality=quality,
+                status=status,
+                reason=(
+                    "Major highs are falling and "
+                    "major lows are rising, creating "
+                    "a contracting structure."
+                ),
+                entry=entry,
+                tp1=tp1,
+                tp2=tp2,
+                sl=sl,
+                confirmation=(
+                    _confirmation_text(
+                        confirmed,
+                        direction
+                    )
+                    if direction != "NEUTRAL"
+                    else (
+                        "No breakout confirmed; "
+                        "wait for a candle close "
+                        "outside the triangle."
+                    )
+                ),
+                metadata={
+                    "slope_balance": slope_balance,
+                    "upper_boundary": upper_boundary,
+                    "lower_boundary": lower_boundary,
+                    "swing_count": 4,
+                },
+            )
+        )
+
+    return _best_candidate(candidates)
+
+
+# ============================================================
+# DUPLICATE CONTROL
+# ============================================================
+
+def _deduplicate_patterns(patterns):
+    """
+    Prevent the same structural pattern from being reported
+    repeatedly.
+
+    Stronger patterns win:
+        Triple Top > Double Top
+        H&S > Double Top
+        Triple Bottom > Double Bottom
+        Inverse H&S > Double Bottom
+    """
+
+    if not patterns:
+        return []
+
+    grouped = {}
+
+    for pattern in patterns:
+        direction = pattern.get(
+            "direction",
+            "NEUTRAL"
+        )
+
+        key = (
+            direction,
+            pattern.get("name")
+        )
+
+        grouped.setdefault(
+            key,
+            []
+        ).append(pattern)
+
+    best_by_name = []
+
+    for group in grouped.values():
+        best = max(
+            group,
+            key=lambda x: (
+                x.get("quality", 0),
+                1 if x.get("status") == "CONFIRMED" else 0
+            )
+        )
+
+        best_by_name.append(best)
+
+    # If a stronger 3-peak structure exists, remove
+    # the weaker double-top/bottom representation.
+    names = {
+        p["name"]
+        for p in best_by_name
+    }
+
+    if "Triple Top" in names:
+        best_by_name = [
+            p for p in best_by_name
+            if p["name"] != "Double Top"
+        ]
+
+    if "Head & Shoulders" in names:
+        best_by_name = [
+            p for p in best_by_name
+            if p["name"] != "Double Top"
+        ]
+
+    if "Triple Bottom" in names:
+        best_by_name = [
+            p for p in best_by_name
+            if p["name"] != "Double Bottom"
+        ]
+
+    if "Inverse Head & Shoulders" in names:
+        best_by_name = [
+            p for p in best_by_name
+            if p["name"] != "Double Bottom"
+        ]
+
+    return best_by_name
+
+
+# ============================================================
+# MAIN PATTERN ENGINE
+# ============================================================
+
+def detect_patterns(df):
+    """
+    Detect patterns from df.attrs["major_swings"].
+
+    The last close is used for breakout confirmation.
+    Only candle-close confirmation is accepted.
+    """
+
+    if df is None:
+        return []
+
+    try:
+        raw_swings = df.attrs.get(
+            "major_swings",
+            []
+        )
+    except Exception:
+        return []
+
+    swings = _clean_swings(
+        raw_swings
+    )
+
+    if len(swings) < 3:
+        return []
+
+    try:
+        close = _safe_float(
+            df["close"].iloc[-1]
+        )
+    except Exception:
+        return []
+
+    if close is None:
+        return []
+
+    detected = []
+
+    detectors = [
+        detect_double_top,
+        detect_double_bottom,
+        detect_triple_top,
+        detect_triple_bottom,
+        detect_head_shoulders,
+        detect_inverse_head_shoulders,
+        detect_ascending_triangle,
+        detect_descending_triangle,
+    ]
+
+    for detector in detectors:
+        try:
+            result = detector(
+                swings,
+                close
+            )
+
+            if result is not None:
+                detected.append(result)
+
+        except Exception:
+            # One detector must never break the entire engine.
+            continue
+
+    try:
+        triangle = detect_symmetrical_triangle(
+            swings,
+            close
+        )
+
+        if triangle is not None:
+            detected.append(triangle)
+
+    except Exception:
+        pass
+
+    detected = _deduplicate_patterns(
+        detected
+    )
+
+    detected.sort(
+        key=lambda x: (
+            1 if x.get("status") == "CONFIRMED" else 0,
+            x.get("quality", 0),
+            PATTERN_PRIORITY.get(
+                x.get("name"),
+                0
+            ),
+        ),
+        reverse=True
+    )
+
+    return detected
+
+
+# ============================================================
+# BEST PATTERN
+# ============================================================
+
+def get_best_pattern(df):
+    patterns = detect_patterns(df)
+
+    if not patterns:
+        return None
+
+    return patterns[0]
+
+
+# ============================================================
+# CONFIRMED PATTERNS ONLY
+# ============================================================
+
+def get_confirmed_patterns(df):
+    patterns = detect_patterns(df)
+
+    return [
+        p
+        for p in patterns
+        if p.get("status") == "CONFIRMED"
+    ]
+
+
+# ============================================================
+# FORMING PATTERNS ONLY
+# ============================================================
+
+def get_forming_patterns(df):
+    patterns = detect_patterns(df)
+
+    return [
+        p
+        for p in patterns
+        if p.get("status") == "FORMING"
+    ]
