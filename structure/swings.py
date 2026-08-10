@@ -12,7 +12,7 @@ import pandas as pd
 # SETTINGS
 # ============================================================
 
-LOOKBACK = 50
+LOOKBACK = 1000
 
 # Higher = fewer but stronger major swings
 ZIGZAG_THRESHOLD = 0.012
