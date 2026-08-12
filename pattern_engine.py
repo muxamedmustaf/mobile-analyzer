@@ -1,382 +1,609 @@
-# ============================================================
-# MOBILE ANALYZER - PATTERN ENGINE
-# MAJOR SWING CHART PATTERN ENGINE + DRAWING METADATA
-# ============================================================
+"""
+PATTERN ENGINE - CURRENT ACTIVE PATTERN ONLY
+============================================
 
+Purpose
+-------
+This engine does NOT scan the whole chart and keep old patterns alive.
+
+Rules:
+1. Only the latest major-swing structure is considered.
+2. Old/completed patterns are ignored.
+3. A pattern whose entry/breakout has already been passed is not returned
+   as an ACTIVE opportunity.
+4. If several patterns are currently possible, they are ranked by quality.
+5. get_best_pattern() returns the strongest CURRENT opportunity.
+6. No forced pattern: geometry must pass strict structure tests.
+7. The returned dictionaries keep the existing app interface:
+   name, direction, quality, status, reason, entry, tp1, tp2, sl, points.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
 import math
-
-SIMILARITY_DOUBLE = 0.025
-SIMILARITY_TRIPLE = 0.035
-SIMILARITY_SHOULDER = 0.045
-TRIANGLE_TOLERANCE = 0.025
-BREAKOUT_BUFFER = 0.001
-MIN_STRUCTURE_RATIO = 0.003
-MAX_SWING_WINDOW = 11
-
-PATTERN_PRIORITY = {
-    "Triple Top": 100, "Triple Bottom": 100,
-    "Head & Shoulders": 99, "Inverse Head & Shoulders": 99,
-    "Double Top": 90, "Double Bottom": 90,
-    "Ascending Triangle": 88, "Descending Triangle": 88,
-    "Symmetrical Triangle": 80,
-}
+import numpy as np
+import pandas as pd
 
 
-def _safe_float(value):
+# -----------------------------
+# SETTINGS
+# -----------------------------
+RECENT_SWINGS = 8
+ENTRY_TOLERANCE = 0.0025       # 0.25%
+LEVEL_TOLERANCE = 0.012        # 1.2%
+DOUBLE_TOLERANCE = 0.018       # 1.8%
+TRIPLE_TOLERANCE = 0.022       # 2.2%
+SHOULDER_TOLERANCE = 0.035     # 3.5%
+MIN_PATTERN_SCORE = 58
+MAX_RETURNED = 5
+
+
+# -----------------------------
+# HELPERS
+# -----------------------------
+def _num(x: Any) -> Optional[float]:
     try:
-        value = float(value)
-        return value if math.isfinite(value) else None
+        v = float(x)
+        return v if math.isfinite(v) else None
     except Exception:
         return None
 
 
-def _safe_div(a, b):
-    a, b = _safe_float(a), _safe_float(b)
-    if a is None or b is None or b == 0:
-        return 0.0
-    return a / b
+def _norm_name(name: Any) -> str:
+    return str(name or "").strip().lower().replace("_", " ").replace("-", " ")
 
 
-def _distance(a, b):
-    a, b = _safe_float(a), _safe_float(b)
-    if a is None or b is None:
-        return 999.0
-    return abs(a - b) / max(abs((a + b) / 2.0), 1e-12)
-
-
-def _normalize_type(value):
-    if value is None:
+def _swing_type(s: Any) -> Optional[str]:
+    if not isinstance(s, dict):
         return None
-    value = str(value).upper().strip()
-    if value in ("HIGH", "H", "TOP"):
-        return "HIGH"
-    if value in ("LOW", "L", "BOTTOM"):
-        return "LOW"
+
+    raw = (
+        s.get("type")
+        or s.get("kind")
+        or s.get("structure")
+        or s.get("label")
+        or s.get("point_type")
+    )
+    if raw is None:
+        return None
+
+    n = _norm_name(raw)
+
+    if "high" in n or n in {"hh", "lh"}:
+        return "high"
+    if "low" in n or n in {"hl", "ll"}:
+        return "low"
     return None
 
 
-def _clean_swings(swings):
-    cleaned = []
-    for item in swings or []:
-        if not isinstance(item, dict):
+def _swing_index(s: Any, fallback: int) -> int:
+    if isinstance(s, dict):
+        for k in ("index", "idx", "bar", "position"):
+            if k in s:
+                try:
+                    return int(s[k])
+                except Exception:
+                    pass
+    return fallback
+
+
+def _swing_price(s: Any) -> Optional[float]:
+    if not isinstance(s, dict):
+        return None
+    for k in ("price", "value", "high", "low", "close"):
+        v = _num(s.get(k))
+        if v is not None:
+            return v
+    return None
+
+
+def _extract_swings(df: pd.DataFrame) -> List[Dict[str, Any]]:
+    raw = df.attrs.get("major_swings", [])
+
+    if isinstance(raw, pd.DataFrame):
+        records = raw.to_dict("records")
+    elif isinstance(raw, (list, tuple)):
+        records = list(raw)
+    else:
+        records = []
+
+    out = []
+    for i, s in enumerate(records):
+        price = _swing_price(s)
+        typ = _swing_type(s)
+        if price is None or typ is None:
             continue
-        swing_type = _normalize_type(item.get("type"))
-        price = _safe_float(item.get("price"))
-        if swing_type is None or price is None or price <= 0:
-            continue
-        item = dict(item)
-        item["type"] = swing_type
-        item["price"] = price
-        cleaned.append(item)
-    return cleaned
+
+        out.append({
+            "type": typ,
+            "price": price,
+            "index": _swing_index(s, i),
+        })
+
+    out.sort(key=lambda x: x["index"])
+    return out
 
 
-def _pattern_range(prices):
-    values = [_safe_float(x) for x in prices]
-    values = [x for x in values if x is not None]
-    if not values:
-        return 0.0
-    return _safe_div(max(values) - min(values), max(abs(max(values)), 1e-12))
-
-
-def _valid_alternating_window(swings, expected_types):
-    return len(swings) == len(expected_types) and [x["type"] for x in swings] == expected_types
-
-
-def _scan_windows(swings, length):
-    if len(swings) < length:
-        return []
-    recent = swings[max(0, len(swings) - MAX_SWING_WINDOW):]
-    return [recent[i:i + length] for i in range(len(recent) - length + 1)]
-
-
-def _levels_are_structurally_valid(highs, lows):
-    if not highs or not lows:
-        return False
-    return _pattern_range([x["price"] for x in highs + lows]) >= MIN_STRUCTURE_RATIO
-
-
-def _bullish_confirmation(close, level):
-    close, level = _safe_float(close), _safe_float(level)
-    return close is not None and level is not None and close > level * (1 + BREAKOUT_BUFFER)
-
-
-def _bearish_confirmation(close, level):
-    close, level = _safe_float(close), _safe_float(level)
-    return close is not None and level is not None and close < level * (1 - BREAKOUT_BUFFER)
-
-
-def _confirmation_text(confirmed, direction):
-    return (f"Candle close confirmed the {direction.lower()} breakout."
-            if confirmed else
-            "Pattern is forming; breakout candle close has not confirmed it yet.")
-
-
-# ---------- CHART DRAWING METADATA ----------
-
-def _swing_point(swing, label=None):
-    point = {
-        "type": swing.get("type"),
-        "price": _safe_float(swing.get("price")),
-        "label": label or swing.get("type"),
-    }
-    for key in ("index", "position", "bar_index", "timestamp", "time",
-                "date", "datetime", "candle_index"):
-        if key in swing:
-            point[key] = swing[key]
-    return point
-
-
-def _pattern_points(swings, labels=None):
-    return [_swing_point(s, labels[i] if labels and i < len(labels) else None)
-            for i, s in enumerate(swings)]
-
-
-def _make_pattern(name, direction, quality, status, reason, entry=None,
-                  tp1=None, tp2=None, sl=None, confirmation=None,
-                  pattern_swings=None, labels=None, neckline_points=None):
-    metadata = {
-        "pattern_points": _pattern_points(pattern_swings or [], labels),
-        "swing_count": len(pattern_swings or []),
-    }
-    if neckline_points:
-        metadata["neckline_points"] = _pattern_points(neckline_points)
+def _point(name: str, s: Dict[str, Any]) -> Dict[str, Any]:
     return {
-        "name": name, "direction": direction,
-        "quality": int(max(0, min(100, round(quality)))),
-        "status": status, "reason": reason, "entry": entry,
-        "tp1": tp1, "tp2": tp2, "sl": sl,
-        "confirmation": confirmation, "metadata": metadata,
+        "name": name,
+        "index": int(s["index"]),
+        "price": float(s["price"]),
+        "type": s["type"],
     }
 
 
-def _best(candidates):
-    return max(candidates, key=lambda x: (x["quality"], x["status"] == "CONFIRMED"), default=None)
+def _last_close(df: pd.DataFrame) -> float:
+    return float(df["close"].iloc[-1])
 
 
-# ---------- DOUBLE TOP ----------
-def detect_double_top(swings, close):
+def _atr(df: pd.DataFrame) -> float:
+    if len(df) < 15:
+        return float(df["close"].iloc[-1]) * 0.01
+
+    h = df["high"].astype(float)
+    l = df["low"].astype(float)
+    c = df["close"].astype(float)
+    prev = c.shift(1)
+
+    tr = pd.concat([
+        h - l,
+        (h - prev).abs(),
+        (l - prev).abs(),
+    ], axis=1).max(axis=1)
+
+    a = tr.rolling(14).mean().iloc[-1]
+    if pd.isna(a) or a <= 0:
+        return float(c.iloc[-1]) * 0.01
+    return float(a)
+
+
+def _levels(df: pd.DataFrame) -> Dict[str, float]:
+    close = _last_close(df)
+    atr = _atr(df)
+
+    recent = df.tail(80)
+    high = float(recent["high"].max())
+    low = float(recent["low"].min())
+
+    return {
+        "close": close,
+        "atr": atr,
+        "high": high,
+        "low": low,
+    }
+
+
+def _entry_passed(direction: str, close: float, entry: float) -> bool:
+    tol = max(abs(entry) * ENTRY_TOLERANCE, 1e-12)
+
+    if direction == "BUY":
+        return close >= entry + tol
+    return close <= entry - tol
+
+
+def _near_entry(direction: str, close: float, entry: float) -> bool:
+    tol = max(abs(entry) * LEVEL_TOLERANCE, 1e-12)
+
+    if direction == "BUY":
+        return close <= entry + tol
+    return close >= entry - tol
+
+
+def _quality(base: float, geometry: float, recency: float, context: float) -> int:
+    score = 0.45 * base + 0.25 * geometry + 0.15 * recency + 0.15 * context
+    return int(max(0, min(100, round(score))))
+
+
+def _context_score(df: pd.DataFrame, direction: str) -> float:
+    if len(df) < 50:
+        return 50.0
+
+    close = df["close"].astype(float)
+    ema50 = close.ewm(span=50, adjust=False).mean().iloc[-1]
+    ema200 = close.ewm(span=200, adjust=False).mean().iloc[-1]
+    last = close.iloc[-1]
+
+    if direction == "BUY":
+        if last > ema50 > ema200:
+            return 100.0
+        if last > ema50:
+            return 75.0
+        return 50.0
+
+    if last < ema50 < ema200:
+        return 100.0
+    if last < ema50:
+        return 75.0
+    return 50.0
+
+
+def _recency_score(swings: List[Dict[str, Any]], used: List[Dict[str, Any]]) -> float:
+    if not swings or not used:
+        return 50.0
+
+    last_idx = swings[-1]["index"]
+    pattern_last = max(p["index"] for p in used)
+    distance = max(0, last_idx - pattern_last)
+
+    if distance <= 1:
+        return 100.0
+    if distance <= 3:
+        return 85.0
+    if distance <= 6:
+        return 70.0
+    return 50.0
+
+
+def _candidate(
+    name: str,
+    direction: str,
+    quality: int,
+    status: str,
+    reason: str,
+    entry: float,
+    tp1: float,
+    tp2: float,
+    sl: float,
+    points: List[Dict[str, Any]],
+    used: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+
+    return {
+        "name": name,
+        "direction": direction,
+        "quality": int(quality),
+        "status": status,
+        "reason": reason,
+        "entry": float(entry),
+        "tp1": float(tp1),
+        "tp2": float(tp2),
+        "sl": float(sl),
+        "points": points,
+        "_used_indices": [p["index"] for p in used],
+    }
+
+
+# -----------------------------
+# DOUBLE TOP / BOTTOM
+# -----------------------------
+def _double(sw: List[Dict[str, Any]], df: pd.DataFrame) -> List[Dict[str, Any]]:
+    if len(sw) < 3:
+        return []
+
+    a, b, c = sw[-3], sw[-2], sw[-1]
     out = []
-    for s in _scan_windows(swings, 3):
-        if not _valid_alternating_window(s, ["HIGH", "LOW", "HIGH"]): continue
-        a, b, c = s
-        if not _levels_are_structurally_valid([a, c], [b]): continue
-        similarity = _distance(a["price"], c["price"])
-        if similarity > SIMILARITY_DOUBLE: continue
-        neckline = b["price"]
-        if neckline >= min(a["price"], c["price"]): continue
-        peak = max(a["price"], c["price"])
-        distance = peak - neckline
-        if distance <= 0: continue
-        confirmed = _bearish_confirmation(close, neckline)
-        quality = 80 + (8 if similarity <= .01 else 4 if similarity <= .018 else 0) + (8 if confirmed else 0)
-        out.append(_make_pattern("Double Top", "BEARISH", quality,
-            "CONFIRMED" if confirmed else "FORMING",
-            "Two major highs are closely matched with a major trough between them.",
-            neckline, neckline-distance, neckline-distance*1.5, peak*1.003,
-            _confirmation_text(confirmed, "bearish"), s,
-            ["Peak 1", "Neckline", "Peak 2"], [b]))
-    return _best(out)
+    lv = _levels(df)
+
+    # Double Top: High - Low - High
+    if [a["type"], b["type"], c["type"]] == ["high", "low", "high"]:
+        similarity = abs(a["price"] - c["price"]) / max(a["price"], c["price"])
+        if similarity <= DOUBLE_TOLERANCE:
+            entry = b["price"]
+            close = lv["close"]
+
+            # Once price has already broken below neckline, this setup is gone.
+            if not _entry_passed("SELL", close, entry):
+                height = max(0.0, ((a["price"] + c["price"]) / 2) - entry)
+                tp1 = entry - height * 0.65
+                tp2 = entry - height
+                sl = max(a["price"], c["price"]) + lv["atr"] * 0.35
+
+                geometry = max(0.0, 100.0 - similarity * 1000.0)
+                status = "READY" if _near_entry("SELL", close, entry) else "FORMING"
+                q = _quality(86, geometry, _recency_score(sw, [a, b, c]),
+                             _context_score(df, "SELL"))
+
+                if q >= MIN_PATTERN_SCORE:
+                    out.append(_candidate(
+                        "Double Top", "SELL", q, status,
+                        "Two major highs are aligned and the neckline is still active.",
+                        entry, tp1, tp2, sl,
+                        [_point("TOP 1", a), _point("NECKLINE", b), _point("TOP 2", c)],
+                        [a, b, c],
+                    ))
+
+    # Double Bottom: Low - High - Low
+    if [a["type"], b["type"], c["type"]] == ["low", "high", "low"]:
+        similarity = abs(a["price"] - c["price"]) / max(a["price"], c["price"])
+        if similarity <= DOUBLE_TOLERANCE:
+            entry = b["price"]
+            close = lv["close"]
+
+            if not _entry_passed("BUY", close, entry):
+                height = max(0.0, entry - ((a["price"] + c["price"]) / 2))
+                tp1 = entry + height * 0.65
+                tp2 = entry + height
+                sl = min(a["price"], c["price"]) - lv["atr"] * 0.35
+
+                geometry = max(0.0, 100.0 - similarity * 1000.0)
+                status = "READY" if _near_entry("BUY", close, entry) else "FORMING"
+                q = _quality(86, geometry, _recency_score(sw, [a, b, c]),
+                             _context_score(df, "BUY"))
+
+                if q >= MIN_PATTERN_SCORE:
+                    out.append(_candidate(
+                        "Double Bottom", "BUY", q, status,
+                        "Two major lows are aligned and the neckline is still active.",
+                        entry, tp1, tp2, sl,
+                        [_point("BOTTOM 1", a), _point("NECKLINE", b), _point("BOTTOM 2", c)],
+                        [a, b, c],
+                    ))
+
+    return out
 
 
-# ---------- DOUBLE BOTTOM ----------
-def detect_double_bottom(swings, close):
+# -----------------------------
+# TRIPLE TOP / BOTTOM
+# -----------------------------
+def _triple(sw: List[Dict[str, Any]], df: pd.DataFrame) -> List[Dict[str, Any]]:
+    if len(sw) < 5:
+        return []
+
+    a, b, c, d, e = sw[-5:]
     out = []
-    for s in _scan_windows(swings, 3):
-        if not _valid_alternating_window(s, ["LOW", "HIGH", "LOW"]): continue
-        a, b, c = s
-        if not _levels_are_structurally_valid([b], [a, c]): continue
-        similarity = _distance(a["price"], c["price"])
-        if similarity > SIMILARITY_DOUBLE: continue
-        neckline = b["price"]
-        if neckline <= max(a["price"], c["price"]): continue
-        bottom = min(a["price"], c["price"])
-        distance = neckline - bottom
-        if distance <= 0: continue
-        confirmed = _bullish_confirmation(close, neckline)
-        quality = 80 + (8 if similarity <= .01 else 4 if similarity <= .018 else 0) + (8 if confirmed else 0)
-        out.append(_make_pattern("Double Bottom", "BULLISH", quality,
-            "CONFIRMED" if confirmed else "FORMING",
-            "Two major lows are closely matched with a major peak between them.",
-            neckline, neckline+distance, neckline+distance*1.5, bottom*.997,
-            _confirmation_text(confirmed, "bullish"), s,
-            ["Bottom 1", "Neckline", "Bottom 2"], [b]))
-    return _best(out)
+    lv = _levels(df)
+
+    if [x["type"] for x in (a, b, c, d, e)] == ["high", "low", "high", "low", "high"]:
+        highs = [a["price"], c["price"], e["price"]]
+        mean = sum(highs) / 3
+        spread = max(highs) - min(highs)
+
+        if spread / mean <= TRIPLE_TOLERANCE:
+            entry = min(b["price"], d["price"])
+            close = lv["close"]
+
+            if not _entry_passed("SELL", close, entry):
+                height = mean - entry
+                tp1 = entry - height * 0.65
+                tp2 = entry - height
+                sl = max(highs) + lv["atr"] * 0.35
+                geometry = max(0.0, 100.0 - (spread / mean) * 900.0)
+                status = "READY" if _near_entry("SELL", close, entry) else "FORMING"
+                q = _quality(94, geometry, _recency_score(sw, [a, b, c, d, e]),
+                             _context_score(df, "SELL"))
+
+                if q >= MIN_PATTERN_SCORE:
+                    out.append(_candidate(
+                        "Triple Top", "SELL", q, status,
+                        "Three major highs are aligned; the support neckline remains unbroken.",
+                        entry, tp1, tp2, sl,
+                        [_point("TOP 1", a), _point("NECKLINE 1", b),
+                         _point("TOP 2", c), _point("NECKLINE 2", d),
+                         _point("TOP 3", e)],
+                        [a, b, c, d, e],
+                    ))
+
+    if [x["type"] for x in (a, b, c, d, e)] == ["low", "high", "low", "high", "low"]:
+        lows = [a["price"], c["price"], e["price"]]
+        mean = sum(lows) / 3
+        spread = max(lows) - min(lows)
+
+        if spread / mean <= TRIPLE_TOLERANCE:
+            entry = max(b["price"], d["price"])
+            close = lv["close"]
+
+            if not _entry_passed("BUY", close, entry):
+                height = entry - mean
+                tp1 = entry + height * 0.65
+                tp2 = entry + height
+                sl = min(lows) - lv["atr"] * 0.35
+                geometry = max(0.0, 100.0 - (spread / mean) * 900.0)
+                status = "READY" if _near_entry("BUY", close, entry) else "FORMING"
+                q = _quality(94, geometry, _recency_score(sw, [a, b, c, d, e]),
+                             _context_score(df, "BUY"))
+
+                if q >= MIN_PATTERN_SCORE:
+                    out.append(_candidate(
+                        "Triple Bottom", "BUY", q, status,
+                        "Three major lows are aligned; the resistance neckline remains unbroken.",
+                        entry, tp1, tp2, sl,
+                        [_point("BOTTOM 1", a), _point("NECKLINE 1", b),
+                         _point("BOTTOM 2", c), _point("NECKLINE 2", d),
+                         _point("BOTTOM 3", e)],
+                        [a, b, c, d, e],
+                    ))
+
+    return out
 
 
-# ---------- TRIPLE TOP ----------
-def detect_triple_top(swings, close):
+# -----------------------------
+# HEAD & SHOULDERS
+# -----------------------------
+def _head_shoulders(sw: List[Dict[str, Any]], df: pd.DataFrame) -> List[Dict[str, Any]]:
+    if len(sw) < 5:
+        return []
+
+    a, b, c, d, e = sw[-5:]
     out = []
-    for s in _scan_windows(swings, 5):
-        if not _valid_alternating_window(s, ["HIGH", "LOW", "HIGH", "LOW", "HIGH"]): continue
-        h1,l1,h2,l2,h3=s; highs=[h1,h2,h3]; lows=[l1,l2]
-        if not _levels_are_structurally_valid(highs,lows): continue
-        prices=[x["price"] for x in highs]; avg=sum(prices)/3
-        spread=_safe_div(max(prices)-min(prices), max(abs(avg),1e-12))
-        if spread>SIMILARITY_TRIPLE: continue
-        neckline=min(x["price"] for x in lows); peak=max(prices); distance=peak-neckline
-        if distance<=0: continue
-        d1=_safe_div(h1["price"]-l1["price"],h1["price"]); d2=_safe_div(h2["price"]-l2["price"],h2["price"])
-        if d1<MIN_STRUCTURE_RATIO or d2<MIN_STRUCTURE_RATIO: continue
-        confirmed=_bearish_confirmation(close,neckline)
-        quality=83+(6 if spread<=.01 else 3 if spread<=.02 else 0)+(3 if d1>=.01 and d2>=.01 else 0)+(8 if confirmed else 0)
-        out.append(_make_pattern("Triple Top","BEARISH",quality,"CONFIRMED" if confirmed else "FORMING",
-            "Three major highs are closely matched and separated by two meaningful pullbacks.",
-            neckline,neckline-distance,neckline-distance*1.5,peak*1.003,
-            _confirmation_text(confirmed,"bearish"),s,
-            ["Peak 1","Neckline 1","Peak 2","Neckline 2","Peak 3"],[l1,l2]))
-    return _best(out)
+    lv = _levels(df)
+
+    # H&S: high-low-high-low-high
+    if [x["type"] for x in (a, b, c, d, e)] == ["high", "low", "high", "low", "high"]:
+        shoulder_avg = (a["price"] + e["price"]) / 2
+        head = c["price"]
+
+        if head > shoulder_avg * 1.015:
+            shoulder_diff = abs(a["price"] - e["price"]) / shoulder_avg
+            neck = (b["price"] + d["price"]) / 2
+
+            if shoulder_diff <= SHOULDER_TOLERANCE:
+                close = lv["close"]
+
+                if not _entry_passed("SELL", close, neck):
+                    height = head - neck
+                    tp1 = neck - height * 0.65
+                    tp2 = neck - height
+                    sl = max(a["price"], e["price"]) + lv["atr"] * 0.35
+
+                    geometry = max(
+                        0.0,
+                        100.0
+                        - shoulder_diff * 1000.0
+                        + min(20.0, (head / shoulder_avg - 1.0) * 500.0)
+                    )
+                    status = "READY" if _near_entry("SELL", close, neck) else "FORMING"
+                    q = _quality(
+                        97, geometry,
+                        _recency_score(sw, [a, b, c, d, e]),
+                        _context_score(df, "SELL")
+                    )
+
+                    if q >= MIN_PATTERN_SCORE:
+                        out.append(_candidate(
+                            "Head & Shoulders", "SELL", q, status,
+                            "Left shoulder, higher head and right shoulder are structurally valid; neckline is still active.",
+                            neck, tp1, tp2, sl,
+                            [_point("LEFT SHOULDER", a), _point("NECKLINE 1", b),
+                             _point("HEAD", c), _point("NECKLINE 2", d),
+                             _point("RIGHT SHOULDER", e)],
+                            [a, b, c, d, e],
+                        ))
+
+    # Inverse H&S: low-high-low-high-low
+    if [x["type"] for x in (a, b, c, d, e)] == ["low", "high", "low", "high", "low"]:
+        shoulder_avg = (a["price"] + e["price"]) / 2
+        head = c["price"]
+
+        if head < shoulder_avg * 0.985:
+            shoulder_diff = abs(a["price"] - e["price"]) / max(abs(shoulder_avg), 1e-12)
+            neck = (b["price"] + d["price"]) / 2
+
+            if shoulder_diff <= SHOULDER_TOLERANCE:
+                close = lv["close"]
+
+                if not _entry_passed("BUY", close, neck):
+                    height = neck - head
+                    tp1 = neck + height * 0.65
+                    tp2 = neck + height
+                    sl = min(a["price"], e["price"]) - lv["atr"] * 0.35
+
+                    geometry = max(
+                        0.0,
+                        100.0
+                        - shoulder_diff * 1000.0
+                        + min(20.0, (1.0 - head / shoulder_avg) * 500.0)
+                    )
+                    status = "READY" if _near_entry("BUY", close, neck) else "FORMING"
+                    q = _quality(
+                        97, geometry,
+                        _recency_score(sw, [a, b, c, d, e]),
+                        _context_score(df, "BUY")
+                    )
+
+                    if q >= MIN_PATTERN_SCORE:
+                        out.append(_candidate(
+                            "Inverse Head & Shoulders", "BUY", q, status,
+                            "Left shoulder, lower head and right shoulder are structurally valid; neckline is still active.",
+                            neck, tp1, tp2, sl,
+                            [_point("LEFT SHOULDER", a), _point("NECKLINE 1", b),
+                             _point("HEAD", c), _point("NECKLINE 2", d),
+                             _point("RIGHT SHOULDER", e)],
+                            [a, b, c, d, e],
+                        ))
+
+    return out
 
 
-# ---------- TRIPLE BOTTOM ----------
-def detect_triple_bottom(swings, close):
-    out=[]
-    for s in _scan_windows(swings,5):
-        if not _valid_alternating_window(s,["LOW","HIGH","LOW","HIGH","LOW"]): continue
-        l1,h1,l2,h2,l3=s; lows=[l1,l2,l3]; highs=[h1,h2]
-        if not _levels_are_structurally_valid(highs,lows): continue
-        prices=[x["price"] for x in lows]; avg=sum(prices)/3
-        spread=_safe_div(max(prices)-min(prices),max(abs(avg),1e-12))
-        if spread>SIMILARITY_TRIPLE: continue
-        bottom=min(prices); neckline=max(x["price"] for x in highs); distance=neckline-bottom
-        if distance<=0: continue
-        hgt1=_safe_div(h1["price"]-l1["price"],l1["price"]); hgt2=_safe_div(h2["price"]-l2["price"],l2["price"])
-        if hgt1<MIN_STRUCTURE_RATIO or hgt2<MIN_STRUCTURE_RATIO: continue
-        confirmed=_bullish_confirmation(close,neckline)
-        quality=83+(6 if spread<=.01 else 3 if spread<=.02 else 0)+(3 if hgt1>=.01 and hgt2>=.01 else 0)+(8 if confirmed else 0)
-        out.append(_make_pattern("Triple Bottom","BULLISH",quality,"CONFIRMED" if confirmed else "FORMING",
-            "Three major lows are closely matched and separated by two meaningful rallies.",
-            neckline,neckline+distance,neckline+distance*1.5,bottom*.997,
-            _confirmation_text(confirmed,"bullish"),s,
-            ["Bottom 1","Neckline 1","Bottom 2","Neckline 2","Bottom 3"],[h1,h2]))
-    return _best(out)
+# -----------------------------
+# TRIANGLES
+# -----------------------------
+def _triangles(sw: List[Dict[str, Any]], df: pd.DataFrame) -> List[Dict[str, Any]]:
+    if len(sw) < 5:
+        return []
+
+    a, b, c, d, e = sw[-5:]
+    out = []
+    lv = _levels(df)
+
+    if [x["type"] for x in (a, b, c, d, e)] != ["high", "low", "high", "low", "high"]:
+        return out
+
+    # Need descending highs and rising lows from the alternating structure.
+    highs = [a["price"], c["price"], e["price"]]
+    lows = [b["price"], d["price"]]
+
+    descending_highs = highs[0] > highs[1] and highs[1] >= highs[2]
+    rising_lows = lows[0] < lows[1]
+
+    if descending_highs and rising_lows:
+        # Symmetrical/contracting triangle.
+        close = lv["close"]
+        upper = highs[-1]
+        lower = lows[-1]
+
+        # Direction is not guessed from the old chart. Entry is the active
+        # boundary that has NOT already been broken.
+        upper_break = close > upper * (1 + ENTRY_TOLERANCE)
+        lower_break = close < lower * (1 - ENTRY_TOLERANCE)
+
+        if not upper_break and not lower_break:
+            entry = upper
+            height = max(upper - lower, lv["atr"])
+            tp1 = upper + height * 0.65
+            tp2 = upper + height
+            sl = lower - lv["atr"] * 0.35
+
+            compression = (upper - lower) / max(abs(upper), 1e-12)
+            geometry = max(0.0, min(100.0, 100.0 - compression * 350.0))
+            status = "READY" if _near_entry("BUY", close, entry) else "FORMING"
+            q = _quality(78, geometry, _recency_score(sw, [a, b, c, d, e]),
+                         _context_score(df, "BUY"))
+
+            if q >= MIN_PATTERN_SCORE:
+                out.append(_candidate(
+                    "Symmetrical Triangle", "BUY", q, status,
+                    "Contracting highs and rising lows are forming; upside entry is still active.",
+                    entry, tp1, tp2, sl,
+                    [_point("HIGH 1", a), _point("LOW 1", b),
+                     _point("HIGH 2", c), _point("LOW 2", d),
+                     _point("HIGH 3", e)],
+                    [a, b, c, d, e],
+                ))
+
+    return out
 
 
-# ---------- HEAD & SHOULDERS ----------
-def detect_head_shoulders(swings, close):
-    out=[]
-    for s in _scan_windows(swings,5):
-        if not _valid_alternating_window(s,["HIGH","LOW","HIGH","LOW","HIGH"]): continue
-        left,neck1,head,neck2,right=s
-        similarity=_distance(left["price"],right["price"])
-        if similarity>SIMILARITY_SHOULDER: continue
-        if not(head["price"]>left["price"] and head["price"]>right["price"]): continue
-        neckline=(neck1["price"]+neck2["price"])/2
-        distance=head["price"]-neckline
-        if distance<=0: continue
-        gap1=_safe_div(head["price"]-left["price"],head["price"]); gap2=_safe_div(head["price"]-right["price"],head["price"])
-        if gap1<MIN_STRUCTURE_RATIO or gap2<MIN_STRUCTURE_RATIO: continue
-        confirmed=_bearish_confirmation(close,neckline)
-        quality=84+(6 if similarity<=.015 else 3 if similarity<=.03 else 0)+(8 if confirmed else 0)
-        out.append(_make_pattern("Head & Shoulders","BEARISH",quality,"CONFIRMED" if confirmed else "FORMING",
-            "Major left shoulder, higher head, and structurally similar right shoulder are detected.",
-            neckline,neckline-distance,neckline-distance*1.5,head["price"]*1.003,
-            _confirmation_text(confirmed,"bearish"),s,
-            ["Left Shoulder","Neckline 1","Head","Neckline 2","Right Shoulder"],[neck1,neck2]))
-    return _best(out)
+# -----------------------------
+# PUBLIC API
+# -----------------------------
+def _deduplicate(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Keep the strongest candidate when two detectors describe essentially
+    the same last-swing structure.
+    """
+    result = []
+    seen = set()
 
+    priority = {
+        "Head & Shoulders": 5,
+        "Inverse Head & Shoulders": 5,
+        "Triple Top": 4,
+        "Triple Bottom": 4,
+        "Double Top": 3,
+        "Double Bottom": 3,
+        "Symmetrical Triangle": 2,
+    }
 
-# ---------- INVERSE HEAD & SHOULDERS ----------
-def detect_inverse_head_shoulders(swings, close):
-    out=[]
-    for s in _scan_windows(swings,5):
-        if not _valid_alternating_window(s,["LOW","HIGH","LOW","HIGH","LOW"]): continue
-        left,neck1,head,neck2,right=s
-        similarity=_distance(left["price"],right["price"])
-        if similarity>SIMILARITY_SHOULDER: continue
-        if not(head["price"]<left["price"] and head["price"]<right["price"]): continue
-        neckline=(neck1["price"]+neck2["price"])/2
-        distance=neckline-head["price"]
-        if distance<=0: continue
-        gap1=_safe_div(left["price"]-head["price"],head["price"]); gap2=_safe_div(right["price"]-head["price"],head["price"])
-        if gap1<MIN_STRUCTURE_RATIO or gap2<MIN_STRUCTURE_RATIO: continue
-        confirmed=_bullish_confirmation(close,neckline)
-        quality=84+(6 if similarity<=.015 else 3 if similarity<=.03 else 0)+(8 if confirmed else 0)
-        out.append(_make_pattern("Inverse Head & Shoulders","BULLISH",quality,"CONFIRMED" if confirmed else "FORMING",
-            "Major left shoulder, lower head, and structurally similar right shoulder are detected.",
-            neckline,neckline+distance,neckline+distance*1.5,head["price"]*.997,
-            _confirmation_text(confirmed,"bullish"),s,
-            ["Left Shoulder","Neckline 1","Head","Neckline 2","Right Shoulder"],[neck1,neck2]))
-    return _best(out)
+    candidates = sorted(
+        candidates,
+        key=lambda x: (x["quality"], priority.get(x["name"], 0)),
+        reverse=True,
+    )
 
-
-# ---------- TRIANGLES ----------
-def detect_ascending_triangle(swings, close):
-    out=[]
-    for s in _scan_windows(swings,4):
-        highs=[x for x in s if x["type"]=="HIGH"]; lows=[x for x in s if x["type"]=="LOW"]
-        if len(highs)!=2 or len(lows)!=2: continue
-        h1,h2=highs; l1,l2=lows
-        sim=_distance(h1["price"],h2["price"])
-        if sim>TRIANGLE_TOLERANCE or l2["price"]<=l1["price"]: continue
-        resistance=(h1["price"]+h2["price"])/2; height=resistance-min(l1["price"],l2["price"])
-        if height<=0: continue
-        confirmed=_bullish_confirmation(close,resistance); quality=82+(5 if sim<=.01 else 0)+(8 if confirmed else 0)
-        out.append(_make_pattern("Ascending Triangle","BULLISH",quality,"CONFIRMED" if confirmed else "FORMING",
-            "Major highs form common resistance while major lows continue rising.",resistance,resistance+height,resistance+height*1.5,min(l1["price"],l2["price"])*.997,
-            _confirmation_text(confirmed,"bullish"),s,["Resistance 1","Higher Low 1","Resistance 2","Higher Low 2"],[h1,h2]))
-    return _best(out)
-
-
-def detect_descending_triangle(swings, close):
-    out=[]
-    for s in _scan_windows(swings,4):
-        highs=[x for x in s if x["type"]=="HIGH"]; lows=[x for x in s if x["type"]=="LOW"]
-        if len(highs)!=2 or len(lows)!=2: continue
-        h1,h2=highs; l1,l2=lows
-        sim=_distance(l1["price"],l2["price"])
-        if sim>TRIANGLE_TOLERANCE or h2["price"]>=h1["price"]: continue
-        support=(l1["price"]+l2["price"])/2; height=max(h1["price"],h2["price"])-support
-        if height<=0: continue
-        confirmed=_bearish_confirmation(close,support); quality=82+(5 if sim<=.01 else 0)+(8 if confirmed else 0)
-        out.append(_make_pattern("Descending Triangle","BEARISH",quality,"CONFIRMED" if confirmed else "FORMING",
-            "Major lows form common support while major highs continue falling.",support,support-height,support-height*1.5,max(h1["price"],h2["price"])*1.003,
-            _confirmation_text(confirmed,"bearish"),s,["Lower High 1","Support 1","Lower High 2","Support 2"],[l1,l2]))
-    return _best(out)
-
-
-def detect_symmetrical_triangle(swings, close=None):
-    out=[]
-    for s in _scan_windows(swings,4):
-        highs=[x for x in s if x["type"]=="HIGH"]; lows=[x for x in s if x["type"]=="LOW"]
-        if len(highs)!=2 or len(lows)!=2: continue
-        h1,h2=highs; l1,l2=lows
-        if not(h2["price"]<h1["price"] and l2["price"]>l1["price"]): continue
-        out.append(_make_pattern("Symmetrical Triangle","NEUTRAL",80,"FORMING",
-            "Major highs are falling while major lows are rising, creating a contracting structure.",
-            pattern_swings=s,labels=["High 1","Low 1","High 2","Low 2"]))
-    return _best(out)
-
-
-# ---------- PUBLIC API ----------
-def detect_patterns(df):
-    if df is None or df.empty: return []
-    swings=_clean_swings(df.attrs.get("major_swings",[]))
-    if len(swings)<3: return []
-    close=_safe_float(df["close"].iloc[-1])
-    if close is None: return []
-    detected=[]
-    for detector in [detect_double_top,detect_double_bottom,detect_triple_top,detect_triple_bottom,
-                      detect_head_shoulders,detect_inverse_head_shoulders,detect_ascending_triangle,
-                      detect_descending_triangle]:
-        try:
-            result=detector(swings,close)
-            if result is not None: detected.append(result)
-        except Exception:
+    for p in candidates:
+        key = tuple(p.get("_used_indices", []))
+        if key in seen:
             continue
-    try:
-        result=detect_symmetrical_triangle(swings,close)
-        if result is not None: detected.append(result)
-    except Exception:
-        pass
-    detected.sort(key=lambda x:(x.get("quality",0),x.get("status")=="CONFIRMED",PATTERN_PRIORITY.get(x.get("name"),0)),reverse=True)
-    return detected
 
-
-def get_best_pattern(df):
-    patterns=detect_patterns(df)
-    return patterns[0] if patterns else None
-
-
-def get_confirmed_patterns(df):
-    return [p for p in detect_patterns(df) if p.get("status")=="CONFIRMED"]
+        # Same final swing range + same direction = likely duplicate geometry.
+        overlap = False
+        for old in result:
+            old_idx = set(old.get("_used_indices", []))
+            new_idx = set(p.get("_used_indices", []))
+            if old_idx and new_idx:
+                common = len(old_idx & new_idx)
+                union = len(old_idx | new_idx)
+                if union and common / union >= 0.75 and old["direction"] == p["direction"]:
+                    overl
