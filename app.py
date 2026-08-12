@@ -1,24 +1,30 @@
-app.py
+# ============================================================
+# MOBILE ANALYZER
+# APP.PY
+# YAHOO FINANCE + MAJOR SWINGS + CHART PATTERNS
+# ============================================================
 
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 
-try:
-    from data.market_data import fetch_market_data, get_timeframes
-except ImportError:
-    from market_data import fetch_market_data, get_timeframes
+from market_data import (
+    fetch_market_data,
+    get_timeframes,
+)
 
-from structure.swings import analyze_market_structure
-from pattern_engine import detect_patterns, get_best_pattern
+from structure.swings import (
+    detect_major_swings,
+    analyze_market_structure,
+)
 
-from indicators.atr import calculate_atr
-from indicators.ema import calculate_ema
-from indicators.rsi import calculate_rsi
+from pattern_engine import (
+    detect_patterns,
+)
 
 
 # ============================================================
-# PAGE
+# PAGE CONFIG
 # ============================================================
 
 st.set_page_config(
@@ -27,9 +33,15 @@ st.set_page_config(
     layout="wide",
 )
 
+
+# ============================================================
+# CUSTOM STYLE
+# ============================================================
+
 st.markdown(
     """
     <style>
+
     .main-title {
         font-size: 32px;
         font-weight: 800;
@@ -40,10 +52,27 @@ st.markdown(
         color: #888;
         margin-bottom: 20px;
     }
+
+    .pattern-box {
+        padding: 15px;
+        border-radius: 12px;
+        border: 1px solid rgba(128,128,128,0.25);
+        margin-bottom: 12px;
+    }
+
+    .confirmed {
+        font-weight: 700;
+    }
+
     </style>
     """,
     unsafe_allow_html=True,
 )
+
+
+# ============================================================
+# HEADER
+# ============================================================
 
 st.markdown(
     '<div class="main-title">📊 Mobile Market Analyzer</div>',
@@ -51,249 +80,59 @@ st.markdown(
 )
 
 st.markdown(
-    '<div class="subtitle">Yahoo Finance • Current Active Patterns • EMA • RSI • ATR</div>',
+    '<div class="subtitle">'
+    'Yahoo Finance • Major Swings • Chart Patterns • BOS / CHOCH'
+    '</div>',
     unsafe_allow_html=True,
 )
 
 
 # ============================================================
-# HELPERS
-# ============================================================
-
-def fmt(value):
-    try:
-        if value is None or pd.isna(value):
-            return "—"
-        return f"{float(value):.6g}"
-    except Exception:
-        return "—"
-
-
-def pattern_icon(direction):
-    if direction == "BUY":
-        return "🟢"
-    if direction == "SELL":
-        return "🔴"
-    return "🟡"
-
-
-def resolve_chart_index(result_df, chart_df, index_value):
-    """
-    Pattern engine wuxuu soo celin karaa candle position ama
-    dataframe index.
-    """
-
-    if index_value in chart_df.index:
-        return index_value
-
-    try:
-        position = int(index_value)
-    except Exception:
-        return None
-
-    if 0 <= position < len(result_df):
-        real_index = result_df.index[position]
-
-        if real_index in chart_df.index:
-            return real_index
-
-    return None
-
-
-def draw_pattern(fig, pattern, result_df, chart_df):
-    """
-    Kaliya hal pattern ayaa chart-ka lagu sawirayaa:
-    pattern-ka ugu xooggan/current active pattern.
-
-    Pattern points waxay si toos ah uga imanayaan:
-        pattern["points"]
-    """
-
-    if not pattern:
-        return False
-
-    points = pattern.get("points", [])
-
-    if not isinstance(points, list):
-        return False
-
-    if len(points) < 2:
-        return False
-
-    visible = []
-
-    for point in points:
-
-        if not isinstance(point, dict):
-            continue
-
-        idx = point.get("index")
-        price = point.get("price")
-
-        try:
-            price = float(price)
-        except Exception:
-            continue
-
-        x = resolve_chart_index(
-            result_df,
-            chart_df,
-            idx,
-        )
-
-        if x is None:
-            continue
-
-        visible.append(
-            {
-                "x": x,
-                "price": price,
-                "name": point.get("name", "POINT"),
-            }
-        )
-
-    if len(visible) < 2:
-        return False
-
-    name = pattern.get("name", "Pattern")
-    direction = pattern.get("direction", "NEUTRAL")
-    status = pattern.get("status", "FORMING")
-
-    x_values = [p["x"] for p in visible]
-    y_values = [p["price"] for p in visible]
-
-    if direction == "BUY":
-        dash = "solid"
-    elif direction == "SELL":
-        dash = "dash"
-    else:
-        dash = "dot"
-
-    # --------------------------------------------------------
-    # PATTERN STRUCTURE
-    # --------------------------------------------------------
-
-    fig.add_trace(
-        go.Scatter(
-            x=x_values,
-            y=y_values,
-            mode="lines+markers",
-            name=f"ACTIVE • {name}",
-            line=dict(
-                width=4,
-                dash=dash,
-            ),
-            marker=dict(
-                size=10,
-            ),
-            hovertemplate=(
-                f"<b>{name}</b><br>"
-                "Price: %{y}<extra></extra>"
-            ),
-        )
-    )
-
-    # --------------------------------------------------------
-    # POINT LABELS
-    # --------------------------------------------------------
-
-    labels = [
-        p["name"]
-        for p in visible
-    ]
-
-    fig.add_trace(
-        go.Scatter(
-            x=x_values,
-            y=y_values,
-            mode="text",
-            text=labels,
-            textposition="top center",
-            name=f"{name} points",
-            showlegend=False,
-            hoverinfo="skip",
-        )
-    )
-
-    # --------------------------------------------------------
-    # ENTRY / NECKLINE
-    # --------------------------------------------------------
-
-    entry = pattern.get("entry")
-
-    try:
-        entry = float(entry)
-    except Exception:
-        entry = None
-
-    if entry is not None:
-
-        fig.add_trace(
-            go.Scatter(
-                x=[
-                    x_values[0],
-                    x_values[-1],
-                ],
-                y=[
-                    entry,
-                    entry,
-                ],
-                mode="lines",
-                name=f"{name} Entry / Neckline",
-                line=dict(
-                    width=2,
-                    dash="dashdot",
-                ),
-                hovertemplate=(
-                    f"<b>{name} Entry / Neckline</b><br>"
-                    "Level: %{y}<extra></extra>"
-                ),
-            )
-        )
-
-    return True
-
-
-# ============================================================
-# INPUT
+# ANALYSIS INPUT
 # ============================================================
 
 st.subheader("🔎 Market Analysis")
 
-col1, col2 = st.columns([2, 1])
+col1, col2 = st.columns(
+    [2, 1]
+)
 
 with col1:
 
     pair = st.text_input(
         "Pair / Symbol",
         value="BTC/USDT",
-        placeholder="BTC/USDT, ETH/USDT, EUR/USD, XAU/USD...",
+        placeholder=(
+            "BTC/USDT, ETH/USDT, EUR/USD, XAU/USD..."
+        ),
     )
 
 with col2:
 
-    timeframes = get_timeframes()
-
-    if not timeframes:
-        st.error("❌ Timeframes lama helin.")
-        st.stop()
-
-    timeframe_index = 6 if len(timeframes) > 6 else 0
-
     timeframe = st.selectbox(
         "Timeframe",
-        timeframes,
-        index=timeframe_index,
+        get_timeframes(),
+        index=6,
     )
 
 
+# ============================================================
+# HISTORY
+# ============================================================
+
 history_options = {
+
     "Short": "60d",
+
     "Medium": "180d",
+
     "Long": "1y",
+
     "Very Long": "5y",
+
     "Maximum": "max",
 }
+
 
 history = st.selectbox(
     "📅 Historical Data",
@@ -302,7 +141,13 @@ history = st.selectbox(
 )
 
 
-with st.expander("⚙️ Advanced Swing Settings"):
+# ============================================================
+# SWING SETTINGS
+# ============================================================
+
+with st.expander(
+    "⚙️ Advanced Swing Settings"
+):
 
     threshold = st.slider(
         "Major Swing Threshold",
@@ -311,9 +156,16 @@ with st.expander("⚙️ Advanced Swing Settings"):
         value=0.012,
         step=0.001,
         format="%.3f",
-        help="Higher value = fewer and stronger major swings.",
+        help=(
+            "Higher value = fewer and stronger "
+            "major swings."
+        ),
     )
 
+
+# ============================================================
+# ANALYZE BUTTON
+# ============================================================
 
 analyze = st.button(
     "🔍 ANALYZE MARKET",
@@ -325,14 +177,15 @@ analyze = st.button(
 if not analyze:
 
     st.info(
-        "Geli pair-ka, dooro timeframe-ka, kadib riix ANALYZE MARKET."
+        "Geli pair-ka, dooro timeframe-ka, "
+        "kadib riix **ANALYZE MARKET**."
     )
 
     st.stop()
 
 
 # ============================================================
-# MARKET DATA
+# DOWNLOAD MARKET DATA
 # ============================================================
 
 with st.spinner(
@@ -350,11 +203,15 @@ with st.spinner(
     except Exception as error:
 
         st.error(
-            f"❌ Xogta lama helin:\n\n{error}"
+            f"❌ Xogta lama helin.\n\n{error}"
         )
 
         st.stop()
 
+
+# ============================================================
+# DATA VALIDATION
+# ============================================================
 
 if df is None or df.empty:
 
@@ -365,107 +222,32 @@ if df is None or df.empty:
     st.stop()
 
 
-df = df.copy()
-
-df.columns = [
-    str(column).lower()
-    for column in df.columns
-]
-
-
-required_columns = {
-    "open",
-    "high",
-    "low",
-    "close",
-}
-
-missing = required_columns.difference(
-    df.columns
-)
-
-if missing:
-
-    st.error(
-        "❌ Columns ayaa maqan: "
-        + ", ".join(sorted(missing))
-    )
-
-    st.stop()
-
-
 if len(df) < 50:
 
     st.warning(
         f"⚠️ Waxaa la helay {len(df)} candles oo keliya. "
-        "Ugu yaraan 50 candles ayaa loo baahan yahay."
+        "Major swing engine wuxuu u baahan yahay ugu yaraan "
+        "50 candles."
     )
 
     st.stop()
 
 
 # ============================================================
-# INDICATORS
+# MAJOR SWING ENGINE
 # ============================================================
 
 with st.spinner(
-    "📐 Waxaa la xisaabinayaa indicators..."
+    "🔄 Waxaa la baarayaa major swings..."
 ):
 
     try:
 
-        df["ATR"] = calculate_atr(
-            df,
-            14,
-        )
-
-        df["EMA7"] = calculate_ema(
-            df,
-            7,
-        )
-
-        df["EMA15"] = calculate_ema(
-            df,
-            15,
-        )
-
-        df["EMA50"] = calculate_ema(
-            df,
-            50,
-        )
-
-        df["EMA200"] = calculate_ema(
-            df,
-            200,
-        )
-
-        df["RSI"] = calculate_rsi(
-            df,
-            14,
-        )
-
-    except Exception as error:
-
-        st.error(
-            f"❌ Indicator calculation error: {error}"
-        )
-
-        st.stop()
-
-
-# ============================================================
-# MARKET STRUCTURE
-# ============================================================
-
-with st.spinner(
-    "🔄 Waxaa la baarayaa market structure..."
-):
-
-    try:
-
-        structure_result = analyze_market_structure(
-            df,
-            threshold=threshold,
+        structure_result = (
+            analyze_market_structure(
+                df,
+                threshold=threshold,
+            )
         )
 
     except Exception as error:
@@ -477,66 +259,33 @@ with st.spinner(
         st.stop()
 
 
-if not isinstance(
-    structure_result,
-    dict,
-):
+result_df = structure_result[
+    "data"
+]
 
-    st.error(
-        "❌ Market structure engine-ku "
-        "ma soo celin dictionary sax ah."
-    )
+swings = structure_result[
+    "swings"
+]
 
-    st.stop()
+trend = structure_result[
+    "trend"
+]
 
-
-result_df = structure_result.get(
-    "data",
-    df.copy(),
-)
-
-swings = structure_result.get(
-    "swings",
-    [],
-)
-
-trend = structure_result.get(
-    "trend",
-    "UNKNOWN",
-)
-
-latest_bos = structure_result.get(
+latest_bos = structure_result[
     "bos"
-)
+]
 
-latest_choch = structure_result.get(
+latest_choch = structure_result[
     "choch"
-)
-
-
-result_df = result_df.copy()
-
-
-for column in [
-    "ATR",
-    "EMA7",
-    "EMA15",
-    "EMA50",
-    "EMA200",
-    "RSI",
-]:
-
-    if column not in result_df.columns:
-
-        result_df[column] = df[column]
+]
 
 
 # ============================================================
-# CURRENT ACTIVE PATTERNS
+# PATTERN ENGINE
 # ============================================================
 
 with st.spinner(
-    "🔍 Waxaa la baarayaa current active patterns..."
+    "🔍 Waxaa la baarayaa chart patterns..."
 ):
 
     try:
@@ -554,50 +303,8 @@ with st.spinner(
         st.stop()
 
 
-# Pattern engine cusub ayaa hore u kala hormariyey.
-# Sidaas darteed kan ugu horreeya waa strongest pattern.
-
-best_pattern = (
-    patterns[0]
-    if patterns
-    else None
-)
-
-
-latest = result_df.iloc[-1]
-
-
-close_value = latest.get(
-    "close"
-)
-
-atr_value = latest.get(
-    "ATR"
-)
-
-ema7_value = latest.get(
-    "EMA7"
-)
-
-ema15_value = latest.get(
-    "EMA15"
-)
-
-ema50_value = latest.get(
-    "EMA50"
-)
-
-ema200_value = latest.get(
-    "EMA200"
-)
-
-rsi_value = latest.get(
-    "RSI"
-)
-
-
 # ============================================================
-# SUMMARY
+# TOP SUMMARY
 # ============================================================
 
 st.divider()
@@ -606,9 +313,7 @@ st.subheader(
     f"📈 {pair.upper()} — {timeframe}"
 )
 
-
 m1, m2, m3, m4 = st.columns(4)
-
 
 with m1:
 
@@ -617,14 +322,12 @@ with m1:
         trend,
     )
 
-
 with m2:
 
     st.metric(
-        "Active Patterns",
-        len(patterns),
+        "Major Swings",
+        len(swings),
     )
-
 
 with m3:
 
@@ -634,7 +337,6 @@ with m3:
         if latest_bos
         else "—",
     )
-
 
 with m4:
 
@@ -647,120 +349,7 @@ with m4:
 
 
 # ============================================================
-# INDICATORS
-# ============================================================
-
-st.subheader(
-    "📐 Technical Indicators"
-)
-
-
-i1, i2, i3, i4, i5, i6 = st.columns(6)
-
-
-with i1:
-    st.metric(
-        "EMA 7",
-        fmt(ema7_value),
-    )
-
-with i2:
-    st.metric(
-        "EMA 15",
-        fmt(ema15_value),
-    )
-
-with i3:
-    st.metric(
-        "EMA 50",
-        fmt(ema50_value),
-    )
-
-with i4:
-    st.metric(
-        "EMA 200",
-        fmt(ema200_value),
-    )
-
-with i5:
-    st.metric(
-        "RSI 14",
-        fmt(rsi_value),
-    )
-
-with i6:
-    st.metric(
-        "ATR 14",
-        fmt(atr_value),
-    )
-
-
-try:
-
-    ema200_ok = (
-        float(close_value)
-        > float(ema200_value)
-    )
-
-except Exception:
-
-    ema200_ok = False
-
-
-try:
-
-    rsi_ok = (
-        30
-        < float(rsi_value)
-        < 70
-    )
-
-except Exception:
-
-    rsi_ok = False
-
-
-s1, s2, s3 = st.columns(3)
-
-
-with s1:
-
-    if ema200_ok:
-        st.success(
-            "🟢 Price > EMA200"
-        )
-    else:
-        st.error(
-            "🔴 Price ≤ EMA200"
-        )
-
-
-with s2:
-
-    if rsi_ok:
-        st.success(
-            "🟢 RSI 30–70"
-        )
-    else:
-        st.warning(
-            "🟡 RSI outside 30–70"
-        )
-
-
-with s3:
-
-    if pd.notna(atr_value):
-        st.info(
-            f"📏 ATR(14): {fmt(atr_value)}"
-        )
-    else:
-        st.warning(
-            "ATR lama helin"
-        )
-
-
-# ============================================================
-# MARKET STRUCTURE STATUS
+# TREND STATUS
 # ============================================================
 
 if trend == "BULLISH":
@@ -789,246 +378,80 @@ else:
 
 
 # ============================================================
-# BEST CURRENT PATTERN
+# PATTERNS
 # ============================================================
 
 st.subheader(
-    "🏆 Strongest Current Pattern"
-)
-
-
-if best_pattern is None:
-
-    st.info(
-        "Pattern active ah lama helin. "
-        "Patterns hore ama breakout-kii dhacay "
-        "waa la iska indhatiray."
-    )
-
-else:
-
-    name = best_pattern.get(
-        "name",
-        "Pattern",
-    )
-
-    direction = best_pattern.get(
-        "direction",
-        "NEUTRAL",
-    )
-
-    quality = best_pattern.get(
-        "quality",
-        0,
-    )
-
-    status = best_pattern.get(
-        "status",
-        "FORMING",
-    )
-
-    reason = best_pattern.get(
-        "reason",
-        "—",
-    )
-
-    icon = pattern_icon(
-        direction
-    )
-
-
-    with st.container(
-        border=True
-    ):
-
-        st.markdown(
-            f"## {icon} {name}"
-        )
-
-
-        b1, b2, b3 = st.columns(3)
-
-
-        with b1:
-
-            st.metric(
-                "Quality",
-                f"{quality}%",
-            )
-
-
-        with b2:
-
-            st.metric(
-                "Direction",
-                direction,
-            )
-
-
-        with b3:
-
-            st.metric(
-                "Status",
-                status,
-            )
-
-
-        st.write(
-            f"**Reason:** {reason}"
-        )
-
-
-        p1, p2, p3, p4 = st.columns(4)
-
-
-        with p1:
-
-            st.metric(
-                "Entry",
-                fmt(
-                    best_pattern.get(
-                        "entry"
-                    )
-                ),
-            )
-
-
-        with p2:
-
-            st.metric(
-                "TP1",
-                fmt(
-                    best_pattern.get(
-                        "tp1"
-                    )
-                ),
-            )
-
-
-        with p3:
-
-            st.metric(
-                "TP2",
-                fmt(
-                    best_pattern.get(
-                        "tp2"
-                    )
-                ),
-            )
-
-
-        with p4:
-
-            st.metric(
-                "SL",
-                fmt(
-                    best_pattern.get(
-                        "sl"
-                    )
-                ),
-            )
-
-
-        if status == "READY":
-
-            st.success(
-                "🟢 READY — price-ku wuxuu ku dhow yahay entry/neckline."
-            )
-
-        else:
-
-            st.warning(
-                "⏳ FORMING — pattern-ku wali wuu samaysmayaa."
-            )
-
-
-# ============================================================
-# ACTIVE PATTERNS RANKING
-# ============================================================
-
-st.subheader(
-    "🎯 Current Active Patterns — Quality Ranking"
+    "🎯 Detected Chart Patterns"
 )
 
 
 if not patterns:
 
     st.info(
-        "Ma jiraan current active patterns."
+        "Pattern la aqoonsaday lagama helin "
+        "major swings-ka hadda jira."
     )
 
 else:
 
     for pattern in patterns:
 
-        name = pattern.get(
-            "name",
-            "Pattern",
-        )
+        name = pattern[
+            "name"
+        ]
 
-        direction = pattern.get(
-            "direction",
-            "NEUTRAL",
-        )
+        direction = pattern[
+            "direction"
+        ]
 
-        quality = pattern.get(
-            "quality",
-            0,
-        )
+        quality = pattern[
+            "quality"
+        ]
 
-        status = pattern.get(
-            "status",
-            "FORMING",
-        )
+        status = pattern[
+            "status"
+        ]
 
-        reason = pattern.get(
-            "reason",
-            "—",
-        )
+        reason = pattern[
+            "reason"
+        ]
 
-        rank = pattern.get(
-            "rank",
-            "—",
-        )
+        if direction == "BULLISH":
 
-        icon = pattern_icon(
-            direction
-        )
+            icon = "🟢"
+
+        elif direction == "BEARISH":
+
+            icon = "🔴"
+
+        else:
+
+            icon = "🟡"
 
 
         with st.container(
             border=True
         ):
 
-            c1, c2, c3, c4 = st.columns(
-                [3, 1, 1, 1]
+            p1, p2, p3 = st.columns(
+                [2, 1, 1]
             )
 
-
-            with c1:
+            with p1:
 
                 st.markdown(
-                    f"### {icon} #{rank} {name}"
+                    f"### {icon} {name}"
                 )
 
-
-            with c2:
+            with p2:
 
                 st.metric(
                     "Quality",
                     f"{quality}%",
                 )
 
-
-            with c3:
-
-                st.metric(
-                    "Direction",
-                    direction,
-                )
-
-
-            with c4:
+            with p3:
 
                 st.metric(
                     "Status",
@@ -1037,82 +460,240 @@ else:
 
 
             st.write(
+                f"**Direction:** {direction}"
+            )
+
+            st.write(
                 f"**Reason:** {reason}"
             )
 
 
+            entry = pattern.get(
+                "entry"
+            )
+
+            tp1 = pattern.get(
+                "tp1"
+            )
+
+            tp2 = pattern.get(
+                "tp2"
+            )
+
+            sl = pattern.get(
+                "sl"
+            )
+
+
+            e1, e2, e3, e4 = st.columns(
+                4
+            )
+
+
+            with e1:
+
+                st.metric(
+                    "Entry",
+                    (
+                        f"{entry:.6g}"
+                        if entry is not None
+                        else "—"
+                    ),
+                )
+
+
+            with e2:
+
+                st.metric(
+                    "TP1",
+                    (
+                        f"{tp1:.6g}"
+                        if tp1 is not None
+                        else "—"
+                    ),
+                )
+
+
+            with e3:
+
+                st.metric(
+                    "TP2",
+                    (
+                        f"{tp2:.6g}"
+                        if tp2 is not None
+                        else "—"
+                    ),
+                )
+
+
+            with e4:
+
+                st.metric(
+                    "SL",
+                    (
+                        f"{sl:.6g}"
+                        if sl is not None
+                        else "—"
+                    ),
+                )
+
+
 # ============================================================
-# PRICE CHART
+# CANDLESTICK CHART
 # ============================================================
 
 st.subheader(
-    "🕯️ Price Chart + Strongest Current Pattern"
+    "🕯️ Price Chart + Major Swings"
 )
 
 
 chart_df = result_df.tail(
-    150
+    100
 ).copy()
 
 
 fig = go.Figure()
 
 
-# ------------------------------------------------------------
+# ============================================================
 # CANDLES
-# ------------------------------------------------------------
+# ============================================================
 
 fig.add_trace(
     go.Candlestick(
+
         x=chart_df.index,
-        open=chart_df["open"],
-        high=chart_df["high"],
-        low=chart_df["low"],
-        close=chart_df["close"],
+
+        open=chart_df[
+            "open"
+        ],
+
+        high=chart_df[
+            "high"
+        ],
+
+        low=chart_df[
+            "low"
+        ],
+
+        close=chart_df[
+            "close"
+        ],
+
         name="Price",
     )
 )
 
 
-# ------------------------------------------------------------
-# EMA
-# ------------------------------------------------------------
+# ============================================================
+# MAJOR ZIGZAG
+# ============================================================
 
-for column in [
-    "EMA7",
-    "EMA15",
-    "EMA50",
-    "EMA200",
-]:
+zigzag = chart_df[
+    chart_df[
+        "zigzag"
+    ].notna()
+]
 
-    if column in chart_df.columns:
 
-        fig.add_trace(
-            go.Scatter(
-                x=chart_df.index,
-                y=chart_df[column],
-                mode="lines",
-                name=column,
-            )
+if not zigzag.empty:
+
+    fig.add_trace(
+        go.Scatter(
+
+            x=zigzag.index,
+
+            y=zigzag[
+                "zigzag"
+            ],
+
+            mode=(
+                "lines+markers+text"
+            ),
+
+            text=zigzag[
+                "structure"
+            ],
+
+            textposition=(
+                "top center"
+            ),
+
+            name="Major ZigZag",
         )
+    )
 
 
-# ------------------------------------------------------------
-# ONLY BEST PATTERN
-# ------------------------------------------------------------
+# ============================================================
+# SWING HIGH MARKERS
+# ============================================================
 
-drawn = draw_pattern(
-    fig,
-    best_pattern,
-    result_df,
-    chart_df,
-)
+swing_highs = chart_df[
+    chart_df[
+        "swing_high"
+    ]
+]
 
+
+if not swing_highs.empty:
+
+    fig.add_trace(
+        go.Scatter(
+
+            x=swing_highs.index,
+
+            y=swing_highs[
+                "high"
+            ],
+
+            mode="markers",
+
+            name="Major High",
+        )
+    )
+
+
+# ============================================================
+# SWING LOW MARKERS
+# ============================================================
+
+swing_lows = chart_df[
+    chart_df[
+        "swing_low"
+    ]
+]
+
+
+if not swing_lows.empty:
+
+    fig.add_trace(
+        go.Scatter(
+
+            x=swing_lows.index,
+
+            y=swing_lows[
+                "low"
+            ],
+
+            mode="markers",
+
+            name="Major Low",
+        )
+    )
+
+
+# ============================================================
+# CHART SETTINGS
+# ============================================================
 
 fig.update_layout(
-    height=720,
+
+    height=700,
+
     xaxis_rangeslider_visible=False,
+
     hovermode="x unified",
+
     margin=dict(
         l=10,
         r=10,
@@ -1128,58 +709,22 @@ st.plotly_chart(
 )
 
 
-if best_pattern and drawn:
-
-    st.success(
-        "📌 Chart-ka waxaa lagu sawiray oo keliya "
-        f"pattern-ka ugu xooggan: {best_pattern.get('name')}."
-    )
-
-elif best_pattern:
-
-    st.warning(
-        "Pattern-ka ugu xooggan waa la helay, "
-        "laakiin points-kiisu kuma jiraan chart window-ga."
-    )
-
-
 # ============================================================
-# CURRENT PATTERN POINTS
+# MAJOR SWINGS TABLE
 # ============================================================
 
 with st.expander(
-    "📍 Current Pattern Points"
+    "🔄 Major Swings"
 ):
 
-    if (
-        best_pattern
-        and best_pattern.get("points")
-    ):
+    if swings:
 
-        rows = []
-
-        for point in best_pattern["points"]:
-
-            rows.append(
-                {
-                    "Point": point.get(
-                        "name"
-                    ),
-                    "Index": point.get(
-                        "index"
-                    ),
-                    "Price": point.get(
-                        "price"
-                    ),
-                    "Type": point.get(
-                        "type"
-                    ),
-                }
-            )
-
+        swing_df = pd.DataFrame(
+            swings
+        )
 
         st.dataframe(
-            pd.DataFrame(rows),
+            swing_df,
             use_container_width=True,
             hide_index=True,
         )
@@ -1187,48 +732,26 @@ with st.expander(
     else:
 
         st.info(
-            "Current pattern points lama helin."
+            "Major swings lama helin."
         )
 
 
 # ============================================================
-# BOS / CHOCH
+# BOS / CHOCH EVENTS
 # ============================================================
 
 with st.expander(
     "⚡ BOS / CHOCH Events"
 ):
 
-    if "BOS" in result_df.columns:
-
-        bos_mask = result_df[
+    events = result_df[
+        result_df[
             "BOS"
         ].notna()
-
-    else:
-
-        bos_mask = pd.Series(
-            False,
-            index=result_df.index,
-        )
-
-
-    if "CHOCH" in result_df.columns:
-
-        choch_mask = result_df[
+        |
+        result_df[
             "CHOCH"
         ].notna()
-
-    else:
-
-        choch_mask = pd.Series(
-            False,
-            index=result_df.index,
-        )
-
-
-    events = result_df[
-        bos_mask | choch_mask
     ].copy()
 
 
@@ -1241,51 +764,25 @@ with st.expander(
     else:
 
         columns = [
-            column
-            for column in [
-                "close",
-                "zigzag_type",
-                "structure",
-                "BOS",
-                "CHOCH",
-            ]
-            if column in events.columns
+            "close",
+            "zigzag_type",
+            "structure",
+            "BOS",
+            "CHOCH",
         ]
 
+        columns = [
+            c
+            for c in columns
+            if c in events.columns
+        ]
 
         st.dataframe(
-            events[columns],
+            events[
+                columns
+            ],
             use_container_width=True,
         )
-
-
-# ============================================================
-# INDICATOR DATA
-# ============================================================
-
-with st.expander(
-    "📐 Indicator Data"
-):
-
-    columns = [
-        column
-        for column in [
-            "close",
-            "ATR",
-            "EMA7",
-            "EMA15",
-            "EMA50",
-            "EMA200",
-            "RSI",
-        ]
-        if column in result_df.columns
-    ]
-
-
-    st.dataframe(
-        result_df[columns].tail(30),
-        use_container_width=True,
-    )
 
 
 # ============================================================
@@ -1318,12 +815,13 @@ with st.expander(
     )
 
     st.write(
-        f"**Latest Close:** {fmt(close_value)}"
+        f"**Latest Close:** "
+        f"{float(df['close'].iloc[-1]):.6g}"
     )
 
 
 # ============================================================
-# OHLC
+# RAW DATA
 # ============================================================
 
 with st.expander(
@@ -1343,7 +841,6 @@ with st.expander(
 st.divider()
 
 st.caption(
-    "Mobile Analyzer • Yahoo Finance • "
-    "Current Active Pattern Engine • "
-    "Strongest Pattern Drawing • EMA • RSI • ATR")
-
+    "Mobile Analyzer • Yahoo Finance only • "
+    "Major Swing Pattern Engine"
+)
