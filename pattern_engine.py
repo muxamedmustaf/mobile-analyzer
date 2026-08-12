@@ -754,7 +754,6 @@ def detect_symmetrical_triangle(swings, close=None):
 
     upper_ratio = upper_move / max(abs(h1["price"]), 1e-12)
     lower_ratio = lower_move / max(abs(l1["price"]), 1e-12)
-
     if upper_ratio < WEDGE_MIN_CONVERGENCE or lower_ratio < WEDGE_MIN_CONVERGENCE:
         return None
 
