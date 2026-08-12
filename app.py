@@ -843,4 +843,4 @@ st.divider()
 st.caption(
     "Mobile Analyzer • Yahoo Finance only • "
     "Major Swing Pattern Engine"
-)
+    )
