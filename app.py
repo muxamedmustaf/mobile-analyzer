@@ -1162,5 +1162,188 @@ with st.expander(
 
             rows.append(
                 {
-                    "Point": 
-                    )
+                    "Point": point.get(
+                        "name"
+                    ),
+                    "Index": point.get(
+                        "index"
+                    ),
+                    "Price": point.get(
+                        "price"
+                    ),
+                    "Type": point.get(
+                        "type"
+                    ),
+                }
+            )
+
+
+        st.dataframe(
+            pd.DataFrame(rows),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    else:
+
+        st.info(
+            "Current pattern points lama helin."
+        )
+
+
+# ============================================================
+# BOS / CHOCH
+# ============================================================
+
+with st.expander(
+    "⚡ BOS / CHOCH Events"
+):
+
+    if "BOS" in result_df.columns:
+
+        bos_mask = result_df[
+            "BOS"
+        ].notna()
+
+    else:
+
+        bos_mask = pd.Series(
+            False,
+            index=result_df.index,
+        )
+
+
+    if "CHOCH" in result_df.columns:
+
+        choch_mask = result_df[
+            "CHOCH"
+        ].notna()
+
+    else:
+
+        choch_mask = pd.Series(
+            False,
+            index=result_df.index,
+        )
+
+
+    events = result_df[
+        bos_mask | choch_mask
+    ].copy()
+
+
+    if events.empty:
+
+        st.info(
+            "BOS ama CHOCH lama helin."
+        )
+
+    else:
+
+        columns = [
+            column
+            for column in [
+                "close",
+                "zigzag_type",
+                "structure",
+                "BOS",
+                "CHOCH",
+            ]
+            if column in events.columns
+        ]
+
+
+        st.dataframe(
+            events[columns],
+            use_container_width=True,
+        )
+
+
+# ============================================================
+# INDICATOR DATA
+# ============================================================
+
+with st.expander(
+    "📐 Indicator Data"
+):
+
+    columns = [
+        column
+        for column in [
+            "close",
+            "ATR",
+            "EMA7",
+            "EMA15",
+            "EMA50",
+            "EMA200",
+            "RSI",
+        ]
+        if column in result_df.columns
+    ]
+
+
+    st.dataframe(
+        result_df[columns].tail(30),
+        use_container_width=True,
+    )
+
+
+# ============================================================
+# DATA INFORMATION
+# ============================================================
+
+with st.expander(
+    "📋 Data Information"
+):
+
+    st.write(
+        "**Source:** Yahoo Finance"
+    )
+
+    st.write(
+        f"**Yahoo Symbol:** "
+        f"{df.attrs.get('yahoo_symbol', '—')}"
+    )
+
+    st.write(
+        f"**Pair:** {pair.upper()}"
+    )
+
+    st.write(
+        f"**Timeframe:** {timeframe}"
+    )
+
+    st.write(
+        f"**Candles:** {len(df)}"
+    )
+
+    st.write(
+        f"**Latest Close:** {fmt(close_value)}"
+    )
+
+
+# ============================================================
+# OHLC
+# ============================================================
+
+with st.expander(
+    "🧾 Latest OHLC Data"
+):
+
+    st.dataframe(
+        result_df.tail(30),
+        use_container_width=True,
+    )
+
+
+# ============================================================
+# FOOTER
+# ============================================================
+
+st.divider()
+
+st.caption(
+    "Mobile Analyzer • Yahoo Finance • "
+    "Current Active Pattern Engine • "
+    "Strongest Pattern Drawing • EMA • RSI • ATR")
+
