@@ -1,12 +1,13 @@
 # ============================================================
 # MOBILE ANALYZER
 # APP.PY
-# YAHOO FINANCE + MAJOR SWINGS + CHART PATTERNS
+# YAHOO FINANCE + MAJOR SWINGS + PROFESSIONAL PATTERNS
 # ============================================================
 
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+
 
 from data.market_data import (
     fetch_market_data,
@@ -15,7 +16,6 @@ from data.market_data import (
 
 
 from structure.swings import (
-    detect_major_swings,
     analyze_market_structure,
 )
 
@@ -23,7 +23,6 @@ from structure.swings import (
 from pattern_engine import (
     detect_patterns,
 )
-
 
 
 # ============================================================
@@ -38,7 +37,7 @@ st.set_page_config(
 
 
 # ============================================================
-# CUSTOM STYLE
+# STYLE
 # ============================================================
 
 st.markdown(
@@ -48,23 +47,12 @@ st.markdown(
     .main-title {
         font-size: 32px;
         font-weight: 800;
-        margin-bottom: 5px;
+        margin-bottom: 4px;
     }
 
     .subtitle {
         color: #888;
         margin-bottom: 20px;
-    }
-
-    .pattern-box {
-        padding: 15px;
-        border-radius: 12px;
-        border: 1px solid rgba(128,128,128,0.25);
-        margin-bottom: 12px;
-    }
-
-    .confirmed {
-        font-weight: 700;
     }
 
     </style>
@@ -84,23 +72,25 @@ st.markdown(
 
 st.markdown(
     '<div class="subtitle">'
-    'Yahoo Finance • Major Swings • Chart Patterns • BOS / CHOCH'
+    'Yahoo Finance • Major Swings • Professional Chart Patterns • BOS / CHOCH'
     '</div>',
     unsafe_allow_html=True,
 )
 
 
 # ============================================================
-# ANALYSIS INPUT
+# INPUT
 # ============================================================
 
 st.subheader("🔎 Market Analysis")
 
-col1, col2 = st.columns(
+
+c1, c2 = st.columns(
     [2, 1]
 )
 
-with col1:
+
+with c1:
 
     pair = st.text_input(
         "Pair / Symbol",
@@ -110,12 +100,15 @@ with col1:
         ),
     )
 
-with col2:
+
+with c2:
+
+    timeframes = get_timeframes()
 
     timeframe = st.selectbox(
         "Timeframe",
-        get_timeframes(),
-        index=6,
+        timeframes,
+        index=min(6, len(timeframes) - 1),
     )
 
 
@@ -160,7 +153,7 @@ with st.expander(
         step=0.001,
         format="%.3f",
         help=(
-            "Higher value = fewer and stronger "
+            "Higher value = fewer but stronger "
             "major swings."
         ),
     )
@@ -181,14 +174,14 @@ if not analyze:
 
     st.info(
         "Geli pair-ka, dooro timeframe-ka, "
-        "kadib riix **ANALYZE MARKET**."
+        "kadib riix ANALYZE MARKET."
     )
 
     st.stop()
 
 
 # ============================================================
-# DOWNLOAD MARKET DATA
+# DOWNLOAD DATA
 # ============================================================
 
 with st.spinner(
@@ -213,7 +206,7 @@ with st.spinner(
 
 
 # ============================================================
-# DATA VALIDATION
+# VALIDATION
 # ============================================================
 
 if df is None or df.empty:
@@ -229,7 +222,7 @@ if len(df) < 50:
 
     st.warning(
         f"⚠️ Waxaa la helay {len(df)} candles oo keliya. "
-        "Major swing engine wuxuu u baahan yahay ugu yaraan "
+        "Major Swing Engine wuxuu u baahan yahay ugu yaraan "
         "50 candles."
     )
 
@@ -237,11 +230,11 @@ if len(df) < 50:
 
 
 # ============================================================
-# MAJOR SWING ENGINE
+# MARKET STRUCTURE
 # ============================================================
 
 with st.spinner(
-    "🔄 Waxaa la baarayaa major swings..."
+    "🔄 Waxaa la baarayaa Major Swings..."
 ):
 
     try:
@@ -262,25 +255,15 @@ with st.spinner(
         st.stop()
 
 
-result_df = structure_result[
-    "data"
-]
+result_df = structure_result["data"]
 
-swings = structure_result[
-    "swings"
-]
+swings = structure_result["swings"]
 
-trend = structure_result[
-    "trend"
-]
+trend = structure_result["trend"]
 
-latest_bos = structure_result[
-    "bos"
-]
+latest_bos = structure_result["bos"]
 
-latest_choch = structure_result[
-    "choch"
-]
+latest_choch = structure_result["choch"]
 
 
 # ============================================================
@@ -288,7 +271,7 @@ latest_choch = structure_result[
 # ============================================================
 
 with st.spinner(
-    "🔍 Waxaa la baarayaa chart patterns..."
+    "🔍 Waxaa la baarayaa professional chart patterns..."
 ):
 
     try:
@@ -307,7 +290,7 @@ with st.spinner(
 
 
 # ============================================================
-# TOP SUMMARY
+# SUMMARY
 # ============================================================
 
 st.divider()
@@ -316,7 +299,9 @@ st.subheader(
     f"📈 {pair.upper()} — {timeframe}"
 )
 
+
 m1, m2, m3, m4 = st.columns(4)
+
 
 with m1:
 
@@ -325,6 +310,7 @@ with m1:
         trend,
     )
 
+
 with m2:
 
     st.metric(
@@ -332,22 +318,20 @@ with m2:
         len(swings),
     )
 
+
 with m3:
 
     st.metric(
         "Latest BOS",
-        latest_bos
-        if latest_bos
-        else "—",
+        latest_bos if latest_bos else "—",
     )
+
 
 with m4:
 
     st.metric(
         "Latest CHOCH",
-        latest_choch
-        if latest_choch
-        else "—",
+        latest_choch if latest_choch else "—",
     )
 
 
@@ -381,7 +365,7 @@ else:
 
 
 # ============================================================
-# PATTERNS
+# PATTERN SUMMARY
 # ============================================================
 
 st.subheader(
@@ -392,60 +376,152 @@ st.subheader(
 if not patterns:
 
     st.info(
-        "Pattern la aqoonsaday lagama helin "
+        "Pattern xirfad leh lagama helin "
         "major swings-ka hadda jira."
     )
 
 else:
 
-    for pattern in patterns:
+    st.caption(
+        "Patterns-ka waxaa loo kala hormariyey "
+        "quality + confirmation + structure strength."
+    )
 
-        name = pattern[
-            "name"
-        ]
 
-        direction = pattern[
-            "direction"
-        ]
+# ============================================================
+# PATTERN SELECTOR
+# ============================================================
 
-        quality = pattern[
-            "quality"
-        ]
+selected_pattern = None
 
-        status = pattern[
-            "status"
-        ]
 
-        reason = pattern[
-            "reason"
-        ]
+if patterns:
+
+    pattern_names = [
+        (
+            f"{i + 1}. "
+            f"{p['name']} — "
+            f"{p['direction']} — "
+            f"{p['quality']}% — "
+            f"{p['status']}"
+        )
+        for i, p in enumerate(patterns)
+    ]
+
+
+    selected_name = st.selectbox(
+        "👆 Dooro pattern si chart-ku kuu tuso",
+        pattern_names,
+    )
+
+
+    selected_index = pattern_names.index(
+        selected_name
+    )
+
+
+    selected_pattern = patterns[
+        selected_index
+    ]
+
+
+# ============================================================
+# PATTERN CARDS
+# ============================================================
+
+if patterns:
+
+    for i, pattern in enumerate(patterns):
+
+        name = pattern.get(
+            "name",
+            "Pattern",
+        )
+
+        direction = pattern.get(
+            "direction",
+            "NEUTRAL",
+        )
+
+        quality = pattern.get(
+            "quality",
+            0,
+        )
+
+        status = pattern.get(
+            "status",
+            "FORMING",
+        )
+
+        reason = pattern.get(
+            "reason",
+            "",
+        )
+
+        entry = pattern.get(
+            "entry"
+        )
+
+        tp1 = pattern.get(
+            "tp1"
+        )
+
+        tp2 = pattern.get(
+            "tp2"
+        )
+
+        sl = pattern.get(
+            "sl"
+        )
+
 
         if direction == "BULLISH":
 
             icon = "🟢"
 
+            action = "BUY"
+
         elif direction == "BEARISH":
 
             icon = "🔴"
 
+            action = "SELL"
+
         else:
 
             icon = "🟡"
+
+            action = "WAIT"
+
+
+        if status == "CONFIRMED":
+
+            status_icon = "✅"
+
+        elif status == "FORMING":
+
+            status_icon = "⏳"
+
+        else:
+
+            status_icon = "⚠️"
 
 
         with st.container(
             border=True
         ):
 
-            p1, p2, p3 = st.columns(
-                [2, 1, 1]
+            p1, p2, p3, p4 = st.columns(
+                [2.4, 1, 1, 1]
             )
+
 
             with p1:
 
                 st.markdown(
                     f"### {icon} {name}"
                 )
+
 
             with p2:
 
@@ -454,11 +530,20 @@ else:
                     f"{quality}%",
                 )
 
+
             with p3:
 
                 st.metric(
                     "Status",
-                    status,
+                    f"{status_icon} {status}",
+                )
+
+
+            with p4:
+
+                st.metric(
+                    "Action",
+                    action,
                 )
 
 
@@ -471,26 +556,7 @@ else:
             )
 
 
-            entry = pattern.get(
-                "entry"
-            )
-
-            tp1 = pattern.get(
-                "tp1"
-            )
-
-            tp2 = pattern.get(
-                "tp2"
-            )
-
-            sl = pattern.get(
-                "sl"
-            )
-
-
-            e1, e2, e3, e4 = st.columns(
-                4
-            )
+            e1, e2, e3, e4 = st.columns(4)
 
 
             with e1:
@@ -542,16 +608,41 @@ else:
 
 
 # ============================================================
-# CANDLESTICK CHART
+# SELECTED PATTERN INFO
+# ============================================================
+
+if selected_pattern is not None:
+
+    st.subheader(
+        f"🎯 Selected Pattern: "
+        f"{selected_pattern['name']}"
+    )
+
+    if selected_pattern["status"] == "CONFIRMED":
+
+        st.success(
+            "✅ Pattern-kan waa CONFIRMED."
+        )
+
+    else:
+
+        st.warning(
+            "⏳ Pattern-kan wali waa FORMING. "
+            "Breakout confirmation ayaa loo baahan yahay."
+        )
+
+
+# ============================================================
+# CHART
 # ============================================================
 
 st.subheader(
-    "🕯️ Price Chart + Major Swings"
+    "🕯️ Price Chart + Major Swings + Pattern"
 )
 
 
 chart_df = result_df.tail(
-    100
+    150
 ).copy()
 
 
@@ -559,7 +650,7 @@ fig = go.Figure()
 
 
 # ============================================================
-# CANDLES
+# CANDLESTICKS
 # ============================================================
 
 fig.add_trace(
@@ -567,21 +658,13 @@ fig.add_trace(
 
         x=chart_df.index,
 
-        open=chart_df[
-            "open"
-        ],
+        open=chart_df["open"],
 
-        high=chart_df[
-            "high"
-        ],
+        high=chart_df["high"],
 
-        low=chart_df[
-            "low"
-        ],
+        low=chart_df["low"],
 
-        close=chart_df[
-            "close"
-        ],
+        close=chart_df["close"],
 
         name="Price",
     )
@@ -592,106 +675,391 @@ fig.add_trace(
 # MAJOR ZIGZAG
 # ============================================================
 
-zigzag = chart_df[
-    chart_df[
-        "zigzag"
-    ].notna()
-]
+if "zigzag" in chart_df.columns:
 
+    zigzag = chart_df[
+        chart_df["zigzag"].notna()
+    ]
 
-if not zigzag.empty:
+    if not zigzag.empty:
 
-    fig.add_trace(
-        go.Scatter(
+        fig.add_trace(
+            go.Scatter(
 
-            x=zigzag.index,
+                x=zigzag.index,
 
-            y=zigzag[
-                "zigzag"
-            ],
+                y=zigzag["zigzag"],
 
-            mode=(
-                "lines+markers+text"
-            ),
+                mode="lines+markers",
 
-            text=zigzag[
-                "structure"
-            ],
-
-            textposition=(
-                "top center"
-            ),
-
-            name="Major ZigZag",
+                name="Major ZigZag",
+            )
         )
-    )
 
 
 # ============================================================
 # SWING HIGH MARKERS
 # ============================================================
 
-swing_highs = chart_df[
-    chart_df[
-        "swing_high"
+if "swing_high" in chart_df.columns:
+
+    swing_highs = chart_df[
+        chart_df["swing_high"]
     ]
-]
 
+    if not swing_highs.empty:
 
-if not swing_highs.empty:
+        fig.add_trace(
+            go.Scatter(
 
-    fig.add_trace(
-        go.Scatter(
+                x=swing_highs.index,
 
-            x=swing_highs.index,
+                y=swing_highs["high"],
 
-            y=swing_highs[
-                "high"
-            ],
+                mode="markers",
 
-            mode="markers",
+                marker=dict(
+                    size=9,
+                    symbol="triangle-up",
+                ),
 
-            name="Major High",
+                name="Major High",
+            )
         )
-    )
 
 
 # ============================================================
 # SWING LOW MARKERS
 # ============================================================
 
-swing_lows = chart_df[
-    chart_df[
-        "swing_low"
+if "swing_low" in chart_df.columns:
+
+    swing_lows = chart_df[
+        chart_df["swing_low"]
     ]
-]
+
+    if not swing_lows.empty:
+
+        fig.add_trace(
+            go.Scatter(
+
+                x=swing_lows.index,
+
+                y=swing_lows["low"],
+
+                mode="markers",
+
+                marker=dict(
+                    size=9,
+                    symbol="triangle-down",
+                ),
+
+                name="Major Low",
+            )
+        )
 
 
-if not swing_lows.empty:
+# ============================================================
+# PATTERN DRAWING
+# ============================================================
 
-    fig.add_trace(
+def get_chart_x(index_value):
+
+    if index_value is None:
+        return None
+
+    try:
+
+        if index_value in chart_df.index:
+
+            return index_value
+
+    except Exception:
+        pass
+
+    try:
+
+        pos = int(index_value)
+
+        if 0 <= pos < len(result_df):
+
+            return result_df.index[pos]
+
+    except Exception:
+        pass
+
+    return None
+
+
+def draw_selected_pattern(
+    figure,
+    pattern
+):
+
+    if pattern is None:
+        return
+
+
+    points = pattern.get(
+        "points",
+        []
+    )
+
+
+    valid_points = []
+
+    for point in points:
+
+        x = get_chart_x(
+            point.get("index")
+        )
+
+        y = point.get(
+            "price"
+        )
+
+        if x is None or y is None:
+            continue
+
+        try:
+
+            y = float(y)
+
+        except Exception:
+
+            continue
+
+        valid_points.append(
+            (
+                x,
+                y,
+                point.get("type", "")
+            )
+        )
+
+
+    if not valid_points:
+        return
+
+
+    # --------------------------------------------------------
+    # Pattern point lines
+    # --------------------------------------------------------
+
+    figure.add_trace(
         go.Scatter(
 
-            x=swing_lows.index,
-
-            y=swing_lows[
-                "low"
+            x=[
+                p[0]
+                for p in valid_points
             ],
 
-            mode="markers",
+            y=[
+                p[1]
+                for p in valid_points
+            ],
 
-            name="Major Low",
+            mode="lines+markers+text",
+
+            text=[
+                p[2]
+                for p in valid_points
+            ],
+
+            textposition="top center",
+
+            line=dict(
+                width=4,
+            ),
+
+            marker=dict(
+                size=12,
+            ),
+
+            name=(
+                "Pattern: "
+                + pattern["name"]
+            ),
         )
     )
 
 
+    # --------------------------------------------------------
+    # Neckline
+    # --------------------------------------------------------
+
+    neckline_points = pattern.get(
+        "neckline_points",
+        []
+    )
+
+
+    nx = []
+    ny = []
+
+
+    for point in neckline_points:
+
+        x = get_chart_x(
+            point.get("index")
+        )
+
+        y = point.get(
+            "price"
+        )
+
+        if x is None or y is None:
+            continue
+
+        try:
+
+            y = float(y)
+
+        except Exception:
+
+            continue
+
+        nx.append(x)
+        ny.append(y)
+
+
+    if len(nx) >= 2:
+
+        figure.add_trace(
+            go.Scatter(
+
+                x=nx,
+
+                y=ny,
+
+                mode="lines",
+
+                line=dict(
+                    dash="dash",
+                    width=3,
+                ),
+
+                name="Pattern Neckline",
+            )
+        )
+
+    elif len(nx) == 1:
+
+        figure.add_trace(
+            go.Scatter(
+
+                x=nx,
+
+                y=ny,
+
+                mode="markers",
+
+                marker=dict(
+                    size=10,
+                ),
+
+                name="Pattern Neckline",
+            )
+        )
+
+
+    # --------------------------------------------------------
+    # ENTRY / TP / SL
+    # --------------------------------------------------------
+
+    levels = [
+        (
+            "ENTRY",
+            pattern.get("entry"),
+        ),
+        (
+            "TP1",
+            pattern.get("tp1"),
+        ),
+        (
+            "TP2",
+            pattern.get("tp2"),
+        ),
+        (
+            "SL",
+            pattern.get("sl"),
+        ),
+    ]
+
+
+    for label, value in levels:
+
+        if value is None:
+            continue
+
+        try:
+
+            value = float(value)
+
+        except Exception:
+
+            continue
+
+        figure.add_hline(
+            y=value,
+
+            line_dash="dot",
+
+            annotation_text=(
+                f"{label} "
+                f"{value:.6g}"
+            ),
+
+            annotation_position=(
+                "top right"
+            ),
+        )
+
+
+    # --------------------------------------------------------
+    # Pattern title
+    # --------------------------------------------------------
+
+    if valid_points:
+
+        middle = valid_points[
+            len(valid_points) // 2
+        ]
+
+        figure.add_annotation(
+
+            x=middle[0],
+
+            y=middle[1],
+
+            text=(
+                f"{pattern['name']} "
+                f"({pattern['quality']}%)"
+            ),
+
+            showarrow=True,
+
+            arrowhead=2,
+        )
+
+
 # ============================================================
-# CHART SETTINGS
+# DRAW SELECTED PATTERN
+# ============================================================
+
+draw_selected_pattern(
+    fig,
+    selected_pattern
+)
+
+
+# ============================================================
+# CHART LAYOUT
 # ============================================================
 
 fig.update_layout(
 
-    height=700,
+    height=750,
 
     xaxis_rangeslider_visible=False,
 
@@ -700,8 +1068,16 @@ fig.update_layout(
     margin=dict(
         l=10,
         r=10,
-        t=30,
+        t=40,
         b=10,
+    ),
+
+    legend=dict(
+        orientation="h",
+        yanchor="bottom",
+        y=1.01,
+        xanchor="left",
+        x=0,
     ),
 )
 
@@ -710,6 +1086,105 @@ st.plotly_chart(
     fig,
     use_container_width=True,
 )
+
+
+# ============================================================
+# TRADE PLAN
+# ============================================================
+
+if selected_pattern is not None:
+
+    st.subheader(
+        "📋 Professional Trade Plan"
+    )
+
+
+    p = selected_pattern
+
+
+    if p["direction"] == "BULLISH":
+
+        st.success(
+            "🟢 BUY SETUP"
+        )
+
+    elif p["direction"] == "BEARISH":
+
+        st.error(
+            "🔴 SELL SETUP"
+        )
+
+    else:
+
+        st.warning(
+            "🟡 WAIT — Breakout confirmation required"
+        )
+
+
+    t1, t2, t3, t4 = st.columns(4)
+
+
+    with t1:
+
+        st.metric(
+            "Entry",
+            (
+                f"{p['entry']:.6g}"
+                if p.get("entry") is not None
+                else "WAIT"
+            ),
+        )
+
+
+    with t2:
+
+        st.metric(
+            "Stop Loss",
+            (
+                f"{p['sl']:.6g}"
+                if p.get("sl") is not None
+                else "—"
+            ),
+        )
+
+
+    with t3:
+
+        st.metric(
+            "Take Profit 1",
+            (
+                f"{p['tp1']:.6g}"
+                if p.get("tp1") is not None
+                else "—"
+            ),
+        )
+
+
+    with t4:
+
+        st.metric(
+            "Take Profit 2",
+            (
+                f"{p['tp2']:.6g}"
+                if p.get("tp2") is not None
+                else "—"
+            ),
+        )
+
+
+    if p["status"] == "FORMING":
+
+        st.info(
+            "⚠️ Setup-ku wali ma xaqiijin. "
+            "Entry-ga ha loo qaadan trade toos ah "
+            "ilaa breakout + candle close la helo."
+        )
+
+    elif p["status"] == "CONFIRMED":
+
+        st.success(
+            "✅ Breakout confirmation ayaa la helay."
+        )
 
 
 # ============================================================
@@ -740,52 +1215,74 @@ with st.expander(
 
 
 # ============================================================
-# BOS / CHOCH EVENTS
+# BOS / CHOCH
 # ============================================================
 
 with st.expander(
     "⚡ BOS / CHOCH Events"
 ):
 
-    events = result_df[
-        result_df[
-            "BOS"
-        ].notna()
-        |
-        result_df[
-            "CHOCH"
-        ].notna()
-    ].copy()
-
-
-    if events.empty:
+    if (
+        "BOS" not in result_df.columns
+        and
+        "CHOCH" not in result_df.columns
+    ):
 
         st.info(
-            "BOS ama CHOCH lama helin."
+            "BOS / CHOCH columns lama helin."
         )
 
     else:
 
-        columns = [
-            "close",
-            "zigzag_type",
-            "structure",
-            "BOS",
-            "CHOCH",
-        ]
-
-        columns = [
-            c
-            for c in columns
-            if c in events.columns
-        ]
-
-        st.dataframe(
-            events[
-                columns
-            ],
-            use_container_width=True,
+        bos_mask = (
+            result_df["BOS"].notna()
+            if "BOS" in result_df.columns
+            else False
         )
+
+        choch_mask = (
+            result_df["CHOCH"].notna()
+            if "CHOCH" in result_df.columns
+            else False
+        )
+
+        try:
+
+            events = result_df[
+                bos_mask | choch_mask
+            ].copy()
+
+        except Exception:
+
+            events = pd.DataFrame()
+
+
+        if events.empty:
+
+            st.info(
+                "BOS ama CHOCH lama helin."
+            )
+
+        else:
+
+            columns = [
+                "close",
+                "zigzag_type",
+                "structure",
+                "BOS",
+                "CHOCH",
+            ]
+
+            columns = [
+                c
+                for c in columns
+                if c in events.columns
+            ]
+
+            st.dataframe(
+                events[columns],
+                use_container_width=True,
+            )
 
 
 # ============================================================
@@ -845,5 +1342,5 @@ st.divider()
 
 st.caption(
     "Mobile Analyzer • Yahoo Finance only • "
-    "Major Swing Pattern Engine"
-    )
+    "Professional Major Swing Pattern Engine"
+        )
