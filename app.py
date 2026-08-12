@@ -7,8 +7,8 @@ try:
 except ImportError:
     from market_data import fetch_market_data, get_timeframes
 
-from structure.market_structure import analyze_market_structure
-from pattern_engine import detect_patterns, get_best_pattern
+from structure.swings import analyze_market_structure
+from pattern_engine import detect_patterns
 
 from indicators.atr import calculate_atr
 from indicators.ema import calculate_ema
@@ -43,21 +43,11 @@ st.markdown(
         color: #888;
         margin-bottom: 20px;
     }
-
-    .best-pattern {
-        padding: 12px;
-        border-radius: 10px;
-        margin-bottom: 10px;
-    }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-
-# ============================================================
-# HEADER
-# ============================================================
 
 st.markdown(
     '<div class="main-title">📊 Mobile Market Analyzer</div>',
@@ -66,7 +56,7 @@ st.markdown(
 
 st.markdown(
     '<div class="subtitle">'
-    'Yahoo Finance • Current Active Pattern Engine • EMA • RSI • ATR • BOS / CHOCH'
+    'Yahoo Finance • Current Active Pattern • EMA • RSI • ATR • BOS / CHOCH'
     '</div>',
     unsafe_allow_html=True,
 )
@@ -90,19 +80,12 @@ with col1:
 with col2:
     timeframes = get_timeframes()
 
-    st.selectbox(
+    timeframe = st.selectbox(
         "Timeframe",
         timeframes,
         index=min(6, len(timeframes) - 1),
-        key="timeframe",
     )
 
-timeframe = st.session_state["timeframe"]
-
-
-# ============================================================
-# HISTORY
-# ============================================================
 
 history_options = {
     "Short": "60d",
@@ -112,16 +95,13 @@ history_options = {
     "Maximum": "max",
 }
 
+
 history = st.selectbox(
     "📅 Historical Data",
     list(history_options.keys()),
     index=1,
 )
 
-
-# ============================================================
-# SWING SETTINGS
-# ============================================================
 
 with st.expander("⚙️ Advanced Swing Settings"):
 
@@ -136,20 +116,20 @@ with st.expander("⚙️ Advanced Swing Settings"):
     )
 
 
-# ============================================================
-# ANALYZE BUTTON
-# ============================================================
-
 analyze = st.button(
     "🔍 ANALYZE MARKET",
     type="primary",
     use_container_width=True,
 )
 
+
 if not analyze:
+
     st.info(
-        "Geli pair-ka, dooro timeframe-ka, kadib riix **ANALYZE MARKET**."
+        "Geli pair-ka, dooro timeframe-ka, kadib riix "
+        "**ANALYZE MARKET**."
     )
+
     st.stop()
 
 
@@ -162,6 +142,7 @@ with st.spinner(
 ):
 
     try:
+
         df = fetch_market_data(
             pair,
             timeframe,
@@ -173,6 +154,7 @@ with st.spinner(
         st.error(
             f"❌ Xogta lama helin.\n\n{error}"
         )
+
         st.stop()
 
 
@@ -181,12 +163,9 @@ if df is None or df.empty:
     st.error(
         "❌ Yahoo Finance wax xog ah kama soo celin."
     )
+
     st.stop()
 
-
-# ============================================================
-# NORMALIZE DATA
-# ============================================================
 
 df = df.copy()
 
@@ -195,6 +174,10 @@ df.columns = [
     for column in df.columns
 ]
 
+
+# ============================================================
+# REQUIRED COLUMNS
+# ============================================================
 
 required_columns = {
     "open",
@@ -208,11 +191,14 @@ missing_columns = (
     - set(df.columns)
 )
 
+
 if missing_columns:
 
     st.error(
         "❌ Market data columns ayaa maqan: "
-        + ", ".join(sorted(missing_columns))
+        + ", ".join(
+            sorted(missing_columns)
+        )
     )
 
     st.stop()
@@ -222,7 +208,8 @@ if len(df) < 50:
 
     st.warning(
         f"⚠️ Waxaa la helay {len(df)} candles oo keliya. "
-        "Major swing engine wuxuu u baahan yahay ugu yaraan 50 candles."
+        "Major swing engine wuxuu u baahan yahay ugu yaraan "
+        "50 candles."
     )
 
     st.stop()
@@ -279,16 +266,10 @@ with st.spinner(
 
 # ============================================================
 # MARKET STRUCTURE
-#
-# IMPORTANT:
-# We still calculate major swings because the pattern engine
-# needs them internally.
-#
-# They are NOT displayed on the chart.
 # ============================================================
 
 with st.spinner(
-    "🔄 Waxaa la baarayaa market structure..."
+    "🔄 Waxaa la baarayaa major market structure..."
 ):
 
     try:
@@ -301,27 +282,34 @@ with st.spinner(
     except Exception as error:
 
         st.error(
-            f"❌ Market structure error: {error}"
+            f"❌ Swing analysis error: {error}"
         )
 
         st.stop()
 
 
-result_df = structure_result["data"]
+result_df = structure_result.get(
+    "data",
+    df.copy(),
+).copy()
+
 
 swings = structure_result.get(
     "swings",
     [],
 )
 
+
 trend = structure_result.get(
     "trend",
     "UNKNOWN",
 )
 
+
 latest_bos = structure_result.get(
     "bos",
 )
+
 
 latest_choch = structure_result.get(
     "choch",
@@ -329,22 +317,17 @@ latest_choch = structure_result.get(
 
 
 # ============================================================
-# PRESERVE MAJOR SWINGS FOR PATTERN ENGINE
-#
-# The engine reads:
+# IMPORTANT
+# Pattern Engine wuxuu major swings ka akhriyaa
 # df.attrs["major_swings"]
 # ============================================================
-
-result_df = result_df.copy()
 
 result_df.attrs["major_swings"] = swings
 
 
-# ============================================================
-# COPY INDICATORS INTO RESULT DATA
-# ============================================================
+# Restore indicators if structure engine removed them.
 
-for col in [
+for column in [
     "ATR",
     "EMA7",
     "EMA15",
@@ -353,13 +336,13 @@ for col in [
     "RSI",
 ]:
 
-    if col not in result_df.columns:
+    if column not in result_df.columns:
 
-        result_df[col] = df[col]
+        result_df[column] = df[column]
 
 
 # ============================================================
-# PATTERN ENGINE
+# CURRENT ACTIVE PATTERNS
 # ============================================================
 
 with st.spinner(
@@ -372,12 +355,6 @@ with st.spinner(
             result_df
         )
 
-        best_pattern = (
-            patterns[0]
-            if patterns
-            else None
-        )
-
     except Exception as error:
 
         st.error(
@@ -385,6 +362,14 @@ with st.spinner(
         )
 
         st.stop()
+
+
+# Pattern engine already sorts strongest first.
+best_pattern = (
+    patterns[0]
+    if patterns
+    else None
+)
 
 
 # ============================================================
@@ -405,48 +390,11 @@ def fmt(value):
         return "—"
 
 
-def get_signal(pattern):
-
-    if not pattern:
-        return "WAIT"
-
-    status = str(
-        pattern.get(
-            "status",
-            ""
-        )
-    ).upper()
+def direction_icon(direction):
 
     direction = str(
-        pattern.get(
-            "direction",
-            ""
-        )
+        direction or ""
     ).upper()
-
-    if status == "READY":
-
-        if direction == "BUY":
-            return "BUY"
-
-        if direction == "SELL":
-            return "SELL"
-
-    return "WAIT"
-
-
-def get_signal_icon(signal):
-
-    if signal == "BUY":
-        return "🟢"
-
-    if signal == "SELL":
-        return "🔴"
-
-    return "🟡"
-
-
-def get_direction_icon(direction):
 
     if direction == "BUY":
         return "🟢"
@@ -457,150 +405,196 @@ def get_direction_icon(direction):
     return "🟡"
 
 
-# ============================================================
-# PATTERN POINTS
-# ============================================================
+def action_for(pattern):
 
-def get_pattern_points(pattern):
+    if not pattern:
+        return "WAIT"
 
-    """
-    pattern_engine.py returns:
+    direction = str(
+        pattern.get(
+            "direction",
+            "",
+        )
+    ).upper()
 
-        "points": [
-            {
-                "name": ...,
-                "index": ...,
-                "price": ...,
-                "type": ...
-            }
-        ]
+    status = str(
+        pattern.get(
+            "status",
+            "",
+        )
+    ).upper()
 
-    This function converts those points into dataframe x-values.
-    """
+    if (
+        status == "READY"
+        and direction in {"BUY", "SELL"}
+    ):
+
+        return direction
+
+    return "WAIT"
+
+
+def get_pattern_points(
+    pattern,
+    data,
+):
+
+    if not pattern:
+        return []
 
     points = pattern.get(
         "points",
         [],
     )
 
-    if not points:
-        return []
-
-
     output = []
-
 
     for point in points:
 
+        if not isinstance(
+            point,
+            dict,
+        ):
+            continue
+
+        idx = point.get(
+            "index"
+        )
+
+        price = point.get(
+            "price"
+        )
+
+        if idx is None or price is None:
+            continue
+
         try:
 
-            if not isinstance(
-                point,
-                dict,
-            ):
-                continue
-
-
-            idx = point.get(
-                "index"
-            )
-
-            price = point.get(
-                "price"
-            )
-
-
-            if idx is None or price is None:
-                continue
-
-
             price = float(price)
-
-
-            # Exact dataframe index
-            if idx in result_df.index:
-
-                x = idx
-
-            else:
-
-                # Candle position
-                try:
-
-                    pos = int(idx)
-
-                    if (
-                        pos < 0
-                        or pos >= len(result_df)
-                    ):
-                        continue
-
-                    x = result_df.index[pos]
-
-                except Exception:
-
-                    continue
-
-
-            output.append(
-                (
-                    x,
-                    price,
-                )
-            )
 
         except Exception:
 
             continue
 
+        try:
+
+            if idx in data.index:
+
+                x = idx
+
+            else:
+
+                position = int(idx)
+
+                if (
+                    position < 0
+                    or position >= len(data)
+                ):
+                    continue
+
+                x = data.index[
+                    position
+                ]
+
+        except Exception:
+
+            continue
+
+        output.append(
+            {
+                "x": x,
+                "price": price,
+                "name": point.get(
+                    "name",
+                    "",
+                ),
+            }
+        )
 
     return output
 
 
-# ============================================================
-# DRAW ONLY BEST PATTERN
-# ============================================================
+def add_level(
+    fig,
+    x0,
+    x1,
+    level,
+    name,
+    dash="dot",
+):
 
-def add_best_pattern_drawing(
+    if level is None:
+        return
+
+    try:
+
+        level = float(level)
+
+    except Exception:
+
+        return
+
+    fig.add_trace(
+        go.Scatter(
+            x=[
+                x0,
+                x1,
+            ],
+            y=[
+                level,
+                level,
+            ],
+            mode="lines",
+            name=name,
+            line=dict(
+                width=1.5,
+                dash=dash,
+            ),
+            hovertemplate=(
+                f"<b>{name}</b><br>"
+                "Price: %{y}"
+                "<extra></extra>"
+            ),
+        )
+    )
+
+
+def draw_best_pattern(
     fig,
     pattern,
     chart_df,
+    source_df,
 ):
 
     if not pattern:
         return False
 
-
     points = get_pattern_points(
-        pattern
+        pattern,
+        source_df,
     )
-
 
     if len(points) < 2:
         return False
 
-
     visible = [
-        (x, y)
-        for x, y in points
-        if x in chart_df.index
+        point
+        for point in points
+        if point["x"] in chart_df.index
     ]
-
 
     if len(visible) < 2:
         return False
 
-
     x_values = [
-        item[0]
-        for item in visible
+        point["x"]
+        for point in visible
     ]
 
     y_values = [
-        item[1]
-        for item in visible
+        point["price"]
+        for point in visible
     ]
-
 
     name = pattern.get(
         "name",
@@ -617,17 +611,21 @@ def add_best_pattern_drawing(
         "FORMING",
     )
 
+    quality = pattern.get(
+        "quality",
+        0,
+    )
 
-    # --------------------------------------------
-    # Pattern structure line
-    # --------------------------------------------
+    # ========================================================
+    # PATTERN STRUCTURE
+    # ========================================================
 
     fig.add_trace(
         go.Scatter(
             x=x_values,
             y=y_values,
             mode="lines+markers",
-            name=f"ACTIVE • {name}",
+            name=f"⭐ ACTIVE • {name}",
             line=dict(
                 width=4,
             ),
@@ -638,35 +636,23 @@ def add_best_pattern_drawing(
                 f"<b>{name}</b><br>"
                 "Price: %{y}<br>"
                 f"Direction: {direction}<br>"
-                f"Status: {status}"
+                f"Status: {status}<br>"
+                f"Quality: {quality}/100"
                 "<extra></extra>"
             ),
         )
     )
 
+    # ========================================================
+    # POINT LABELS
+    # ========================================================
 
-    # --------------------------------------------
-    # Point labels
-    # --------------------------------------------
+    point_names = [
+        point["name"]
+        for point in visible
+    ]
 
-    point_names = []
-
-    for point in pattern.get(
-        "points",
-        [],
-    ):
-
-        point_names.append(
-            point.get(
-                "name",
-                "",
-            )
-        )
-
-
-    if len(point_names) == len(
-        visible
-    ):
+    if any(point_names):
 
         fig.add_trace(
             go.Scatter(
@@ -675,188 +661,71 @@ def add_best_pattern_drawing(
                 mode="text",
                 text=point_names,
                 textposition="top center",
-                name=f"{name} points",
+                name="Pattern Points",
                 showlegend=False,
                 hoverinfo="skip",
             )
         )
 
 
-    # --------------------------------------------
-    # Entry / neckline
-    # --------------------------------------------
+    x0 = x_values[0]
+    x1 = x_values[-1]
 
-    entry = pattern.get(
-        "entry"
+
+    # ========================================================
+    # ENTRY
+    # ========================================================
+
+    add_level(
+        fig,
+        x0,
+        x1,
+        pattern.get("entry"),
+        "Entry / Neckline",
+        "dash",
     )
 
-    try:
 
-        entry = float(entry)
-
-    except Exception:
-
-        entry = None
-
-
-    if entry is not None:
-
-        fig.add_trace(
-            go.Scatter(
-                x=[
-                    x_values[0],
-                    x_values[-1],
-                ],
-                y=[
-                    entry,
-                    entry,
-                ],
-                mode="lines",
-                name="Entry / Neckline",
-                line=dict(
-                    width=2,
-                    dash="dash",
-                ),
-                hovertemplate=(
-                    "<b>Entry / Neckline</b><br>"
-                    "Level: %{y}"
-                    "<extra></extra>"
-                ),
-            )
-        )
-
-
-    # --------------------------------------------
+    # ========================================================
     # TP1
-    # --------------------------------------------
+    # ========================================================
 
-    tp1 = pattern.get(
-        "tp1"
+    add_level(
+        fig,
+        x0,
+        x1,
+        pattern.get("tp1"),
+        "TP1",
+        "dot",
     )
 
-    try:
 
-        tp1 = float(tp1)
-
-    except Exception:
-
-        tp1 = None
-
-
-    if tp1 is not None:
-
-        fig.add_trace(
-            go.Scatter(
-                x=[
-                    x_values[0],
-                    x_values[-1],
-                ],
-                y=[
-                    tp1,
-                    tp1,
-                ],
-                mode="lines",
-                name="TP1",
-                line=dict(
-                    width=1.5,
-                    dash="dot",
-                ),
-                hovertemplate=(
-                    "<b>TP1</b><br>"
-                    "Price: %{y}"
-                    "<extra></extra>"
-                ),
-            )
-        )
-
-
-    # --------------------------------------------
+    # ========================================================
     # TP2
-    # --------------------------------------------
+    # ========================================================
 
-    tp2 = pattern.get(
-        "tp2"
+    add_level(
+        fig,
+        x0,
+        x1,
+        pattern.get("tp2"),
+        "TP2",
+        "dot",
     )
 
-    try:
 
-        tp2 = float(tp2)
-
-    except Exception:
-
-        tp2 = None
-
-
-    if tp2 is not None:
-
-        fig.add_trace(
-            go.Scatter(
-                x=[
-                    x_values[0],
-                    x_values[-1],
-                ],
-                y=[
-                    tp2,
-                    tp2,
-                ],
-                mode="lines",
-                name="TP2",
-                line=dict(
-                    width=1.5,
-                    dash="dot",
-                ),
-                hovertemplate=(
-                    "<b>TP2</b><br>"
-                    "Price: %{y}"
-                    "<extra></extra>"
-                ),
-            )
-        )
-
-
-    # --------------------------------------------
+    # ========================================================
     # SL
-    # --------------------------------------------
+    # ========================================================
 
-    sl = pattern.get(
-        "sl"
+    add_level(
+        fig,
+        x0,
+        x1,
+        pattern.get("sl"),
+        "SL",
+        "dashdot",
     )
-
-    try:
-
-        sl = float(sl)
-
-    except Exception:
-
-        sl = None
-
-
-    if sl is not None:
-
-        fig.add_trace(
-            go.Scatter(
-                x=[
-                    x_values[0],
-                    x_values[-1],
-                ],
-                y=[
-                    sl,
-                    sl,
-                ],
-                mode="lines",
-                name="SL",
-                line=dict(
-                    width=1.5,
-                    dash="dash",
-                ),
-                hovertemplate=(
-                    "<b>SL</b><br>"
-                    "Price: %{y}"
-                    "<extra></extra>"
-                ),
-            )
-        )
-
 
     return True
 
@@ -866,6 +735,7 @@ def add_best_pattern_drawing(
 # ============================================================
 
 latest = result_df.iloc[-1]
+
 
 close_value = latest.get(
     "close"
@@ -897,7 +767,7 @@ rsi_value = latest.get(
 
 
 # ============================================================
-# PAGE TITLE
+# MARKET HEADER
 # ============================================================
 
 st.divider()
@@ -907,25 +777,27 @@ st.subheader(
 )
 
 
-# ============================================================
-# MARKET SUMMARY
-# ============================================================
-
 m1, m2, m3, m4 = st.columns(4)
 
+
 with m1:
+
     st.metric(
         "Trend",
         trend,
     )
 
+
 with m2:
+
     st.metric(
-        "Active Patterns",
+        "Current Patterns",
         len(patterns),
     )
 
+
 with m3:
+
     st.metric(
         "Latest BOS",
         latest_bos
@@ -933,7 +805,9 @@ with m3:
         else "—",
     )
 
+
 with m4:
+
     st.metric(
         "Latest CHOCH",
         latest_choch
@@ -950,39 +824,52 @@ st.subheader(
     "📐 Technical Indicators"
 )
 
+
 i1, i2, i3, i4, i5, i6 = st.columns(6)
 
+
 with i1:
+
     st.metric(
         "EMA 7",
         fmt(ema7_value),
     )
 
+
 with i2:
+
     st.metric(
         "EMA 15",
         fmt(ema15_value),
     )
 
+
 with i3:
+
     st.metric(
         "EMA 50",
         fmt(ema50_value),
     )
 
+
 with i4:
+
     st.metric(
         "EMA 200",
         fmt(ema200_value),
     )
 
+
 with i5:
+
     st.metric(
         "RSI 14",
         fmt(rsi_value),
     )
 
+
 with i6:
+
     st.metric(
         "ATR 14",
         fmt(atr_value),
@@ -990,7 +877,7 @@ with i6:
 
 
 # ============================================================
-# BASIC MARKET CONDITIONS
+# BASIC CONDITIONS
 # ============================================================
 
 try:
@@ -1019,6 +906,7 @@ except Exception:
 
 
 s1, s2, s3 = st.columns(3)
+
 
 with s1:
 
@@ -1054,16 +942,16 @@ with s3:
 
     try:
 
-        atr_missing = pd.isna(
+        atr_ok = pd.notna(
             atr_value
         )
 
     except Exception:
 
-        atr_missing = True
+        atr_ok = False
 
 
-    if not atr_missing:
+    if atr_ok:
 
         st.info(
             f"📏 ATR(14): {fmt(atr_value)}"
@@ -1077,7 +965,7 @@ with s3:
 
 
 # ============================================================
-# MARKET STRUCTURE
+# MARKET STRUCTURE STATUS
 # ============================================================
 
 if trend == "BULLISH":
@@ -1106,28 +994,244 @@ else:
 
 
 # ============================================================
-# CURRENT ACTIVE PATTERNS
+# BEST CURRENT PATTERN
 # ============================================================
 
 st.subheader(
-    "🎯 Current Active Patterns"
+    "⭐ Best Current Pattern"
+)
+
+
+if best_pattern is None:
+
+    st.info(
+        "Pattern hadda ACTIVE ah lagama helin "
+        "major swings-ka ugu dambeeya."
+    )
+
+else:
+
+    name = best_pattern.get(
+        "name",
+        "Pattern",
+    )
+
+    direction = best_pattern.get(
+        "direction",
+        "WAIT",
+    )
+
+    quality = best_pattern.get(
+        "quality",
+        0,
+    )
+
+    status = best_pattern.get(
+        "status",
+        "FORMING",
+    )
+
+    action = action_for(
+        best_pattern
+    )
+
+    b1, b2, b3, b4 = st.columns(4)
+
+
+    with b1:
+
+        st.metric(
+            "Pattern",
+            name,
+        )
+
+
+    with b2:
+
+        st.metric(
+            "Quality",
+            f"{quality}/100",
+        )
+
+
+    with b3:
+
+        st.metric(
+            "Direction",
+            direction,
+        )
+
+
+    with b4:
+
+        st.metric(
+            "Action",
+            f"{direction_icon(action)} {action}",
+        )
+
+
+    st.write(
+        f"**Reason:** "
+        f"{best_pattern.get('reason', '—')}"
+    )
+
+
+    e1, e2, e3, e4, e5 = st.columns(5)
+
+
+    with e1:
+
+        st.metric(
+            "Entry",
+            fmt(
+                best_pattern.get(
+                    "entry"
+                )
+            ),
+        )
+
+
+    with e2:
+
+        st.metric(
+            "TP1",
+            fmt(
+                best_pattern.get(
+                    "tp1"
+                )
+            ),
+        )
+
+
+    with e3:
+
+        st.metric(
+            "TP2",
+            fmt(
+                best_pattern.get(
+                    "tp2"
+                )
+            ),
+        )
+
+
+    with e4:
+
+        st.metric(
+            "SL",
+            fmt(
+                best_pattern.get(
+                    "sl"
+                )
+            ),
+        )
+
+
+    with e5:
+
+        st.metric(
+            "Status",
+            status,
+        )
+
+
+    if status == "READY":
+
+        if direction == "BUY":
+
+            st.success(
+                "🟢 BUY setup: pattern-ku wuxuu "
+                "gaaray active entry zone. "
+                "Strategy confirmation-ka dheeraadka ah "
+                "weli waa in la hubiyaa."
+            )
+
+        elif direction == "SELL":
+
+            st.error(
+                "🔴 SELL setup: pattern-ku wuxuu "
+                "gaaray active entry zone. "
+                "Strategy confirmation-ka dheeraadka ah "
+                "weli waa in la hubiyaa."
+            )
+
+    else:
+
+        st.warning(
+            "⏳ WAIT — pattern-ku weli waa FORMING; "
+            "entry confirmation lama gaarin."
+        )
+
+
+# ============================================================
+# RANKED CURRENT PATTERNS
+# ============================================================
+
+st.subheader(
+    "📊 Current Patterns — Ranked by Quality"
 )
 
 
 if not patterns:
 
     st.info(
-        "Pattern hadda active ah lagama helin "
-        "major swings-ka ugu dambeeya."
+        "Ma jiro pattern current ah "
+        "oo buuxiyay shuruudaha."
     )
 
 else:
 
-    # --------------------------------------------------------
-    # BEST PATTERN
-    # --------------------------------------------------------
+    for pattern in patterns:
 
-    best = patterns[0]
+        rank = pattern.get(
+            "rank",
+            "—",
+        )
 
-    best_name = best.get(
-        "n
+        name = pattern.get(
+            "name",
+            "Pattern",
+        )
+
+        direction = pattern.get(
+            "direction",
+            "WAIT",
+        )
+
+        quality = pattern.get(
+            "quality",
+            0,
+        )
+
+        status = pattern.get(
+            "status",
+            "FORMING",
+        )
+
+        action = action_for(
+            pattern
+        )
+
+
+        with st.container(
+            border=True
+        ):
+
+            p1, p2, p3, p4 = st.columns(
+                [3, 1, 1, 1]
+            )
+
+
+            with p1:
+
+                st.markdown(
+                    f"### #{rank} "
+                    f"{direction_icon(direction)} "
+                    f"{name}"
+                )
+
+
+            with p2:
+
+                st.metric(
+                    "Quality
