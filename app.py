@@ -19,6 +19,7 @@ from structure.swings import (
     analyze_market_structure,
 )
 
+
 from pattern_engine import (
     detect_patterns,
 )
