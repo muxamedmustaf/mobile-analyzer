@@ -380,4 +380,3 @@ def get_best_pattern(df):
 
 def get_confirmed_patterns(df):
     return [p for p in detect_patterns(df) if p.get("status")=="CONFIRMED"]
-                           
