@@ -8,10 +8,11 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 
-from market_data import (
+from data.market_data import (
     fetch_market_data,
     get_timeframes,
 )
+
 
 from structure.swings import (
     detect_major_swings,
