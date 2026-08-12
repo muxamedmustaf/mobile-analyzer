@@ -1,688 +1,382 @@
-import streamlit as st
-import pandas as pd
-import plotly.graph_objects as go
+# ============================================================
+# MOBILE ANALYZER - PATTERN ENGINE
+# MAJOR SWING CHART PATTERN ENGINE + DRAWING METADATA
+# ============================================================
 
-try:
-    from data.market_data import fetch_market_data, get_timeframes
-except ImportError:
-    from market_data import fetch_market_data, get_timeframes
+import math
 
-from structure.swings import detect_major_swings, analyze_market_structure
-from pattern_engine import detect_patterns
-from indicators.atr import calculate_atr
-from indicators.ema import calculate_ema
-from indicators.rsi import calculate_rsi
+SIMILARITY_DOUBLE = 0.025
+SIMILARITY_TRIPLE = 0.035
+SIMILARITY_SHOULDER = 0.045
+TRIANGLE_TOLERANCE = 0.025
+BREAKOUT_BUFFER = 0.001
+MIN_STRUCTURE_RATIO = 0.003
+MAX_SWING_WINDOW = 11
 
-st.set_page_config(
-    page_title="Mobile Market Analyzer",
-    page_icon="📊",
-    layout="wide",
-)
-
-st.markdown("""
-<style>
-.main-title {font-size:32px;font-weight:800;margin-bottom:5px;}
-.subtitle {color:#888;margin-bottom:20px;}
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown(
-    '<div class="main-title">📊 Mobile Market Analyzer</div>',
-    unsafe_allow_html=True,
-)
-st.markdown(
-    '<div class="subtitle">Yahoo Finance • Major Swings • Chart Patterns • EMA • RSI • ATR • BOS / CHOCH</div>',
-    unsafe_allow_html=True,
-)
-
-st.subheader("🔎 Market Analysis")
-col1, col2 = st.columns([2, 1])
-
-with col1:
-    pair = st.text_input(
-        "Pair / Symbol",
-        value="BTC/USDT",
-        placeholder="BTC/USDT, ETH/USDT, EUR/USD, XAU/USD...",
-    )
-
-with col2:
-    timeframe = st.selectbox("Timeframe", get_timeframes(), index=6)
-
-history_options = {
-    "Short": "60d",
-    "Medium": "180d",
-    "Long": "1y",
-    "Very Long": "5y",
-    "Maximum": "max",
+PATTERN_PRIORITY = {
+    "Triple Top": 100, "Triple Bottom": 100,
+    "Head & Shoulders": 99, "Inverse Head & Shoulders": 99,
+    "Double Top": 90, "Double Bottom": 90,
+    "Ascending Triangle": 88, "Descending Triangle": 88,
+    "Symmetrical Triangle": 80,
 }
 
-history = st.selectbox(
-    "📅 Historical Data",
-    list(history_options.keys()),
-    index=1,
-)
 
-with st.expander("⚙️ Advanced Swing Settings"):
-    threshold = st.slider(
-        "Major Swing Threshold",
-        min_value=0.005,
-        max_value=0.050,
-        value=0.012,
-        step=0.001,
-        format="%.3f",
-        help="Higher value = fewer and stronger major swings.",
-    )
-
-analyze = st.button(
-    "🔍 ANALYZE MARKET",
-    type="primary",
-    use_container_width=True,
-)
-
-if not analyze:
-    st.info(
-        "Geli pair-ka, dooro timeframe-ka, kadib riix **ANALYZE MARKET**."
-    )
-    st.stop()
-
-with st.spinner(f"📡 Yahoo Finance ayaa keenaya xogta {pair}..."):
+def _safe_float(value):
     try:
-        df = fetch_market_data(
-            pair,
-            timeframe,
-            history_options[history],
-        )
-    except Exception as error:
-        st.error(f"❌ Xogta lama helin.\n\n{error}")
-        st.stop()
-
-if df is None or df.empty:
-    st.error("❌ Yahoo Finance wax xog ah kama soo celin.")
-    st.stop()
-
-df = df.copy()
-df.columns = [str(column).lower() for column in df.columns]
-
-required_columns = {"open", "high", "low", "close"}
-missing_columns = required_columns.difference(df.columns)
-
-if missing_columns:
-    st.error(
-        "❌ Market data columns ayaa maqan: "
-        + ", ".join(sorted(missing_columns))
-    )
-    st.stop()
-
-if len(df) < 50:
-    st.warning(
-        f"⚠️ Waxaa la helay {len(df)} candles oo keliya. "
-        "Major swing engine wuxuu u baahan yahay ugu yaraan 50 candles."
-    )
-    st.stop()
-
-with st.spinner("📐 Waxaa la xisaabinayaa ATR, EMA iyo RSI..."):
-    try:
-        df["ATR"] = calculate_atr(df, 14)
-        df["EMA7"] = calculate_ema(df, 7)
-        df["EMA15"] = calculate_ema(df, 15)
-        df["EMA50"] = calculate_ema(df, 50)
-        df["EMA200"] = calculate_ema(df, 200)
-        df["RSI"] = calculate_rsi(df, 14)
-    except Exception as error:
-        st.error(f"❌ Indicator calculation error: {error}")
-        st.stop()
-
-with st.spinner("🔄 Waxaa la baarayaa major swings..."):
-    try:
-        structure_result = analyze_market_structure(
-            df,
-            threshold=threshold,
-        )
-    except Exception as error:
-        st.error(f"❌ Swing analysis error: {error}")
-        st.stop()
-
-result_df = structure_result["data"]
-swings = structure_result["swings"]
-trend = structure_result["trend"]
-latest_bos = structure_result["bos"]
-latest_choch = structure_result["choch"]
-
-for col in ["ATR", "EMA7", "EMA15", "EMA50", "EMA200", "RSI"]:
-    if col not in result_df.columns:
-        result_df[col] = df[col]
-
-with st.spinner("🔍 Waxaa la baarayaa chart patterns..."):
-    try:
-        patterns = detect_patterns(result_df)
-    except Exception as error:
-        st.error(f"❌ Pattern engine error: {error}")
-        st.stop()
-
-latest = result_df.iloc[-1]
-
-
-def fmt(value):
-    try:
-        if value is None or pd.isna(value):
-            return "—"
-        return f"{float(value):.6g}"
+        value = float(value)
+        return value if math.isfinite(value) else None
     except Exception:
-        return "—"
+        return None
 
 
-def get_pattern_points(pattern):
-    """
-    Reads pattern points produced by pattern_engine.py.
+def _safe_div(a, b):
+    a, b = _safe_float(a), _safe_float(b)
+    if a is None or b is None or b == 0:
+        return 0.0
+    return a / b
 
-    Supported forms:
-      [(index, price), ...]
-      [{"index": ..., "price": ...}, ...]
-    """
-    metadata = pattern.get("metadata", {}) or {}
-    points = metadata.get("pattern_points", [])
 
-    if not points:
+def _distance(a, b):
+    a, b = _safe_float(a), _safe_float(b)
+    if a is None or b is None:
+        return 999.0
+    return abs(a - b) / max(abs((a + b) / 2.0), 1e-12)
+
+
+def _normalize_type(value):
+    if value is None:
+        return None
+    value = str(value).upper().strip()
+    if value in ("HIGH", "H", "TOP"):
+        return "HIGH"
+    if value in ("LOW", "L", "BOTTOM"):
+        return "LOW"
+    return None
+
+
+def _clean_swings(swings):
+    cleaned = []
+    for item in swings or []:
+        if not isinstance(item, dict):
+            continue
+        swing_type = _normalize_type(item.get("type"))
+        price = _safe_float(item.get("price"))
+        if swing_type is None or price is None or price <= 0:
+            continue
+        item = dict(item)
+        item["type"] = swing_type
+        item["price"] = price
+        cleaned.append(item)
+    return cleaned
+
+
+def _pattern_range(prices):
+    values = [_safe_float(x) for x in prices]
+    values = [x for x in values if x is not None]
+    if not values:
+        return 0.0
+    return _safe_div(max(values) - min(values), max(abs(max(values)), 1e-12))
+
+
+def _valid_alternating_window(swings, expected_types):
+    return len(swings) == len(expected_types) and [x["type"] for x in swings] == expected_types
+
+
+def _scan_windows(swings, length):
+    if len(swings) < length:
         return []
+    recent = swings[max(0, len(swings) - MAX_SWING_WINDOW):]
+    return [recent[i:i + length] for i in range(len(recent) - length + 1)]
 
-    output = []
 
-    for point in points:
+def _levels_are_structurally_valid(highs, lows):
+    if not highs or not lows:
+        return False
+    return _pattern_range([x["price"] for x in highs + lows]) >= MIN_STRUCTURE_RATIO
+
+
+def _bullish_confirmation(close, level):
+    close, level = _safe_float(close), _safe_float(level)
+    return close is not None and level is not None and close > level * (1 + BREAKOUT_BUFFER)
+
+
+def _bearish_confirmation(close, level):
+    close, level = _safe_float(close), _safe_float(level)
+    return close is not None and level is not None and close < level * (1 - BREAKOUT_BUFFER)
+
+
+def _confirmation_text(confirmed, direction):
+    return (f"Candle close confirmed the {direction.lower()} breakout."
+            if confirmed else
+            "Pattern is forming; breakout candle close has not confirmed it yet.")
+
+
+# ---------- CHART DRAWING METADATA ----------
+
+def _swing_point(swing, label=None):
+    point = {
+        "type": swing.get("type"),
+        "price": _safe_float(swing.get("price")),
+        "label": label or swing.get("type"),
+    }
+    for key in ("index", "position", "bar_index", "timestamp", "time",
+                "date", "datetime", "candle_index"):
+        if key in swing:
+            point[key] = swing[key]
+    return point
+
+
+def _pattern_points(swings, labels=None):
+    return [_swing_point(s, labels[i] if labels and i < len(labels) else None)
+            for i, s in enumerate(swings)]
+
+
+def _make_pattern(name, direction, quality, status, reason, entry=None,
+                  tp1=None, tp2=None, sl=None, confirmation=None,
+                  pattern_swings=None, labels=None, neckline_points=None):
+    metadata = {
+        "pattern_points": _pattern_points(pattern_swings or [], labels),
+        "swing_count": len(pattern_swings or []),
+    }
+    if neckline_points:
+        metadata["neckline_points"] = _pattern_points(neckline_points)
+    return {
+        "name": name, "direction": direction,
+        "quality": int(max(0, min(100, round(quality)))),
+        "status": status, "reason": reason, "entry": entry,
+        "tp1": tp1, "tp2": tp2, "sl": sl,
+        "confirmation": confirmation, "metadata": metadata,
+    }
+
+
+def _best(candidates):
+    return max(candidates, key=lambda x: (x["quality"], x["status"] == "CONFIRMED"), default=None)
+
+
+# ---------- DOUBLE TOP ----------
+def detect_double_top(swings, close):
+    out = []
+    for s in _scan_windows(swings, 3):
+        if not _valid_alternating_window(s, ["HIGH", "LOW", "HIGH"]): continue
+        a, b, c = s
+        if not _levels_are_structurally_valid([a, c], [b]): continue
+        similarity = _distance(a["price"], c["price"])
+        if similarity > SIMILARITY_DOUBLE: continue
+        neckline = b["price"]
+        if neckline >= min(a["price"], c["price"]): continue
+        peak = max(a["price"], c["price"])
+        distance = peak - neckline
+        if distance <= 0: continue
+        confirmed = _bearish_confirmation(close, neckline)
+        quality = 80 + (8 if similarity <= .01 else 4 if similarity <= .018 else 0) + (8 if confirmed else 0)
+        out.append(_make_pattern("Double Top", "BEARISH", quality,
+            "CONFIRMED" if confirmed else "FORMING",
+            "Two major highs are closely matched with a major trough between them.",
+            neckline, neckline-distance, neckline-distance*1.5, peak*1.003,
+            _confirmation_text(confirmed, "bearish"), s,
+            ["Peak 1", "Neckline", "Peak 2"], [b]))
+    return _best(out)
+
+
+# ---------- DOUBLE BOTTOM ----------
+def detect_double_bottom(swings, close):
+    out = []
+    for s in _scan_windows(swings, 3):
+        if not _valid_alternating_window(s, ["LOW", "HIGH", "LOW"]): continue
+        a, b, c = s
+        if not _levels_are_structurally_valid([b], [a, c]): continue
+        similarity = _distance(a["price"], c["price"])
+        if similarity > SIMILARITY_DOUBLE: continue
+        neckline = b["price"]
+        if neckline <= max(a["price"], c["price"]): continue
+        bottom = min(a["price"], c["price"])
+        distance = neckline - bottom
+        if distance <= 0: continue
+        confirmed = _bullish_confirmation(close, neckline)
+        quality = 80 + (8 if similarity <= .01 else 4 if similarity <= .018 else 0) + (8 if confirmed else 0)
+        out.append(_make_pattern("Double Bottom", "BULLISH", quality,
+            "CONFIRMED" if confirmed else "FORMING",
+            "Two major lows are closely matched with a major peak between them.",
+            neckline, neckline+distance, neckline+distance*1.5, bottom*.997,
+            _confirmation_text(confirmed, "bullish"), s,
+            ["Bottom 1", "Neckline", "Bottom 2"], [b]))
+    return _best(out)
+
+
+# ---------- TRIPLE TOP ----------
+def detect_triple_top(swings, close):
+    out = []
+    for s in _scan_windows(swings, 5):
+        if not _valid_alternating_window(s, ["HIGH", "LOW", "HIGH", "LOW", "HIGH"]): continue
+        h1,l1,h2,l2,h3=s; highs=[h1,h2,h3]; lows=[l1,l2]
+        if not _levels_are_structurally_valid(highs,lows): continue
+        prices=[x["price"] for x in highs]; avg=sum(prices)/3
+        spread=_safe_div(max(prices)-min(prices), max(abs(avg),1e-12))
+        if spread>SIMILARITY_TRIPLE: continue
+        neckline=min(x["price"] for x in lows); peak=max(prices); distance=peak-neckline
+        if distance<=0: continue
+        d1=_safe_div(h1["price"]-l1["price"],h1["price"]); d2=_safe_div(h2["price"]-l2["price"],h2["price"])
+        if d1<MIN_STRUCTURE_RATIO or d2<MIN_STRUCTURE_RATIO: continue
+        confirmed=_bearish_confirmation(close,neckline)
+        quality=83+(6 if spread<=.01 else 3 if spread<=.02 else 0)+(3 if d1>=.01 and d2>=.01 else 0)+(8 if confirmed else 0)
+        out.append(_make_pattern("Triple Top","BEARISH",quality,"CONFIRMED" if confirmed else "FORMING",
+            "Three major highs are closely matched and separated by two meaningful pullbacks.",
+            neckline,neckline-distance,neckline-distance*1.5,peak*1.003,
+            _confirmation_text(confirmed,"bearish"),s,
+            ["Peak 1","Neckline 1","Peak 2","Neckline 2","Peak 3"],[l1,l2]))
+    return _best(out)
+
+
+# ---------- TRIPLE BOTTOM ----------
+def detect_triple_bottom(swings, close):
+    out=[]
+    for s in _scan_windows(swings,5):
+        if not _valid_alternating_window(s,["LOW","HIGH","LOW","HIGH","LOW"]): continue
+        l1,h1,l2,h2,l3=s; lows=[l1,l2,l3]; highs=[h1,h2]
+        if not _levels_are_structurally_valid(highs,lows): continue
+        prices=[x["price"] for x in lows]; avg=sum(prices)/3
+        spread=_safe_div(max(prices)-min(prices),max(abs(avg),1e-12))
+        if spread>SIMILARITY_TRIPLE: continue
+        bottom=min(prices); neckline=max(x["price"] for x in highs); distance=neckline-bottom
+        if distance<=0: continue
+        hgt1=_safe_div(h1["price"]-l1["price"],l1["price"]); hgt2=_safe_div(h2["price"]-l2["price"],l2["price"])
+        if hgt1<MIN_STRUCTURE_RATIO or hgt2<MIN_STRUCTURE_RATIO: continue
+        confirmed=_bullish_confirmation(close,neckline)
+        quality=83+(6 if spread<=.01 else 3 if spread<=.02 else 0)+(3 if hgt1>=.01 and hgt2>=.01 else 0)+(8 if confirmed else 0)
+        out.append(_make_pattern("Triple Bottom","BULLISH",quality,"CONFIRMED" if confirmed else "FORMING",
+            "Three major lows are closely matched and separated by two meaningful rallies.",
+            neckline,neckline+distance,neckline+distance*1.5,bottom*.997,
+            _confirmation_text(confirmed,"bullish"),s,
+            ["Bottom 1","Neckline 1","Bottom 2","Neckline 2","Bottom 3"],[h1,h2]))
+    return _best(out)
+
+
+# ---------- HEAD & SHOULDERS ----------
+def detect_head_shoulders(swings, close):
+    out=[]
+    for s in _scan_windows(swings,5):
+        if not _valid_alternating_window(s,["HIGH","LOW","HIGH","LOW","HIGH"]): continue
+        left,neck1,head,neck2,right=s
+        similarity=_distance(left["price"],right["price"])
+        if similarity>SIMILARITY_SHOULDER: continue
+        if not(head["price"]>left["price"] and head["price"]>right["price"]): continue
+        neckline=(neck1["price"]+neck2["price"])/2
+        distance=head["price"]-neckline
+        if distance<=0: continue
+        gap1=_safe_div(head["price"]-left["price"],head["price"]); gap2=_safe_div(head["price"]-right["price"],head["price"])
+        if gap1<MIN_STRUCTURE_RATIO or gap2<MIN_STRUCTURE_RATIO: continue
+        confirmed=_bearish_confirmation(close,neckline)
+        quality=84+(6 if similarity<=.015 else 3 if similarity<=.03 else 0)+(8 if confirmed else 0)
+        out.append(_make_pattern("Head & Shoulders","BEARISH",quality,"CONFIRMED" if confirmed else "FORMING",
+            "Major left shoulder, higher head, and structurally similar right shoulder are detected.",
+            neckline,neckline-distance,neckline-distance*1.5,head["price"]*1.003,
+            _confirmation_text(confirmed,"bearish"),s,
+            ["Left Shoulder","Neckline 1","Head","Neckline 2","Right Shoulder"],[neck1,neck2]))
+    return _best(out)
+
+
+# ---------- INVERSE HEAD & SHOULDERS ----------
+def detect_inverse_head_shoulders(swings, close):
+    out=[]
+    for s in _scan_windows(swings,5):
+        if not _valid_alternating_window(s,["LOW","HIGH","LOW","HIGH","LOW"]): continue
+        left,neck1,head,neck2,right=s
+        similarity=_distance(left["price"],right["price"])
+        if similarity>SIMILARITY_SHOULDER: continue
+        if not(head["price"]<left["price"] and head["price"]<right["price"]): continue
+        neckline=(neck1["price"]+neck2["price"])/2
+        distance=neckline-head["price"]
+        if distance<=0: continue
+        gap1=_safe_div(left["price"]-head["price"],head["price"]); gap2=_safe_div(right["price"]-head["price"],head["price"])
+        if gap1<MIN_STRUCTURE_RATIO or gap2<MIN_STRUCTURE_RATIO: continue
+        confirmed=_bullish_confirmation(close,neckline)
+        quality=84+(6 if similarity<=.015 else 3 if similarity<=.03 else 0)+(8 if confirmed else 0)
+        out.append(_make_pattern("Inverse Head & Shoulders","BULLISH",quality,"CONFIRMED" if confirmed else "FORMING",
+            "Major left shoulder, lower head, and structurally similar right shoulder are detected.",
+            neckline,neckline+distance,neckline+distance*1.5,head["price"]*.997,
+            _confirmation_text(confirmed,"bullish"),s,
+            ["Left Shoulder","Neckline 1","Head","Neckline 2","Right Shoulder"],[neck1,neck2]))
+    return _best(out)
+
+
+# ---------- TRIANGLES ----------
+def detect_ascending_triangle(swings, close):
+    out=[]
+    for s in _scan_windows(swings,4):
+        highs=[x for x in s if x["type"]=="HIGH"]; lows=[x for x in s if x["type"]=="LOW"]
+        if len(highs)!=2 or len(lows)!=2: continue
+        h1,h2=highs; l1,l2=lows
+        sim=_distance(h1["price"],h2["price"])
+        if sim>TRIANGLE_TOLERANCE or l2["price"]<=l1["price"]: continue
+        resistance=(h1["price"]+h2["price"])/2; height=resistance-min(l1["price"],l2["price"])
+        if height<=0: continue
+        confirmed=_bullish_confirmation(close,resistance); quality=82+(5 if sim<=.01 else 0)+(8 if confirmed else 0)
+        out.append(_make_pattern("Ascending Triangle","BULLISH",quality,"CONFIRMED" if confirmed else "FORMING",
+            "Major highs form common resistance while major lows continue rising.",resistance,resistance+height,resistance+height*1.5,min(l1["price"],l2["price"])*.997,
+            _confirmation_text(confirmed,"bullish"),s,["Resistance 1","Higher Low 1","Resistance 2","Higher Low 2"],[h1,h2]))
+    return _best(out)
+
+
+def detect_descending_triangle(swings, close):
+    out=[]
+    for s in _scan_windows(swings,4):
+        highs=[x for x in s if x["type"]=="HIGH"]; lows=[x for x in s if x["type"]=="LOW"]
+        if len(highs)!=2 or len(lows)!=2: continue
+        h1,h2=highs; l1,l2=lows
+        sim=_distance(l1["price"],l2["price"])
+        if sim>TRIANGLE_TOLERANCE or h2["price"]>=h1["price"]: continue
+        support=(l1["price"]+l2["price"])/2; height=max(h1["price"],h2["price"])-support
+        if height<=0: continue
+        confirmed=_bearish_confirmation(close,support); quality=82+(5 if sim<=.01 else 0)+(8 if confirmed else 0)
+        out.append(_make_pattern("Descending Triangle","BEARISH",quality,"CONFIRMED" if confirmed else "FORMING",
+            "Major lows form common support while major highs continue falling.",support,support-height,support-height*1.5,max(h1["price"],h2["price"])*1.003,
+            _confirmation_text(confirmed,"bearish"),s,["Lower High 1","Support 1","Lower High 2","Support 2"],[l1,l2]))
+    return _best(out)
+
+
+def detect_symmetrical_triangle(swings, close=None):
+    out=[]
+    for s in _scan_windows(swings,4):
+        highs=[x for x in s if x["type"]=="HIGH"]; lows=[x for x in s if x["type"]=="LOW"]
+        if len(highs)!=2 or len(lows)!=2: continue
+        h1,h2=highs; l1,l2=lows
+        if not(h2["price"]<h1["price"] and l2["price"]>l1["price"]): continue
+        out.append(_make_pattern("Symmetrical Triangle","NEUTRAL",80,"FORMING",
+            "Major highs are falling while major lows are rising, creating a contracting structure.",
+            pattern_swings=s,labels=["High 1","Low 1","High 2","Low 2"]))
+    return _best(out)
+
+
+# ---------- PUBLIC API ----------
+def detect_patterns(df):
+    if df is None or df.empty: return []
+    swings=_clean_swings(df.attrs.get("major_swings",[]))
+    if len(swings)<3: return []
+    close=_safe_float(df["close"].iloc[-1])
+    if close is None: return []
+    detected=[]
+    for detector in [detect_double_top,detect_double_bottom,detect_triple_top,detect_triple_bottom,
+                      detect_head_shoulders,detect_inverse_head_shoulders,detect_ascending_triangle,
+                      detect_descending_triangle]:
         try:
-            if isinstance(point, dict):
-                idx = point.get("index")
-                price = point.get("price")
-            elif isinstance(point, (list, tuple)) and len(point) >= 2:
-                idx, price = point[0], point[1]
-            else:
-                continue
-
-            price = float(price)
-
-            if idx is None:
-                continue
-
-            # Prefer exact dataframe index.
-            if idx in result_df.index:
-                x = idx
-            else:
-                # Handle integer candle positions.
-                try:
-                    pos = int(idx)
-                    if 0 <= pos < len(result_df):
-                        x = result_df.index[pos]
-                    else:
-                        continue
-                except Exception:
-                    continue
-
-            output.append((x, price))
-
+            result=detector(swings,close)
+            if result is not None: detected.append(result)
         except Exception:
             continue
-
-    return output
-
-
-def add_pattern_drawing(fig, pattern, chart_df):
-    """
-    Draws the detected pattern from its first structural point
-    to its last structural point.
-
-    The pattern_engine supplies the actual swing points; this
-    function only renders them on the chart.
-    """
-    points = get_pattern_points(pattern)
-
-    if len(points) < 2:
-        return False
-
-    # Only draw points visible inside current chart window.
-    visible = [
-        (x, y)
-        for x, y in points
-        if x in chart_df.index
-    ]
-
-    if len(visible) < 2:
-        return False
-
-    x_values = [p[0] for p in visible]
-    y_values = [p[1] for p in visible]
-
-    name = pattern.get("name", "Pattern")
-    direction = pattern.get("direction", "NEUTRAL")
-    status = pattern.get("status", "FORMING")
-
-    if direction == "BULLISH":
-        line_dash = "solid"
-    elif direction == "BEARISH":
-        line_dash = "dash"
-    else:
-        line_dash = "dot"
-
-    # Structural pattern line.
-    fig.add_trace(
-        go.Scatter(
-            x=x_values,
-            y=y_values,
-            mode="lines+markers",
-            name=f"Pattern: {name}",
-            line=dict(
-                width=4,
-                dash=line_dash,
-            ),
-            marker=dict(size=9),
-            hovertemplate=(
-                f"<b>{name}</b><br>"
-                "Price: %{y}<extra></extra>"
-            ),
-        )
-    )
-
-    # Pattern start/end labels.
-    fig.add_trace(
-        go.Scatter(
-            x=[x_values[0], x_values[-1]],
-            y=[y_values[0], y_values[-1]],
-            mode="text",
-            text=[
-                f"START • {name}",
-                f"END • {status}",
-            ],
-            textposition=["bottom center", "top center"],
-            name=f"{name} labels",
-            showlegend=False,
-            hoverinfo="skip",
-        )
-    )
-
-    # Draw neckline/entry if available.
-    entry = pattern.get("entry")
-
     try:
-        entry = float(entry)
+        result=detect_symmetrical_triangle(swings,close)
+        if result is not None: detected.append(result)
     except Exception:
-        entry = None
-
-    if entry is not None:
-        fig.add_trace(
-            go.Scatter(
-                x=[x_values[0], x_values[-1]],
-                y=[entry, entry],
-                mode="lines",
-                name=f"{name} Neckline / Entry",
-                line=dict(
-                    width=2,
-                    dash="dashdot",
-                ),
-                hovertemplate=(
-                    f"<b>{name} Entry/Neckline</b><br>"
-                    "Level: %{y}<extra></extra>"
-                ),
-            )
-        )
-
-    return True
+        pass
+    detected.sort(key=lambda x:(x.get("quality",0),x.get("status")=="CONFIRMED",PATTERN_PRIORITY.get(x.get("name"),0)),reverse=True)
+    return detected
 
 
-close_value = latest.get("close")
-atr_value = latest.get("ATR")
-ema7_value = latest.get("EMA7")
-ema15_value = latest.get("EMA15")
-ema50_value = latest.get("EMA50")
-ema200_value = latest.get("EMA200")
-rsi_value = latest.get("RSI")
+def get_best_pattern(df):
+    patterns=detect_patterns(df)
+    return patterns[0] if patterns else None
 
-st.divider()
-st.subheader(f"📈 {pair.upper()} — {timeframe}")
 
-m1, m2, m3, m4 = st.columns(4)
-with m1:
-    st.metric("Trend", trend)
-with m2:
-    st.metric("Major Swings", len(swings))
-with m3:
-    st.metric("Latest BOS", latest_bos if latest_bos else "—")
-with m4:
-    st.metric("Latest CHOCH", latest_choch if latest_choch else "—")
-
-st.subheader("📐 Technical Indicators")
-i1, i2, i3, i4, i5, i6 = st.columns(6)
-with i1:
-    st.metric("EMA 7", fmt(ema7_value))
-with i2:
-    st.metric("EMA 15", fmt(ema15_value))
-with i3:
-    st.metric("EMA 50", fmt(ema50_value))
-with i4:
-    st.metric("EMA 200", fmt(ema200_value))
-with i5:
-    st.metric("RSI 14", fmt(rsi_value))
-with i6:
-    st.metric("ATR 14", fmt(atr_value))
-
-try:
-    ema200_ok = float(close_value) > float(ema200_value)
-except Exception:
-    ema200_ok = False
-
-try:
-    rsi_ok = 30 < float(rsi_value) < 70
-except Exception:
-    rsi_ok = False
-
-s1, s2, s3 = st.columns(3)
-with s1:
-    if ema200_ok:
-        st.success("🟢 Price > EMA200")
-    else:
-        st.error("🔴 Price ≤ EMA200")
-with s2:
-    if rsi_ok:
-        st.success("🟢 RSI 30–70")
-    else:
-        st.warning("🟡 RSI outside 30–70")
-with s3:
-    try:
-        atr_missing = pd.isna(atr_value)
-    except Exception:
-        atr_missing = True
-
-    if not atr_missing:
-        st.info(f"📏 ATR(14): {fmt(atr_value)}")
-    else:
-        st.warning("ATR lama helin")
-
-if trend == "BULLISH":
-    st.success("🟢 BULLISH MARKET STRUCTURE")
-elif trend == "BEARISH":
-    st.error("🔴 BEARISH MARKET STRUCTURE")
-elif trend == "RANGING":
-    st.warning("🟡 RANGING MARKET STRUCTURE")
-else:
-    st.info("⚪ MARKET STRUCTURE UNKNOWN")
-
-st.subheader("🎯 Detected Chart Patterns")
-
-if not patterns:
-    st.info(
-        "Pattern la aqoonsaday lagama helin major swings-ka hadda jira."
-    )
-else:
-    for pattern in patterns:
-        name = pattern["name"]
-        direction = pattern["direction"]
-        quality = pattern["quality"]
-        status = pattern["status"]
-        reason = pattern["reason"]
-
-        icon = (
-            "🟢"
-            if direction == "BULLISH"
-            else "🔴"
-            if direction == "BEARISH"
-            else "🟡"
-        )
-
-        with st.container(border=True):
-            p1, p2, p3 = st.columns([2, 1, 1])
-            with p1:
-                st.markdown(f"### {icon} {name}")
-            with p2:
-                st.metric("Quality", f"{quality}%")
-            with p3:
-                st.metric("Status", status)
-
-            st.write(f"**Direction:** {direction}")
-            st.write(f"**Reason:** {reason}")
-
-            e1, e2, e3, e4 = st.columns(4)
-            with e1:
-                st.metric("Entry", fmt(pattern.get("entry")))
-            with e2:
-                st.metric("TP1", fmt(pattern.get("tp1")))
-            with e3:
-                st.metric("TP2", fmt(pattern.get("tp2")))
-            with e4:
-                st.metric("SL", fmt(pattern.get("sl")))
-
-            if status == "CONFIRMED":
-                st.success(
-                    "✅ Pattern confirmed — trade decision still requires strategy conditions."
-                )
-            else:
-                st.warning(
-                    "⏳ Pattern forming — WAIT for confirmation."
-                )
-
-st.subheader("🕯️ Price Chart + Major Swings + Pattern Drawing")
-
-chart_df = result_df.tail(150).copy()
-fig = go.Figure()
-
-fig.add_trace(
-    go.Candlestick(
-        x=chart_df.index,
-        open=chart_df["open"],
-        high=chart_df["high"],
-        low=chart_df["low"],
-        close=chart_df["close"],
-        name="Price",
-    )
-)
-
-for col in ["EMA7", "EMA15", "EMA50", "EMA200"]:
-    if col in chart_df.columns:
-        fig.add_trace(
-            go.Scatter(
-                x=chart_df.index,
-                y=chart_df[col],
-                mode="lines",
-                name=col,
-            )
-        )
-
-if "zigzag" in chart_df.columns:
-    zigzag = chart_df[chart_df["zigzag"].notna()]
-    if not zigzag.empty:
-        text = (
-            zigzag["structure"]
-            if "structure" in zigzag.columns
-            else None
-        )
-
-        fig.add_trace(
-            go.Scatter(
-                x=zigzag.index,
-                y=zigzag["zigzag"],
-                mode="lines+markers+text",
-                text=text,
-                textposition="top center",
-                name="Major ZigZag",
-            )
-        )
-
-if "swing_high" in chart_df.columns:
-    swing_highs = chart_df[chart_df["swing_high"].notna()]
-    if not swing_highs.empty:
-        fig.add_trace(
-            go.Scatter(
-                x=swing_highs.index,
-                y=swing_highs["high"],
-                mode="markers",
-                name="Major High",
-            )
-        )
-
-if "swing_low" in chart_df.columns:
-    swing_lows = chart_df[chart_df["swing_low"].notna()]
-    if not swing_lows.empty:
-        fig.add_trace(
-            go.Scatter(
-                x=swing_lows.index,
-                y=swing_lows["low"],
-                mode="markers",
-                name="Major Low",
-            )
-        )
-
-# ============================================================
-# DRAW DETECTED PATTERNS ON THE CHART
-# ============================================================
-
-drawn_patterns = 0
-
-for pattern in patterns:
-    try:
-        if add_pattern_drawing(
-            fig,
-            pattern,
-            chart_df,
-        ):
-            drawn_patterns += 1
-    except Exception:
-        # One malformed pattern must not break the whole chart.
-        continue
-
-fig.update_layout(
-    height=750,
-    xaxis_rangeslider_visible=False,
-    hovermode="x unified",
-    margin=dict(l=10, r=10, t=30, b=10),
-)
-
-st.plotly_chart(
-    fig,
-    use_container_width=True,
-)
-
-if patterns:
-    if drawn_patterns:
-        st.success(
-            f"📌 {drawn_patterns} pattern(s) ayaa chart-ka lagu sawiray "
-            "bilaw ilaa dhammaad."
-        )
-    else:
-        st.warning(
-            "Pattern waa la aqoonsaday, laakiin pattern_engine-ku "
-            "ma soo celin pattern points-ka lagu sawirayo."
-        )
-
-with st.expander("🔄 Major Swings"):
-    if swings:
-        st.dataframe(
-            pd.DataFrame(swings),
-            use_container_width=True,
-            hide_index=True,
-        )
-    else:
-        st.info("Major swings lama helin.")
-
-with st.expander("🎯 Pattern Drawing Data"):
-    drawing_rows = []
-
-    for pattern in patterns:
-        points = pattern.get("metadata", {}).get(
-            "pattern_points",
-            [],
-        )
-
-        drawing_rows.append(
-            {
-                "Pattern": pattern.get("name"),
-                "Status": pattern.get("status"),
-                "Points": len(points),
-                "Entry / Neckline": pattern.get("entry"),
-            }
-        )
-
-    if drawing_rows:
-        st.dataframe(
-            pd.DataFrame(drawing_rows),
-            use_container_width=True,
-            hide_index=True,
-        )
-    else:
-        st.info("Pattern drawing data lama helin.")
-
-with st.expander("⚡ BOS / CHOCH Events"):
-    if "BOS" in result_df.columns:
-        bos_mask = result_df["BOS"].notna()
-    else:
-        bos_mask = pd.Series(
-            False,
-            index=result_df.index,
-        )
-
-    if "CHOCH" in result_df.columns:
-        choch_mask = result_df["CHOCH"].notna()
-    else:
-        choch_mask = pd.Series(
-            False,
-            index=result_df.index,
-        )
-
-    events = result_df[bos_mask | choch_mask].copy()
-
-    if events.empty:
-        st.info("BOS ama CHOCH lama helin.")
-    else:
-        columns = [
-            c
-            for c in [
-                "close",
-                "zigzag_type",
-                "structure",
-                "BOS",
-                "CHOCH",
-            ]
-            if c in events.columns
-        ]
-
-        st.dataframe(
-            events[columns],
-            use_container_width=True,
-        )
-
-with st.expander("📐 Indicator Data"):
-    columns = [
-        c
-        for c in [
-            "close",
-            "ATR",
-            "EMA7",
-            "EMA15",
-            "EMA50",
-            "EMA200",
-            "RSI",
-        ]
-        if c in result_df.columns
-    ]
-
-    st.dataframe(
-        result_df[columns].tail(30),
-        use_container_width=True,
-    )
-
-with st.expander("📋 Data Information"):
-    st.write("**Source:** Yahoo Finance")
-    st.write(
-        f"**Yahoo Symbol:** {df.attrs.get('yahoo_symbol', '—')}"
-    )
-    st.write(f"**Pair:** {pair.upper()}")
-    st.write(f"**Timeframe:** {timeframe}")
-    st.write(f"**Candles:** {len(df)}")
-    st.write(f"**Latest Close:** {fmt(close_value)}")
-
-with st.expander("🧾 Latest OHLC Data"):
-    st.dataframe(
-        result_df.tail(30),
-        use_container_width=True,
-    )
-
-st.divider()
-st.caption(
-    "Mobile Analyzer • Yahoo Finance only • Major Swing Pattern Engine • "
-    "Pattern Drawing • EMA • RSI • ATR"
-        )
+def get_confirmed_patterns(df):
+    return [p for p in detect_patterns(df) if p.get("status")=="CONFIRMED"]
