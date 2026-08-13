@@ -1,19 +1,30 @@
 # pattern_engine.py
 import pandas as pd
 import numpy as np
-import talib
 from scipy.signal import find_peaks
+
+def calc_ema(prices, period):
+    """حساب EMA باستخدام Pandas بدون الحاجة لـ TA-Lib"""
+    return pd.Series(prices).ewm(span=period, adjust=False).mean().to_numpy()
+
+def calc_rsi(prices, period=14):
+    """حساب RSI باستخدام Pandas بدون الحاجة لـ TA-Lib"""
+    delta = pd.Series(prices).diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi.fillna(50).to_numpy()
 
 def detect_patterns(df):
     """
-    محرك كشف النماذج مع رسم الخط البصري الكامل للنموذج (من البداية للنهاية)،
-    وخط الكسر (Neckline)، وخطوط الهدف والوقف بأسعار مطلقة.
+    محرك كشف النماذج الفنية المعتمد المتوافق كلياً مع app.py و Plotly
     """
     patterns = []
     if df is None or len(df) < 20:
         return patterns
 
-    # توحيد أسماء الأعمدة لتفادي أخطاء الأحرف الكبيرة والصغيرة
+    # توحيد أسماء الأعمدة لتفادي أي تعارض
     df_work = df.copy()
     df_work.columns = [c.lower() for c in df_work.columns]
 
@@ -22,26 +33,24 @@ def detect_patterns(df):
     closes = df_work['close'].values
     indices = df_work.index
 
-    # حساب المؤشرات الفنية الإلزامية (EMA 50, EMA 200, RSI 14)
+    # حساب المؤشرات الفنية
     try:
-        ema50 = talib.EMA(closes, timeperiod=min(50, len(closes)-1))
-        ema200 = talib.EMA(closes, timeperiod=min(200, len(closes)-1))
-        rsi = talib.RSI(closes, timeperiod=14)
+        ema50 = calc_ema(closes, min(50, len(closes)-1))
+        ema200 = calc_ema(closes, min(200, len(closes)-1))
+        rsi = calc_rsi(closes, 14)
     except Exception:
         ema50 = np.full_like(closes, np.nan)
         ema200 = np.full_like(closes, np.nan)
         rsi = np.full_like(closes, 50.0)
 
-    # تحديد القمم والقيعان الرئيسية
+    # تحديد القمم والقيعان
     peaks, _ = find_peaks(highs, distance=5)
     troughs, _ = find_peaks(-lows, distance=5)
 
     curr_price = closes[-1]
     curr_idx = indices[-1]
 
-    # ============================================================
     # 1. نموذج القاع المزدوج (Double Bottom - W Pattern)
-    # ============================================================
     if len(troughs) >= 2:
         t1, t2 = troughs[-2], troughs[-1]
         if abs(lows[t1] - lows[t2]) / lows[t1] < 0.015:
@@ -52,7 +61,6 @@ def detect_patterns(df):
                 pattern_height = neckline_val - min(lows[t1], lows[t2])
                 is_confirmed = curr_price > neckline_val
                 
-                # نقطة البداية قبل القاع الأول لرسم الهيكل كاملاً (W)
                 start_idx_pos = max(0, t1 - 5)
                 start_price = highs[start_idx_pos]
 
@@ -74,12 +82,11 @@ def detect_patterns(df):
                     "direction": "BULLISH",
                     "quality": min(quality, 98),
                     "status": "CONFIRMED" if is_confirmed else "FORMING",
-                    "reason": "قاع مزدوج مكتمل مع كسر خط العنق والدعم الفني" if is_confirmed else "قاع مزدوج قيد التكون، يرجى انتظار اختراق خط العنق",
+                    "reason": "قاع مزدوج مكتمل مع اختراق خط العنق" if is_confirmed else "قاع مزدوج قيد التكون، يتطلب اختراق خط العنق",
                     "entry": round(entry_p, 4),
                     "tp1": round(tp1_p, 4),
                     "tp2": round(tp2_p, 4),
                     "sl": round(sl_p, 4),
-                    # رسم الخط المتصل من بداية النموذج إلى آخره (W)
                     "points": [
                         {"index": indices[start_idx_pos], "price": start_price, "type": "Start"},
                         {"index": indices[t1], "price": lows[t1], "type": "Low 1"},
@@ -87,16 +94,13 @@ def detect_patterns(df):
                         {"index": indices[t2], "price": lows[t2], "type": "Low 2"},
                         {"index": curr_idx, "price": curr_price, "type": "Breakout"}
                     ],
-                    # خط الكسر أفقي ينتهي عند آخر شمعة
                     "neckline_points": [
                         {"index": indices[t1], "price": neckline_val},
                         {"index": curr_idx, "price": neckline_val}
                     ]
                 })
 
-    # ============================================================
     # 2. نموذج القمة المزدوجة (Double Top - M Pattern)
-    # ============================================================
     if len(peaks) >= 2:
         p1, p2 = peaks[-2], peaks[-1]
         if abs(highs[p1] - highs[p2]) / highs[p1] < 0.015:
@@ -107,7 +111,6 @@ def detect_patterns(df):
                 pattern_height = max(highs[p1], highs[p2]) - neckline_val
                 is_confirmed = curr_price < neckline_val
 
-                # نقطة البداية قبل القمة الأولى لرسم الهيكل كاملاً (M)
                 start_idx_pos = max(0, p1 - 5)
                 start_price = lows[start_idx_pos]
 
@@ -129,12 +132,11 @@ def detect_patterns(df):
                     "direction": "BEARISH",
                     "quality": min(quality, 98),
                     "status": "CONFIRMED" if is_confirmed else "FORMING",
-                    "reason": "قمة مزدوجة محققة مع كسر المستوى السفلي" if is_confirmed else "قمة مزدوجة قيد التكون عند منطقة مقاومة",
+                    "reason": "قمة مزدوجة مكتملة مع كسر خط العنق" if is_confirmed else "قمة مزدوجة قيد التكون عند منطقة مقاومة",
                     "entry": round(entry_p, 4),
                     "tp1": round(tp1_p, 4),
                     "tp2": round(tp2_p, 4),
                     "sl": round(sl_p, 4),
-                    # رسم الخط المتصل من بداية النموذج إلى آخره (M)
                     "points": [
                         {"index": indices[start_idx_pos], "price": start_price, "type": "Start"},
                         {"index": indices[p1], "price": highs[p1], "type": "High 1"},
@@ -142,16 +144,13 @@ def detect_patterns(df):
                         {"index": indices[p2], "price": highs[p2], "type": "High 2"},
                         {"index": curr_idx, "price": curr_price, "type": "Breakout"}
                     ],
-                    # خط الكسر أفقي ينتهي عند آخر شمعة
                     "neckline_points": [
                         {"index": indices[p1], "price": neckline_val},
                         {"index": curr_idx, "price": neckline_val}
                     ]
                 })
 
-    # ============================================================
     # 3. اختراق هيكل السوق (SMC Bullish BOS)
-    # ============================================================
     if len(peaks) >= 1:
         last_peak = peaks[-1]
         if curr_price > highs[last_peak]:
@@ -181,3 +180,4 @@ def detect_patterns(df):
 
     patterns = sorted(patterns, key=lambda x: x['quality'], reverse=True)
     return patterns
+                
