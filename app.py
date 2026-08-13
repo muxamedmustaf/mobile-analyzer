@@ -181,6 +181,30 @@ if run_scan:
                     name="Structural Support (L)"
                 ))
 
+                # ------------------------------------------------
+                # PATTERN OVERLAY DRAWING (رسم حدود النمط الهيكلي)
+                # ------------------------------------------------
+                pivots_h_recent = pivots_h.tail(3)
+                pivots_l_recent = pivots_l.tail(3)
+
+                if len(pivots_h_recent) >= 2:
+                    fig.add_trace(go.Scatter(
+                        x=pivots_h_recent.index,
+                        y=pivots_h_recent['Pivot_H'],
+                        mode='lines+markers',
+                        line=dict(color='#FFD700', width=2.5, dash='dash'),
+                        name=f"Pattern Resistance Line ({result['pattern']})"
+                    ))
+
+                if len(pivots_l_recent) >= 2:
+                    fig.add_trace(go.Scatter(
+                        x=pivots_l_recent.index,
+                        y=pivots_l_recent['Pivot_L'],
+                        mode='lines+markers',
+                        line=dict(color='#00FFFF', width=2.5, dash='dash'),
+                        name=f"Pattern Support Line ({result['pattern']})"
+                    ))
+
             fig.update_layout(
                 title=f"{symbol} - Chart Timeframe: {selected_tf} | Loaded Candles: {total_candles}",
                 xaxis_title="Time / Date",
@@ -191,4 +215,4 @@ if run_scan:
             )
 
             st.plotly_chart(fig, use_container_width=True)
-        
+                
