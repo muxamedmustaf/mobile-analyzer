@@ -175,4 +175,3 @@ if signal_result["Status"] == "VALID_SIGNAL":
     c4.metric("Stop Loss (Absolute)", f"${signal_result['Stop_Loss_Absolute']:,.2f}")
 else:
     st.warning("⚠️ No trade executed: Conditions or 0.15 wave tolerance rules strictly enforced.")
-    
