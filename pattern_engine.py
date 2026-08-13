@@ -1,189 +1,237 @@
-# ============================================================
-# PATTERN_ENGINE.PY
-# STRICT SMC & UNIVERSAL PATTERN RECOGNITION ENGINE
-# ============================================================
-
 import pandas as pd
 import numpy as np
 
-class SMCPatternEngine:
-    def __init__(self, df: pd.DataFrame, depth: int = 8, max_tolerance: float = 0.15):
-        self.df = df.copy()
-        self.depth = depth
-        self.max_tolerance = max_tolerance  # Strict 15% tolerance ($0.15 max)
-        self.zigzag_points = []
+# ==========================================================
+# 1. CALCULATE INDICATORS (EMA 50, EMA 200, RSI 14)
+# ==========================================================
+def calculate_indicators(df):
+    """
+    Xisaabinta EMA 50, EMA 200 iyo RSI (14)
+    """
+    df = df.copy()
+    df['EMA50'] = df['Close'].ewm(span=50, adjust=False).mean()
+    df['EMA200'] = df['Close'].ewm(span=200, adjust=False).mean()
 
-    def calculate_major_swings(self):
-        self.df['Major_High'] = np.nan
-        self.df['Major_Low'] = np.nan
+    # RSI (14 Period)
+    delta = df['Close'].diff()
+    gain = delta.where(delta > 0, 0.0)
+    loss = -delta.where(delta < 0, 0.0)
+    
+    avg_gain = gain.rolling(window=14).mean()
+    avg_loss = loss.rolling(window=14).mean()
+    
+    rs = avg_gain / (avg_loss + 1e-9)
+    df['RSI'] = 100 - (100 / (1 + rs))
+    
+    return df
 
-        highs = self.df['high'].values
-        lows = self.df['low'].values
-        n = len(self.df)
+# ==========================================================
+# 2. PIVOT DETECTION (H = Resistance, L = Support)
+# ==========================================================
+def detect_pivots(df, window=3):
+    """
+    Ogaanshada Structural Highs (H) iyo Structural Lows (L)
+    """
+    df['Pivot_H'] = np.nan
+    df['Pivot_L'] = np.nan
 
-        for i in range(self.depth, n - self.depth):
-            if highs[i] == max(highs[i - self.depth : i + self.depth + 1]):
-                self.df.iloc[i, self.df.columns.get_loc('Major_High')] = highs[i]
-            if lows[i] == min(lows[i - self.depth : i + self.depth + 1]):
-                self.df.iloc[i, self.df.columns.get_loc('Major_Low')] = lows[i]
+    for i in range(window, len(df) - window):
+        high_range = df['High'].iloc[i - window : i + window + 1]
+        low_range = df['Low'].iloc[i - window : i + window + 1]
 
-        zigzag_points = []
-        for idx in range(len(self.df)):
-            if not np.isnan(self.df['Major_High'].iloc[idx]):
-                zigzag_points.append((self.df.index[idx], self.df['Major_High'].iloc[idx], 'HIGH'))
-            elif not np.isnan(self.df['Major_Low'].iloc[idx]):
-                zigzag_points.append((self.df.index[idx], self.df['Major_Low'].iloc[idx], 'LOW'))
+        if df['High'].iloc[i] == high_range.max():
+            df.loc[df.index[i], 'Pivot_H'] = df['High'].iloc[i]
 
-        self.zigzag_points = zigzag_points
-        return self.df
+        if df['Low'].iloc[i] == low_range.min():
+            df.loc[df.index[i], 'Pivot_L'] = df['Low'].iloc[i]
 
-    def _build_pattern_orders(self, name: str, direction: str, close_price: float, quality: int, last_high: float, last_low: float):
-        """
-        UNIVERSAL PATTERN EXECUTION RULE:
-        Calculates SL strictly using the actual Swing High/Low Structure + Buffer.
-        Calculates TP1 & TP2 using professional Risk-to-Reward Ratios (1:1.5 and 1:2.5).
-        """
-        swing_range = abs(last_high - last_low) if (last_high and last_low) else close_price * 0.01
-        buffer = max(swing_range * 0.10, close_price * 0.002)  # Dynamic Structural Buffer
+    return df
 
-        if direction == "BULLISH":
-            # SL is strictly placed BELOW the lowest structural swing low
-            sl = round(last_low - buffer, 2)
-            risk = max(close_price - sl, close_price * 0.005)
-            tp1 = round(close_price + (risk * 1.5), 2)
-            tp2 = round(close_price + (risk * 2.5), 2)
+# ==========================================================
+# 3. SCAN 15 CHART PATTERNS & STRUCTURAL LEVELS
+# ==========================================================
+def scan_15_patterns(df):
+    """
+    Siftaynta 15-ka Pattern iyo soo nicleynta H3 iyo L3 ee Breakout/Breakdown
+    """
+    pivots_h = df['Pivot_H'].dropna()
+    pivots_l = df['Pivot_L'].dropna()
 
-        elif direction == "BEARISH":
-            # SL is strictly placed ABOVE the highest structural swing high
-            sl = round(last_high + buffer, 2)
-            risk = max(sl - close_price, close_price * 0.005)
-            tp1 = round(close_price - (risk * 1.5), 2)
-            tp2 = round(close_price - (risk * 2.5), 2)
+    if len(pivots_h) < 3 or len(pivots_l) < 3:
+        return "NO PATTERN DETECTED", "Neutral", 0.0, 0.0
 
-        else:
-            sl, tp1, tp2 = close_price, close_price, close_price
+    h1, h2, h3 = pivots_h.iloc[-3], pivots_h.iloc[-2], pivots_h.iloc[-1]
+    l1, l2, l3 = pivots_l.iloc[-3], pivots_l.iloc[-2], pivots_l.iloc[-1]
 
-        return {
-            "name": name,
-            "direction": direction,
-            "quality": quality,
-            "status": "CONFIRMED" if direction != "NEUTRAL" else "FORMING",
-            "reason": f"Structure matched per universal pattern rules with max tolerance ≤ {self.max_tolerance*100:.0f}%.",
-            "entry": round(close_price, 2),
-            "tp1": tp1,
-            "tp2": tp2,
-            "sl": sl,
-        }
+    tol = 0.0025  # 0.25% tolerance
+    last_close = df['Close'].iloc[-1]
 
-    def detect_market_patterns(self):
-        self.calculate_major_swings()
+    # 1. Ascending Triangle (Flat Resistance, Rising Lows)
+    if abs(h2 - h3) / h2 <= tol and l3 > l2 > l1:
+        return "Ascending Triangle", "Bullish", h3, l3
 
-        valid_highs = self.df['Major_High'].dropna()
-        valid_lows = self.df['Major_Low'].dropna()
+    # 2. Descending Triangle (Flat Support, Falling Highs)
+    if abs(l2 - l3) / l2 <= tol and h3 < h2 < h1:
+        return "Descending Triangle", "Bearish", h3, l3
 
-        patterns = []
-        trend = "RANGING"
+    # 3. Symmetrical Triangle
+    if h3 < h2 < h1 and l3 > l2 > l1:
+        return "Symmetrical Triangle", "Neutral", h3, l3
 
-        if len(valid_highs) >= 3 and len(valid_lows) >= 3:
-            h1, h2, h3 = valid_highs.iloc[-3], valid_highs.iloc[-2], valid_highs.iloc[-1]
-            l1, l2, l3 = valid_lows.iloc[-3], valid_lows.iloc[-2], valid_lows.iloc[-1]
-            current_close = float(self.df['close'].iloc[-1])
+    # 4. Double Bottom (W Pattern)
+    if abs(l2 - l3) / l2 <= tol and h3 > l3:
+        return "Double Bottom", "Bullish", h3, l3
 
-            # Trend Structure
-            if current_close > h3:
-                trend = "BULLISH"
-            elif current_close < l3:
-                trend = "BEARISH"
+    # 5. Double Top (M Pattern)
+    if abs(h2 - h3) / h2 <= tol and l3 < h3:
+        return "Double Top", "Bearish", h3, l3
 
-            # ----------------------------------------------------
-            # 15 DYNAMIC PATTERN RULES (UNIVERSAL STANDARD)
-            # ----------------------------------------------------
+    # 6. Head and Shoulders
+    if h2 > h1 and h2 > h3 and abs(h1 - h3) / h1 <= 0.01:
+        return "Head and Shoulders", "Bearish", h2, l3
 
-            # 1. Double Bottom Reversal (W-Pattern)
-            if abs(l2 - l3) / l2 <= self.max_tolerance and current_close > l3:
-                patterns.append(self._build_pattern_orders("Double Bottom Reversal", "BULLISH", current_close, 92, h3, min(l2, l3)))
+    # 7. Inverse Head and Shoulders
+    if l2 < l1 and l2 < l3 and abs(l1 - l3) / l1 <= 0.01:
+        return "Inverse Head and Shoulders", "Bullish", h3, l2
 
-            # 2. Double Top Reversal (M-Pattern)
-            elif abs(h2 - h3) / h2 <= self.max_tolerance and current_close < h3:
-                patterns.append(self._build_pattern_orders("Double Top Reversal", "BEARISH", current_close, 92, max(h2, h3), l3))
+    # 8. Bullish Flag
+    if h1 < h2 and l1 < l2 and last_close > h1:
+        return "Bullish Flag", "Bullish", h2, l2
 
-            # 3. Head & Shoulders Reversal
-            elif h2 > h1 and h2 > h3 and abs(h1 - h3) / h1 <= self.max_tolerance:
-                patterns.append(self._build_pattern_orders("Head & Shoulders Reversal", "BEARISH", current_close, 95, h2, l3))
+    # 9. Bearish Flag
+    if h1 > h2 and l1 > l2 and last_close < l1:
+        return "Bearish Flag", "Bearish", h2, l2
 
-            # 4. Inverse Head & Shoulders
-            elif l2 < l1 and l2 < l3 and abs(l1 - l3) / l1 <= self.max_tolerance:
-                patterns.append(self._build_pattern_orders("Inverse Head & Shoulders", "BULLISH", current_close, 95, h3, l2))
+    # 10. Bullish Pennant
+    if h2 < h1 and l2 > l1 and last_close > h2:
+        return "Bullish Pennant", "Bullish", h2, l2
 
-            # 5. Bullish Change of Character (CHoCH)
-            elif trend == "BULLISH" and current_close > h2 and l3 > l2:
-                patterns.append(self._build_pattern_orders("Bullish CHoCH Breakout", "BULLISH", current_close, 90, h3, l3))
+    # 11. Bearish Pennant
+    if h2 < h1 and l2 > l1 and last_close < l2:
+        return "Bearish Pennant", "Bearish", h2, l2
 
-            # 6. Bearish Change of Character (CHoCH)
-            elif trend == "BEARISH" and current_close < l2 and h3 < h2:
-                patterns.append(self._build_pattern_orders("Bearish CHoCH Breakdown", "BEARISH", current_close, 90, h3, l3))
+    # 12. Rising Wedge
+    if h3 > h2 > h1 and l3 > l2 > l1 and (h3 - h1) < (l3 - l1):
+        return "Rising Wedge", "Bearish", h3, l3
 
-            # 7. Bullish Break of Structure (BOS)
-            elif trend == "BULLISH" and h3 > h2 and l3 > l2:
-                patterns.append(self._build_pattern_orders("Bullish Break of Structure (BOS)", "BULLISH", current_close, 88, h3, l3))
+    # 13. Falling Wedge
+    if h3 < h2 < h1 and l3 < l2 < l1 and (h1 - h3) < (l1 - l3):
+        return "Falling Wedge", "Bullish", h3, l3
 
-            # 8. Bearish Break of Structure (BOS)
-            elif trend == "BEARISH" and h3 < h2 and l3 < l2:
-                patterns.append(self._build_pattern_orders("Bearish Break of Structure (BOS)", "BEARISH", current_close, 88, h3, l3))
+    # 14. Triple Bottom
+    if abs(l1 - l2) / l1 <= tol and abs(l2 - l3) / l2 <= tol:
+        return "Triple Bottom", "Bullish", h3, l3
 
-            # 9. Triple Bottom
-            elif abs(l1 - l2)/l1 <= self.max_tolerance and abs(l2 - l3)/l2 <= self.max_tolerance:
-                patterns.append(self._build_pattern_orders("Triple Bottom Reversal", "BULLISH", current_close, 91, h3, min(l1, l2, l3)))
+    # 15. Triple Top
+    if abs(h1 - h2) / h1 <= tol and abs(h2 - h3) / h2 <= tol:
+        return "Triple Top", "Bearish", h3, l3
 
-            # 10. Triple Top
-            elif abs(h1 - h2)/h1 <= self.max_tolerance and abs(h2 - h3)/h2 <= self.max_tolerance:
-                patterns.append(self._build_pattern_orders("Triple Top Reversal", "BEARISH", current_close, 91, max(h1, h2, h3), l3))
+    return "NO PATTERN DETECTED", "Neutral", h3, l3
 
-            # 11. Ascending Triangle
-            elif abs(h2 - h3)/h2 <= self.max_tolerance and l3 > l2:
-                patterns.append(self._build_pattern_orders("Ascending Triangle Breakout", "BULLISH", current_close, 85, h3, l3))
+# ==========================================================
+# 4. STRICT 100% VERIFICATION ENGINE
+# ==========================================================
+def run_full_analysis(df):
+    """
+    Dhamaan 4-ta shardi waa in ay 100% buuxsamaan si Signal uu u soo baxo:
+    1. Pattern Valid Bias (Bullish ama Bearish)
+    2. Price Breakout / Breakdown (> Structural High ama < Structural Low)
+    3. EMA Filter (Close > EMA200 & EMA50 > EMA200 ee BUY | Close < EMA200 & EMA50 < EMA200 ee SELL)
+    4. RSI Filter (30 <= RSI <= 70)
+    """
+    df = calculate_indicators(df)
+    df = detect_pivots(df)
 
-            # 12. Descending Triangle
-            elif abs(l2 - l3)/l2 <= self.max_tolerance and h3 < h2:
-                patterns.append(self._build_pattern_orders("Descending Triangle Breakout", "BEARISH", current_close, 85, h3, l3))
+    pattern_name, bias, struct_h, struct_l = scan_15_patterns(df)
 
-            # 13. Bullish Flag Continuation
-            elif trend == "BULLISH" and h3 < h2 and l3 < l2:
-                patterns.append(self._build_pattern_orders("Bullish Flag Continuation", "BULLISH", current_close, 82, h2, l3))
+    latest = df.iloc[-1]
+    close = latest['Close']
+    ema50 = latest['EMA50']
+    ema200 = latest['EMA200']
+    rsi = latest['RSI']
 
-            # 14. Bearish Flag Continuation
-            elif trend == "BEARISH" and h3 > h2 and l3 > l2:
-                patterns.append(self._build_pattern_orders("Bearish Flag Continuation", "BEARISH", current_close, 82, h3, l2))
+    # Shuruudaha Xaqiijinta (Mandatory Check Flags)
+    c_ema_bull = (close > ema200) and (ema50 > ema200)
+    c_ema_bear = (close < ema200) and (ema50 < ema200)
+    c_rsi = (30 <= rsi <= 70)
 
-            # 15. SMC Equal Wave Extension
-            else:
-                wave1 = abs(h2 - l2)
-                wave2 = abs(h3 - l3)
-                diff_ratio = abs(wave1 - wave2) / wave1 if wave1 > 0 else 1.0
-                if diff_ratio <= self.max_tolerance:
-                    p_dir = "BULLISH" if trend == "BULLISH" else ("BEARISH" if trend == "BEARISH" else "NEUTRAL")
-                    patterns.append(self._build_pattern_orders("SMC Wave Extension", p_dir, current_close, int((1 - diff_ratio)*100), h3, l3))
+    c_breakout = close > struct_h
+    c_breakdown = close < struct_l
 
-        return {
-            "trend": trend,
-            "patterns": patterns,
-            "latest_bos": "BULLISH BOS" if trend == "BULLISH" else ("BEARISH BOS" if trend == "BEARISH" else None),
-            "latest_choch": "CHoCH Confirmed" if patterns else None
-        }
+    final_signal = "NO SIGNAL / WAITING"
+    rejected_reasons = []
 
-    def evaluate_strict_signal(self, symbol: str, current_price: float, rsi_val: float):
-        analysis = self.detect_market_patterns()
-        patterns = analysis["patterns"]
+    # ------------------------------------------------------
+    # STRICT BUY VERIFICATION
+    # ------------------------------------------------------
+    if bias in ["Bullish", "Bullish Reversal"]:
+        if not c_breakout:
+            rejected_reasons.append(f"Breakout Level Failed: Close ({close:.2f}) <= Resistance ({struct_h:.2f})")
+        if not c_ema_bull:
+            rejected_reasons.append(f"EMA Trend Failed: Must have Close > EMA200 ({ema200:.2f}) & EMA50 > EMA200")
+        if not c_rsi:
+            rejected_reasons.append(f"RSI Filter Failed: RSI ({rsi:.1f}) is out of 30-70 range")
 
-        if patterns and (rsi_val < 35 or rsi_val > 65):
-            p = patterns[0]
-            return {
-                "Symbol": symbol,
-                "Status": "VALID_SIGNAL",
-                "Entry_Price": p["entry"],
-                "Take_Profit_Absolute": p["tp1"],
-                "Stop_Loss_Absolute": p["sl"]
-            }
+        # 100% STRICT MANDATORY PASS CONDITION
+        if c_breakout and c_ema_bull and c_rsi:
+            final_signal = "STRONG BUY"
 
-        return {"Symbol": symbol, "Status": "NO_SIGNAL"}
-            
+    # ------------------------------------------------------
+    # STRICT SELL VERIFICATION
+    # ------------------------------------------------------
+    elif bias in ["Bearish", "Bearish Reversal"]:
+        if not c_breakdown:
+            rejected_reasons.append(f"Breakdown Level Failed: Close ({close:.2f}) >= Support ({struct_l:.2f})")
+        if not c_ema_bear:
+            rejected_reasons.append(f"EMA Trend Failed: Must have Close < EMA200 ({ema200:.2f}) & EMA50 < EMA200")
+        if not c_rsi:
+            rejected_reasons.append(f"RSI Filter Failed: RSI ({rsi:.1f}) is out of 30-70 range")
+
+        # 100% STRICT MANDATORY PASS CONDITION
+        if c_breakdown and c_ema_bear and c_rsi:
+            final_signal = "STRONG SELL"
+
+    else:
+        rejected_reasons.append("No valid 15-chart pattern detected on market structure.")
+
+    # ------------------------------------------------------
+    # ABSOLUTE PRICE TARGETS (ENTRY, SL, TP)
+    # ------------------------------------------------------
+    entry_price = round(close, 4)
+    sl = "N/A"
+    tp = "N/A"
+
+    if final_signal == "STRONG BUY":
+        sl_val = round(struct_l, 4)
+        risk = entry_price - sl_val
+        tp_val = round(entry_price + (risk * 2), 4)  # 1:2 Risk-to-Reward
+        sl = sl_val
+        tp = tp_val
+        status_msg = f"100% Criteria Passed! {pattern_name} confirmed with EMA, RSI ({rsi:.1f}), and Breakout."
+
+    elif final_signal == "STRONG SELL":
+        sl_val = round(struct_h, 4)
+        risk = sl_val - entry_price
+        tp_val = round(entry_price - (risk * 2), 4)  # 1:2 Risk-to-Reward
+        sl = sl_val
+        tp = tp_val
+        status_msg = f"100% Criteria Passed! {pattern_name} confirmed with EMA, RSI ({rsi:.1f}), and Breakdown."
+
+    else:
+        status_msg = "REJECTED: " + " | ".join(rejected_reasons)
+
+    return {
+        "df": df,
+        "pattern": pattern_name,
+        "bias": bias,
+        "signal": final_signal,
+        "reason": status_msg,
+        "entry": entry_price,
+        "sl": sl,
+        "tp": tp,
+        "close": entry_price,
+        "ema50": round(ema50, 4),
+        "ema200": round(ema200, 4),
+        "rsi": round(rsi, 2)
+    }
+    
