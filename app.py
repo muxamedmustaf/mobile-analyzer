@@ -14,11 +14,12 @@ symbol = st.sidebar.text_input("Trading Symbol (Raw Format):", value="BTCUSDT")
 depth = st.sidebar.slider("ZigZag Depth", min_value=3, max_value=20, value=8)
 tolerance = st.sidebar.slider("Wave Equality Max Tolerance", min_value=0.01, max_value=0.30, value=0.15, step=0.01)
 
-@st.cache_data
+@@st.cache_data
 def get_market_data():
     np.random.seed(42)
     periods = 120
-    dates = pd.date_range(end=pd.Timestamp.now(), periods=periods, freq='H')
+    # Waxaa loo bedelay freq='h' (xaraf yar)
+    dates = pd.date_range(end=pd.Timestamp.now(), periods=periods, freq='h')
     
     price_base = 63500.0
     swings = np.sin(np.linspace(0, 4 * np.pi, periods)) * 800
@@ -35,6 +36,7 @@ def get_market_data():
         'Low': low_prices,
         'Close': close_prices
     }, index=dates)
+
 
 df = get_market_data()
 current_price = float(df['Close'].iloc[-1])
