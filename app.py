@@ -218,7 +218,9 @@ if len(engine.zigzag_points) > 1:
             name="Major ZigZag"
         ))
 
-# CLEAN ORDER LINES (Text Pushed outside candles to prevent Overlap Bug)
+# ============================================================
+# CLEAN ORDER LINES WITH NO OVERLAP (FIXED FOR MOBILE)
+# ============================================================
 if selected_pattern is not None:
     levels = [
         ("ENTRY", selected_pattern.get("entry"), "#3182ce"),
@@ -229,17 +231,23 @@ if selected_pattern is not None:
     for label, val, col in levels:
         if val is not None:
             fig.add_hline(
-                y=val, line_dash="dash", line_color=col, line_width=1.5,
-                annotation_text=f"  {label}: ${val:,.2f}",
-                annotation_position="top right",
+                y=val,
+                line_dash="dash",
+                line_color=col,
+                line_width=1.5,
+                annotation_text=f" <b>{label}: ${val:,.2f}</b>",
+                annotation_position="top right", # يدفع النص إلى أقصى اليمين بعيداً عن الشموع
+                annotation_font_size=11,
+                annotation_font_color=col,
             )
 
 fig.update_layout(
     height=580,
     xaxis_rangeslider_visible=False,
     template="plotly_white",
-    margin=dict(l=10, r=60, t=20, b=10),  # Increased right margin for clean labels
-    hovermode="x unified"
+    margin=dict(l=10, r=90, t=20, b=10), # توسيع الهامش الأيمن (r=90) ليتسع للنصوص بوضوح
+    hovermode="x unified",
+    yaxis=dict(side="right") # وضع محاور الأسعار على اليمين لسهولة المتابعة
 )
 
 st.plotly_chart(fig, use_container_width=True)
