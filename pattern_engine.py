@@ -2,20 +2,18 @@ import pandas as pd
 import numpy as np
 
 class SMCPatternEngine:
-    def __init__(self, df: pd.DataFrame, depth: int = 10, max_tolerance: float = 0.15):
+    def __init__(self, df: pd.DataFrame, depth: int = 8, max_tolerance: float = 0.15):
         self.df = df.copy()
         self.depth = depth
-        self.max_tolerance = max_tolerance  # نسبة التفاوت المقبولة (0.15 = 15%)
+        self.max_tolerance = max_tolerance
+        self.zigzag_points = []
 
     def calculate_major_swings(self):
-        """
-        حساب القمم والقيعان الرئيسية (Major Swings) عبر خوارزمية Pivot / ZigZag.
-        """
         self.df['Major_High'] = np.nan
         self.df['Major_Low'] = np.nan
 
-        highs = self.df['High'].values
-        lows = self.df['Low'].values
+        highs = self.df['high'].values
+        lows = self.df['low'].values
         n = len(self.df)
 
         for i in range(self.depth, n - self.depth):
@@ -34,33 +32,14 @@ class SMCPatternEngine:
         self.zigzag_points = zigzag_points
         return self.df
 
-    def check_wave_equality(self, wave1_length: float, wave2_length: float) -> tuple[bool, float]:
-        """
-        التحقق من تساوٍ الموجات ضمن التفاوت المسموح (0.15 كحد أقصى).
-        """
-        w1 = abs(wave1_length)
-        w2 = abs(wave2_length)
-        
-        if w1 == 0:
-            return False, 1.0
-
-        diff_ratio = abs(w1 - w2) / w1
-        is_valid = diff_ratio <= self.max_tolerance
-        return is_valid, round(diff_ratio, 4)
-
     def detect_market_patterns(self):
-        """
-        فحص أنماط SMC وتطبيق شرط التفاوت 0.15 المحدث.
-        """
         self.calculate_major_swings()
 
         valid_highs = self.df['Major_High'].dropna()
         valid_lows = self.df['Major_Low'].dropna()
 
-        pattern_name = "RANGING MARKET STRUCTURE"
-        pattern_found = False
-        message = "Pattern xirfad leh lagama helin major swings-ka hadda jira."
-        details = {}
+        patterns = []
+        trend = "RANGING"
 
         if len(valid_highs) >= 2 and len(valid_lows) >= 2:
             last_high = valid_highs.iloc[-1]
@@ -68,71 +47,57 @@ class SMCPatternEngine:
             last_low = valid_lows.iloc[-1]
             prev_low = valid_lows.iloc[-2]
 
-            wave1 = prev_high - prev_low
-            wave2 = last_high - last_low
+            wave1 = abs(prev_high - prev_low)
+            wave2 = abs(last_high - last_low)
 
-            is_equal, diff_ratio = self.check_wave_equality(wave1, wave2)
+            diff_ratio = abs(wave1 - wave2) / wave1 if wave1 > 0 else 1.0
+            is_valid_wave = diff_ratio <= self.max_tolerance
 
-            details['wave1_length'] = round(abs(wave1), 2)
-            details['wave2_length'] = round(abs(wave2), 2)
-            details['diff_ratio'] = diff_ratio
-            details['tolerance_limit'] = self.max_tolerance
+            current_close = self.df['close'].iloc[-1]
 
-            current_close = self.df['Close'].iloc[-1]
+            if current_close > last_high:
+                trend = "BULLISH"
+            elif current_close < last_low:
+                trend = "BEARISH"
 
-            if is_equal:
-                pattern_found = True
-                if current_close > last_high:
-                    pattern_name = "BULLISH CHoCH / EQUAL WAVE EXTENSION"
-                    message = f"تم الكشف عن نمط متوافق: كسر صاعد مع تساوٍ الموجات (التفاوت: {diff_ratio*100:.1f}% <= 15%)."
-                elif current_close < last_low:
-                    pattern_name = "BEARISH CHoCH / EQUAL WAVE EXTENSION"
-                    message = f"تم الكشف عن نمط متوافق: كسر هابط مع تساوٍ الموجات (التفاوت: {diff_ratio*100:.1f}% <= 15%)."
-                else:
-                    pattern_name = "EQUAL WAVE STRUCTURE (0.15 Tolerance)"
-                    message = f"تم اكتشاف نمط موجات متساوية ضمن نطاق التفاوت المسموح ({diff_ratio*100:.1f}% <= 15%)."
-            else:
-                message = f"Pattern xirfad leh lagama helin major swings-ka hadda jira (نسبة التفاوت {diff_ratio*100:.1f}% تتجاوز الحد الأقصى 15%)."
+            if is_valid_wave:
+                direction = "BULLISH" if trend == "BULLISH" else ("BEARISH" if trend == "BEARISH" else "NEUTRAL")
+                tp1 = round(current_close + 800.00 if direction == "BULLISH" else current_close - 800.00, 2)
+                tp2 = round(current_close + 1400.00 if direction == "BULLISH" else current_close - 1400.00, 2)
+                sl = round(current_close - 450.00 if direction == "BULLISH" else current_close + 450.00, 2)
+
+                patterns.append({
+                    "name": "EQUAL WAVE EXTENSION (SMC)",
+                    "direction": direction,
+                    "quality": int((1 - diff_ratio) * 100),
+                    "status": "CONFIRMED" if direction != "NEUTRAL" else "FORMING",
+                    "reason": f"Mawyado siman oo leh farqi {diff_ratio*100:.1f}% (dhan Max {self.max_tolerance*100:.0f}%).",
+                    "entry": current_close,
+                    "tp1": tp1,
+                    "tp2": tp2,
+                    "sl": sl,
+                })
 
         return {
-            "structure_status": pattern_name,
-            "pattern_found": pattern_found,
-            "message": message,
-            "details": details
+            "trend": trend,
+            "patterns": patterns,
+            "latest_bos": "BULLISH BOS" if trend == "BULLISH" else ("BEARISH BOS" if trend == "BEARISH" else None),
+            "latest_choch": "CHoCH Confirmed" if patterns else None
         }
 
     def evaluate_strict_signal(self, symbol: str, current_price: float, rsi_val: float):
-        """
-        توليد إشارة التداول وأهداف أرباح وخسائر بأسعار مطلقة (Absolute Price Values).
-        الرموز بصيغتها الخام بدون تعديل، مع استبعاد ADX كلياً.
-        """
         analysis = self.detect_market_patterns()
+        patterns = analysis["patterns"]
 
-        # الشرط الصارم: توفر النمط + تحقق المؤشرات
-        if analysis["pattern_found"] and (rsi_val < 35 or rsi_val > 65):
-            trade_type = "BUY" if rsi_val < 35 else "SELL"
-
-            if trade_type == "BUY":
-                tp = round(current_price + 1200.00, 2)
-                sl = round(current_price - 450.00, 2)
-            else:
-                tp = round(current_price - 1200.00, 2)
-                sl = round(current_price + 450.00, 2)
-
+        if patterns and (rsi_val < 35 or rsi_val > 65):
+            p = patterns[0]
             return {
-                "Symbol": symbol,  # الصيغة الخام للرمز
-                "Signal": trade_type,
-                "Entry_Price": current_price,
-                "Take_Profit_Absolute": tp,
-                "Stop_Loss_Absolute": sl,
+                "Symbol": symbol,
                 "Status": "VALID_SIGNAL",
-                "Message": analysis["message"]
+                "Entry_Price": p["entry"],
+                "Take_Profit_Absolute": p["tp1"],
+                "Stop_Loss_Absolute": p["sl"]
             }
 
-        return {
-            "Symbol": symbol,
-            "Signal": "NO_TRADE",
-            "Status": "NO_SIGNAL",
-            "Message": analysis["message"]
-        }
+        return {"Symbol": symbol, "Status": "NO_SIGNAL"}
         
