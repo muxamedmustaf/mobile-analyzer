@@ -1,196 +1,138 @@
-# pattern_engine.py
 import pandas as pd
 import numpy as np
-from scipy.signal import find_peaks
 
-def calc_ema(prices, period):
-    """Hagaajinta EMA iyadoo la isticmaalayo Pandas"""
-    return pd.Series(prices).ewm(span=period, adjust=False).mean().to_numpy()
+class SMCPatternEngine:
+    def __init__(self, df: pd.DataFrame, depth: int = 10, max_tolerance: float = 0.15):
+        self.df = df.copy()
+        self.depth = depth
+        self.max_tolerance = max_tolerance  # نسبة التفاوت المقبولة (0.15 = 15%)
 
-def calc_rsi(prices, period=14):
-    """Hagaajinta RSI iyadoo la isticmaalayo Pandas"""
-    delta = pd.Series(prices).diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-    rs = gain / loss
-    rsi = 100 - (100 / (1 + rs))
-    return rsi.fillna(50).to_numpy()
+    def calculate_major_swings(self):
+        """
+        حساب القمم والقيعان الرئيسية (Major Swings) عبر خوارزمية Pivot / ZigZag.
+        """
+        self.df['Major_High'] = np.nan
+        self.df['Major_Low'] = np.nan
 
-def detect_patterns(df):
-    """
-    Mahadnaq iyo matoor baadhiseed ee qaababka sharta (Chart Patterns Engine)
-    oo leh calaamado gaagaaban oo looga hortagayo overlap-ka sharta.
-    """
-    patterns = []
-    if df is None or len(df) < 20:
-        return patterns
+        highs = self.df['High'].values
+        lows = self.df['Low'].values
+        n = len(self.df)
 
-    df_work = df.copy()
-    df_work.columns = [c.lower() for c in df_work.columns]
+        for i in range(self.depth, n - self.depth):
+            if highs[i] == max(highs[i - self.depth : i + self.depth + 1]):
+                self.df.iloc[i, self.df.columns.get_loc('Major_High')] = highs[i]
+            if lows[i] == min(lows[i - self.depth : i + self.depth + 1]):
+                self.df.iloc[i, self.df.columns.get_loc('Major_Low')] = lows[i]
 
-    highs = df_work['high'].values
-    lows = df_work['low'].values
-    closes = df_work['close'].values
-    indices = df_work.index
+        zigzag_points = []
+        for idx in range(len(self.df)):
+            if not np.isnan(self.df['Major_High'].iloc[idx]):
+                zigzag_points.append((self.df.index[idx], self.df['Major_High'].iloc[idx], 'HIGH'))
+            elif not np.isnan(self.df['Major_Low'].iloc[idx]):
+                zigzag_points.append((self.df.index[idx], self.df['Major_Low'].iloc[idx], 'LOW'))
 
-    # Xisaabinta tilmaamayaasha qasabka ah (EMA50, EMA200, RSI)
-    try:
-        ema50 = calc_ema(closes, min(50, len(closes)-1))
-        ema200 = calc_ema(closes, min(200, len(closes)-1))
-        rsi = calc_rsi(closes, 14)
-    except Exception:
-        ema50 = np.full_like(closes, np.nan)
-        ema200 = np.full_like(closes, np.nan)
-        rsi = np.full_like(closes, 50.0)
+        self.zigzag_points = zigzag_points
+        return self.df
 
-    peaks, _ = find_peaks(highs, distance=5)
-    troughs, _ = find_peaks(-lows, distance=5)
+    def check_wave_equality(self, wave1_length: float, wave2_length: float) -> tuple[bool, float]:
+        """
+        التحقق من تساوٍ الموجات ضمن التفاوت المسموح (0.15 كحد أقصى).
+        """
+        w1 = abs(wave1_length)
+        w2 = abs(wave2_length)
+        
+        if w1 == 0:
+            return False, 1.0
 
-    curr_price = closes[-1]
-    curr_idx = indices[-1]
+        diff_ratio = abs(w1 - w2) / w1
+        is_valid = diff_ratio <= self.max_tolerance
+        return is_valid, round(diff_ratio, 4)
 
-    # ============================================================
-    # 1. Double Bottom (W Pattern)
-    # ============================================================
-    if len(troughs) >= 2:
-        t1, t2 = troughs[-2], troughs[-1]
-        if abs(lows[t1] - lows[t2]) / lows[t1] < 0.015:
-            between_p = [p for p in peaks if t1 < p < t2]
-            if between_p:
-                p_peak = between_p[0]
-                neckline_val = highs[p_peak]
-                pattern_height = neckline_val - min(lows[t1], lows[t2])
-                is_confirmed = curr_price > neckline_val
+    def detect_market_patterns(self):
+        """
+        فحص أنماط SMC وتطبيق شرط التفاوت 0.15 المحدث.
+        """
+        self.calculate_major_swings()
 
-                peaks_before_t1 = [p for p in peaks if p < t1]
-                start_p_idx = peaks_before_t1[-1] if peaks_before_t1 else max(0, t1 - 5)
-                start_price = highs[start_p_idx]
+        valid_highs = self.df['Major_High'].dropna()
+        valid_lows = self.df['Major_Low'].dropna()
 
-                last_point_label = "Breakout" if is_confirmed else "Current"
+        pattern_name = "RANGING MARKET STRUCTURE"
+        pattern_found = False
+        message = "Pattern xirfad leh lagama helin major swings-ka hadda jira."
+        details = {}
 
-                rsi_val = rsi[-1] if not np.isnan(rsi[-1]) else 55
-                ema_filter = curr_price > ema50[-1] if not np.isnan(ema50[-1]) else True
-                
-                quality = 70
-                if is_confirmed: quality += 15
-                if rsi_val > 50: quality += 10
-                if ema_filter: quality += 5
+        if len(valid_highs) >= 2 and len(valid_lows) >= 2:
+            last_high = valid_highs.iloc[-1]
+            prev_high = valid_highs.iloc[-2]
+            last_low = valid_lows.iloc[-1]
+            prev_low = valid_lows.iloc[-2]
 
-                entry_p = curr_price if is_confirmed else neckline_val
-                tp1_p = entry_p + pattern_height
-                tp2_p = entry_p + (pattern_height * 1.8)
-                sl_p = min(lows[t1], lows[t2]) * 0.998
+            wave1 = prev_high - prev_low
+            wave2 = last_high - last_low
 
-                patterns.append({
-                    "name": "Double Bottom (W)",
-                    "direction": "BULLISH",
-                    "quality": min(quality, 98),
-                    "status": "CONFIRMED" if is_confirmed else "FORMING",
-                    "reason": "قاع مزدوج مكتمل مع اختراق خط العنق وإغلاق أعلى المستوى" if is_confirmed else "قاع مزدوج قيد التكون، السعر حالياً أسفل خط العنق ويحتاج إغلاق للتأكيد",
-                    "entry": round(entry_p, 4),
-                    "tp1": round(tp1_p, 4),
-                    "tp2": round(tp2_p, 4),
-                    "sl": round(sl_p, 4),
-                    "points": [
-                        {"index": indices[start_p_idx], "price": start_price, "type": "Start"},
-                        {"index": indices[t1], "price": lows[t1], "type": "L1"},
-                        {"index": indices[p_peak], "price": neckline_val, "type": "Neck"},
-                        {"index": indices[t2], "price": lows[t2], "type": "L2"},
-                        {"index": curr_idx, "price": curr_price, "type": last_point_label}
-                    ],
-                    "neckline_points": [
-                        {"index": indices[t1], "price": neckline_val},
-                        {"index": curr_idx, "price": neckline_val}
-                    ]
-                })
+            is_equal, diff_ratio = self.check_wave_equality(wave1, wave2)
 
-    # ============================================================
-    # 2. Double Top (M Pattern)
-    # ============================================================
-    if len(peaks) >= 2:
-        p1, p2 = peaks[-2], peaks[-1]
-        if abs(highs[p1] - highs[p2]) / highs[p1] < 0.015:
-            between_t = [t for t in troughs if p1 < t < p2]
-            if between_t:
-                t_trough = between_t[0]
-                neckline_val = lows[t_trough]
-                pattern_height = max(highs[p1], highs[p2]) - neckline_val
-                is_confirmed = curr_price < neckline_val
+            details['wave1_length'] = round(abs(wave1), 2)
+            details['wave2_length'] = round(abs(wave2), 2)
+            details['diff_ratio'] = diff_ratio
+            details['tolerance_limit'] = self.max_tolerance
 
-                troughs_before_p1 = [t for t in troughs if t < p1]
-                start_t_idx = troughs_before_p1[-1] if troughs_before_p1 else max(0, p1 - 5)
-                start_price = lows[start_t_idx]
+            current_close = self.df['Close'].iloc[-1]
 
-                last_point_label = "Breakout" if is_confirmed else "Current"
+            if is_equal:
+                pattern_found = True
+                if current_close > last_high:
+                    pattern_name = "BULLISH CHoCH / EQUAL WAVE EXTENSION"
+                    message = f"تم الكشف عن نمط متوافق: كسر صاعد مع تساوٍ الموجات (التفاوت: {diff_ratio*100:.1f}% <= 15%)."
+                elif current_close < last_low:
+                    pattern_name = "BEARISH CHoCH / EQUAL WAVE EXTENSION"
+                    message = f"تم الكشف عن نمط متوافق: كسر هابط مع تساوٍ الموجات (التفاوت: {diff_ratio*100:.1f}% <= 15%)."
+                else:
+                    pattern_name = "EQUAL WAVE STRUCTURE (0.15 Tolerance)"
+                    message = f"تم اكتشاف نمط موجات متساوية ضمن نطاق التفاوت المسموح ({diff_ratio*100:.1f}% <= 15%)."
+            else:
+                message = f"Pattern xirfad leh lagama helin major swings-ka hadda jira (نسبة التفاوت {diff_ratio*100:.1f}% تتجاوز الحد الأقصى 15%)."
 
-                rsi_val = rsi[-1] if not np.isnan(rsi[-1]) else 45
-                ema_filter = curr_price < ema50[-1] if not np.isnan(ema50[-1]) else True
+        return {
+            "structure_status": pattern_name,
+            "pattern_found": pattern_found,
+            "message": message,
+            "details": details
+        }
 
-                quality = 70
-                if is_confirmed: quality += 15
-                if rsi_val < 50: quality += 10
-                if ema_filter: quality += 5
+    def evaluate_strict_signal(self, symbol: str, current_price: float, rsi_val: float):
+        """
+        توليد إشارة التداول وأهداف أرباح وخسائر بأسعار مطلقة (Absolute Price Values).
+        الرموز بصيغتها الخام بدون تعديل، مع استبعاد ADX كلياً.
+        """
+        analysis = self.detect_market_patterns()
 
-                entry_p = curr_price if is_confirmed else neckline_val
-                tp1_p = entry_p - pattern_height
-                tp2_p = entry_p - (pattern_height * 1.8)
-                sl_p = max(highs[p1], highs[p2]) * 1.002
+        # الشرط الصارم: توفر النمط + تحقق المؤشرات
+        if analysis["pattern_found"] and (rsi_val < 35 or rsi_val > 65):
+            trade_type = "BUY" if rsi_val < 35 else "SELL"
 
-                patterns.append({
-                    "name": "Double Top (M)",
-                    "direction": "BEARISH",
-                    "quality": min(quality, 98),
-                    "status": "CONFIRMED" if is_confirmed else "FORMING",
-                    "reason": "قمة مزدوجة مكتملة مع كسر خط العنق والإغلاق أسفله" if is_confirmed else "قمة مزدوجة قيد التكون عند منطقة مقاومة، يتطلب كسر خط العنق",
-                    "entry": round(entry_p, 4),
-                    "tp1": round(tp1_p, 4),
-                    "tp2": round(tp2_p, 4),
-                    "sl": round(sl_p, 4),
-                    "points": [
-                        {"index": indices[start_t_idx], "price": start_price, "type": "Start"},
-                        {"index": indices[p1], "price": highs[p1], "type": "H1"},
-                        {"index": indices[t_trough], "price": neckline_val, "type": "Neck"},
-                        {"index": indices[p2], "price": highs[p2], "type": "H2"},
-                        {"index": curr_idx, "price": curr_price, "type": last_point_label}
-                    ],
-                    "neckline_points": [
-                        {"index": indices[p1], "price": neckline_val},
-                        {"index": curr_idx, "price": neckline_val}
-                    ]
-                })
+            if trade_type == "BUY":
+                tp = round(current_price + 1200.00, 2)
+                sl = round(current_price - 450.00, 2)
+            else:
+                tp = round(current_price - 1200.00, 2)
+                sl = round(current_price + 450.00, 2)
 
-    # ============================================================
-    # 3. SMC Bullish BOS
-    # ============================================================
-    if len(peaks) >= 1:
-        last_peak = peaks[-1]
-        if curr_price > highs[last_peak]:
-            diff = curr_price - highs[last_peak]
-            
-            troughs_before_peak = [t for t in troughs if t < last_peak]
-            start_t_idx = troughs_before_peak[-1] if troughs_before_peak else max(0, last_peak - 5)
+            return {
+                "Symbol": symbol,  # الصيغة الخام للرمز
+                "Signal": trade_type,
+                "Entry_Price": current_price,
+                "Take_Profit_Absolute": tp,
+                "Stop_Loss_Absolute": sl,
+                "Status": "VALID_SIGNAL",
+                "Message": analysis["message"]
+            }
 
-            patterns.append({
-                "name": "SMC Bullish BOS",
-                "direction": "BULLISH",
-                "quality": 92,
-                "status": "CONFIRMED",
-                "reason": "اختراق هيكلي صاعد (Break of Structure) فوق القمة الرئيسية السابقة",
-                "entry": round(curr_price, 4),
-                "tp1": round(curr_price + (diff * 2.0), 4),
-                "tp2": round(curr_price + (diff * 3.5), 4),
-                "sl": round(highs[last_peak] * 0.995, 4),
-                "points": [
-                    {"index": indices[start_t_idx], "price": lows[start_t_idx], "type": "Start"},
-                    {"index": indices[last_peak], "price": highs[last_peak], "type": "High"},
-                    {"index": curr_idx, "price": curr_price, "type": "BOS"}
-                ],
-                "neckline_points": [
-                    {"index": indices[last_peak], "price": highs[last_peak]},
-                    {"index": curr_idx, "price": highs[last_peak]}
-                ]
-            })
-
-    patterns = sorted(patterns, key=lambda x: x['quality'], reverse=True)
-    return patterns
-    
+        return {
+            "Symbol": symbol,
+            "Signal": "NO_TRADE",
+            "Status": "NO_SIGNAL",
+            "Message": analysis["message"]
+        }
+        
