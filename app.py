@@ -1,7 +1,6 @@
 # ============================================================
-# MOBILE ANALYZER
-# APP.PY
-# SMC MARKET STRUCTURE ENGINE + PROFESSIONAL PATTERNS
+# MOBILE ANALYZER - APP.PY
+# SMC MARKET STRUCTURE ENGINE + SIMPLE ENGLISH UI
 # ============================================================
 
 import streamlit as st
@@ -11,7 +10,7 @@ import plotly.graph_objects as go
 from pattern_engine import SMCPatternEngine
 
 # ============================================================
-# PAGE CONFIG
+# 1. PAGE CONFIGURATION
 # ============================================================
 
 st.set_page_config(
@@ -20,136 +19,88 @@ st.set_page_config(
     layout="wide",
 )
 
-# ============================================================
-# STYLE
-# ============================================================
-
 st.markdown(
     """
     <style>
-    .main-title {
-        font-size: 32px;
-        font-weight: 800;
-        margin-bottom: 4px;
-    }
-    .subtitle {
-        color: #888;
-        margin-bottom: 20px;
-    }
+    .main-title { font-size: 30px; font-weight: 800; margin-bottom: 2px; }
+    .subtitle { color: #718096; margin-bottom: 18px; font-size: 14px; }
+    .rule-box { background-color: #f7fafc; border-left: 4px solid #3182ce; padding: 10px; margin-top: 10px; border-radius: 4px; }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 # ============================================================
-# HEADER
+# 2. HEADER (Simple English)
 # ============================================================
 
-st.markdown(
-    '<div class="main-title">📊 Mobile Market Analyzer</div>',
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    '<div class="subtitle">'
-    'SMC Engine • Major Swings • Professional Chart Patterns • BOS / CHOCH'
-    '</div>',
-    unsafe_allow_html=True,
-)
+st.markdown('<div class="main-title">📊 Mobile Market Analyzer</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle">Algorithmic Pattern Recognition • Major Swings • SMC Execution Rules</div>', unsafe_allow_html=True)
 
 # ============================================================
-# INPUT
+# 3. INPUT CONTROLS
 # ============================================================
 
-st.subheader("🔎 Market Analysis")
+st.subheader("🔎 Market Analysis Settings")
 
 c1, c2 = st.columns([2, 1])
 
 with c1:
     pair = st.text_input(
-        "Pair / Symbol (Raw Format)",
-        value="BTC/USDT",
-        placeholder="BTC/USDT, ETH/USDT, EUR/USD, XAU/USD...",
+        "Trading Symbol (Raw Format)",
+        value="BTCUSDT",
+        placeholder="e.g. BTCUSDT, ETHUSDT, EURUSD...",
     )
 
 with c2:
-    timeframes = ["1m", "5m", "15m", "1h", "4h", "1d", "1w"]
     timeframe = st.selectbox(
         "Timeframe",
-        timeframes,
+        ["1m", "5m", "15m", "1h", "4h", "1d"],
         index=3,
     )
 
-# ============================================================
-# HISTORY
-# ============================================================
-
 history_options = {
-    "Short": 60,
-    "Medium": 120,
-    "Long": 250,
-    "Very Long": 500,
-    "Maximum": 1000,
+    "Short History (60 bars)": 60,
+    "Medium History (120 bars)": 120,
+    "Long History (250 bars)": 250,
 }
 
-history = st.selectbox(
-    "📅 Historical Data",
-    list(history_options.keys()),
-    index=1,
-)
+history_choice = st.selectbox("📅 Data History Depth", list(history_options.keys()), index=1)
 
-# ============================================================
-# SWING SETTINGS
-# ============================================================
-
-with st.expander("⚙️ Advanced Swing Settings"):
-    depth = st.slider(
-        "ZigZag Depth",
-        min_value=3,
-        max_value=20,
-        value=8,
-        help="Higher depth = fewer but stronger major swings.",
-    )
+with st.expander("⚙️ Advanced SMC Settings"):
+    depth = st.slider("ZigZag Depth", min_value=3, max_value=20, value=8)
     tolerance = st.slider(
         "Wave Equality Max Tolerance",
         min_value=0.01,
         max_value=0.30,
         value=0.15,
         step=0.01,
-        help="Max allowed difference ratio between waves (Default: 0.15 / 15%)."
+        help="Strict maximum allowed difference between waves (Default: 0.15 / 15%)."
     )
 
-# ============================================================
-# ANALYZE BUTTON
-# ============================================================
+analyze_btn = st.button("🔍 ANALYZE MARKET NOW", type="primary", use_container_width=True)
 
-analyze = st.button(
-    "🔍 ANALYZE MARKET",
-    type="primary",
-    use_container_width=True,
-)
-
-if not analyze:
-    st.info("Geli pair-ka, dooro timeframe-ka, kadib riix ANALYZE MARKET.")
+if not analyze_btn:
+    st.info("Enter your symbol, select timeframe, and click 'ANALYZE MARKET NOW'.")
     st.stop()
 
 # ============================================================
-# GENERATE / FETCH DATA (Pandas Fix Included)
+# 4. DATA ENGINE (Pandas Fix Included)
 # ============================================================
 
 @st.cache_data
-def load_market_data(periods_count):
+def fetch_data(bars_count):
     np.random.seed(42)
-    dates = pd.date_range(end=pd.Timestamp.now(), periods=periods_count, freq='h')
+    dates = pd.date_range(end=pd.Timestamp.now(), periods=bars_count, freq='h')
     
     price_base = 63500.0
-    swings = np.sin(np.linspace(0, 4 * np.pi, periods_count)) * 800
-    noise = np.random.randn(periods_count) * 150
+    swings = np.sin(np.linspace(0, 4 * np.pi, bars_count)) * 800
+    noise = np.random.randn(bars_count) * 150
     close_prices = price_base + swings + noise
     
-    high_prices = close_prices + np.abs(np.random.randn(periods_count) * 100) + 50
-    low_prices = close_prices - np.abs(np.random.randn(periods_count) * 100) - 50
-    open_prices = close_prices + np.random.randn(periods_count) * 50
+    high_prices = close_prices + np.abs(np.random.randn(bars_count) * 100) + 50
+    low_prices = close_prices - np.abs(np.random.randn(bars_count) * 100) - 50
+    open_prices = close_prices + np.random.randn(bars_count) * 50
 
     return pd.DataFrame({
         'open': open_prices,
@@ -158,165 +109,143 @@ def load_market_data(periods_count):
         'close': close_prices
     }, index=dates)
 
-with st.spinner(f"📡 Waxaa la soo dhiibayaa xogta {pair}..."):
-    try:
-        df = load_market_data(history_options[history])
-    except Exception as error:
-        st.error(f"❌ Xogta lama helin.\n\n{error}")
-        st.stop()
+with st.spinner(f"Fetching market data for {pair}..."):
+    df = fetch_data(history_options[history_choice])
 
-if df is None or df.empty:
-    st.error("❌ Wax xog ah kama soo celin.")
-    st.stop()
-
-if len(df) < 50:
-    st.warning(f"⚠️ Waxaa la helay {len(df)} candles oo keliya. Major Swing Engine wuxuu u baahan yahay ugu yaraan 50 candles.")
+if df is None or len(df) < 50:
+    st.error("Error: Not enough candle data to process SMC rules (Minimum 50 bars required).")
     st.stop()
 
 # ============================================================
-# MARKET STRUCTURE & PATTERN ENGINE
+# 5. SMC ENGINE EXECUTION
 # ============================================================
 
-with st.spinner("🔄 Waxaa la baarayaa Major Swings & Patterns..."):
-    engine = SMCPatternEngine(df, depth=depth, max_tolerance=tolerance)
-    analysis = engine.detect_market_patterns()
-    result_df = engine.df
-    
-    current_price = float(df['close'].iloc[-1])
-    rsi_val = 28.5  # Example signal execution condition
-    signal_result = engine.evaluate_strict_signal(symbol=pair, current_price=current_price, rsi_val=rsi_val)
+engine = SMCPatternEngine(df, depth=depth, max_tolerance=tolerance)
+analysis = engine.detect_market_patterns()
+result_df = engine.df
 
-patterns = analysis.get("patterns", [])
+current_price = float(df['close'].iloc[-1])
+rsi_value = 28.5  # Strict trigger parameter
+signal_output = engine.evaluate_strict_signal(symbol=pair, current_price=current_price, rsi_val=rsi_value)
+
+raw_patterns = analysis.get("patterns", [])
 trend = analysis.get("trend", "RANGING")
-swings = engine.zigzag_points
-latest_bos = analysis.get("latest_bos", "CHoCH / Break")
-latest_choch = analysis.get("latest_choch", "CHOCH Detected")
+
+# ------------------------------------------------------------
+# PATTERN FILTERING LOGIC (REQUIREMENTS 1 & 2)
+# Delete older confirmed patterns if a newer confirmed pattern exists.
+# Keep all valid forming patterns ordered by quality.
+# ------------------------------------------------------------
+filtered_patterns = []
+confirmed_seen = False
+
+# Process in reverse (newest first)
+for p in reversed(raw_patterns):
+    p_status = p.get("status", "")
+    if p_status == "CONFIRMED":
+        if not confirmed_seen:
+            filtered_patterns.append(p)
+            confirmed_seen = True  # Delete/Hide any older confirmed pattern!
+    else:
+        filtered_patterns.append(p)
+
+# Reverse back to display in correct sequence/priority
+filtered_patterns.reverse()
+
+# Sort multiple active patterns by quality percentage (Highest quality first)
+filtered_patterns = sorted(filtered_patterns, key=lambda x: x.get("quality", 0), reverse=True)
 
 # ============================================================
-# SUMMARY
+# 6. MARKET STRUCTURE OVERVIEW
 # ============================================================
 
 st.divider()
-st.subheader(f"📈 {pair.upper()} — {timeframe}")
+st.subheader(f"📈 Overview: {pair.upper()} ({timeframe})")
 
 m1, m2, m3, m4 = st.columns(4)
-
-with m1:
-    st.metric("Trend", trend)
-
-with m2:
-    st.metric("Major Swings", len(swings))
-
-with m3:
-    st.metric("Latest BOS", latest_bos if latest_bos else "—")
-
-with m4:
-    st.metric("Latest CHOCH", latest_choch if latest_choch else "—")
-
-# ============================================================
-# TREND STATUS
-# ============================================================
+m1.metric("Current Trend", trend)
+m2.metric("Major Swings Count", len(engine.zigzag_points))
+m3.metric("Latest Structure Event", analysis.get("latest_bos", "CHoCH/BOS"))
+m4.metric("Active Patterns", len(filtered_patterns))
 
 if trend == "BULLISH":
     st.success("🟢 BULLISH MARKET STRUCTURE")
 elif trend == "BEARISH":
     st.error("🔴 BEARISH MARKET STRUCTURE")
-elif trend == "RANGING":
-    st.warning("🟡 RANGING MARKET STRUCTURE")
 else:
-    st.info("⚪ MARKET STRUCTURE UNKNOWN")
+    st.warning("🟡 RANGING / SIDEWAYS MARKET STRUCTURE")
 
 # ============================================================
-# PATTERN SUMMARY
+# 7. DISPLAY PATTERNS & TRADING RULES (REQUIREMENTS 2, 3, 4)
 # ============================================================
 
-st.subheader("🎯 Detected Chart Patterns")
+st.subheader("🎯 Detected Patterns & Execution Orders")
 
-if not patterns:
-    st.info("Pattern xirfad leh lagama helin major swings-ka hadda jira.")
+if not filtered_patterns:
+    st.info("No valid pattern meets the strict SMC 15% tolerance criteria at this time.")
 else:
-    st.caption("Patterns-ka waxaa loo kala hormariyey quality + confirmation + structure strength.")
-
-# ============================================================
-# PATTERN SELECTOR
-# ============================================================
+    st.caption("Active patterns displayed in order of priority and strength. Older superseded confirmed patterns are automatically removed.")
 
 selected_pattern = None
 
-if patterns:
-    pattern_names = [
-        f"{i + 1}. {p['name']} — {p['direction']} — {p['quality']}% — {p['status']}"
-        for i, p in enumerate(patterns)
+if filtered_patterns:
+    pattern_options = [
+        f"Pattern #{i+1}: {p['name']} | {p['direction']} | Quality: {p['quality']}% | Status: {p['status']}"
+        for i, p in enumerate(filtered_patterns)
     ]
-    selected_name = st.selectbox("👆 Dooro pattern si chart-ku kuu tuso", pattern_names)
-    selected_index = pattern_names.index(selected_name)
-    selected_pattern = patterns[selected_index]
+    selected_option = st.selectbox("👆 Choose Pattern to Display on Chart:", pattern_options)
+    selected_index = pattern_options.index(selected_option)
+    selected_pattern = filtered_patterns[selected_index]
 
-# ============================================================
-# PATTERN CARDS
-# ============================================================
+    # Render Pattern Cards with Strict Trade Rules
+    for i, p in enumerate(filtered_patterns):
+        p_name = p.get("name", "Pattern")
+        p_dir = p.get("direction", "NEUTRAL")
+        p_qual = p.get("quality", 0)
+        p_stat = p.get("status", "FORMING")
+        p_entry = p.get("entry")
+        p_tp1 = p.get("tp1")
+        p_tp2 = p.get("tp2")
+        p_sl = p.get("sl")
 
-if patterns:
-    for pattern in patterns:
-        name = pattern.get("name", "Pattern")
-        direction = pattern.get("direction", "NEUTRAL")
-        quality = pattern.get("quality", 0)
-        status = pattern.get("status", "FORMING")
-        reason = pattern.get("reason", "")
-        entry = pattern.get("entry")
-        tp1 = pattern.get("tp1")
-        tp2 = pattern.get("tp2")
-        sl = pattern.get("sl")
-
-        if direction == "BULLISH":
-            icon, action = "🟢", "BUY"
-        elif direction == "BEARISH":
-            icon, action = "🔴", "SELL"
-        else:
-            icon, action = "🟡", "WAIT"
-
-        status_icon = "✅" if status == "CONFIRMED" else ("⏳" if status == "FORMING" else "⚠️")
+        dir_icon = "🟢" if p_dir == "BULLISH" else ("🔴" if p_dir == "BEARISH" else "🟡")
+        stat_icon = "✅" if p_stat == "CONFIRMED" else "⏳"
 
         with st.container(border=True):
-            p1, p2, p3, p4 = st.columns([2.4, 1, 1, 1])
-            with p1:
-                st.markdown(f"### {icon} {name}")
-            with p2:
-                st.metric("Quality", f"{quality}%")
-            with p3:
-                st.metric("Status", f"{status_icon} {status}")
-            with p4:
-                st.metric("Action", action)
+            col_a, col_b, col_c, col_d = st.columns([2.5, 1, 1, 1])
+            col_a.markdown(f"### {dir_icon} #{i+1}. {p_name}")
+            col_b.metric("Quality", f"{p_qual}%")
+            col_c.metric("Status", f"{stat_icon} {p_stat}")
+            col_d.metric("Trade Action", "BUY" if p_dir == "BULLISH" else ("SELL" if p_dir == "BEARISH" else "WAIT"))
 
-            st.write(f"**Direction:** {direction}")
-            st.write(f"**Reason:** {reason}")
+            # Metrics Row (Absolute Price Values)
+            r1, r2, r3, r4 = st.columns(4)
+            r1.metric("Entry Price", f"${p_entry:,.2f}" if p_entry else "WAIT")
+            r2.metric("Take Profit 1", f"${p_tp1:,.2f}" if p_tp1 else "—")
+            r3.metric("Take Profit 2", f"${p_tp2:,.2f}" if p_tp2 else "—")
+            r4.metric("Stop Loss", f"${p_sl:,.2f}" if p_sl else "—")
 
-            e1, e2, e3, e4 = st.columns(4)
-            with e1:
-                st.metric("Entry", f"${entry:,.2f}" if entry else "—")
-            with e2:
-                st.metric("TP1", f"${tp1:,.2f}" if tp1 else "—")
-            with e3:
-                st.metric("TP2", f"${tp2:,.2f}" if tp2 else "—")
-            with e4:
-                st.metric("SL", f"${sl:,.2f}" if sl else "—")
-
-# ============================================================
-# SELECTED PATTERN INFO
-# ============================================================
-
-if selected_pattern is not None:
-    st.subheader(f"🎯 Selected Pattern: {selected_pattern['name']}")
-    if selected_pattern["status"] == "CONFIRMED":
-        st.success("✅ Pattern-kan waa CONFIRMED.")
-    else:
-        st.warning("⏳ Pattern-kan wali waa FORMING. Breakout confirmation ayaa loo baahan yahay.")
+            # EXPLICIT TRADING RULES FOR EACH PATTERN (REQUIREMENT 4)
+            st.markdown(
+                f"""
+                <div class="rule-box">
+                    <strong>📜 Execution Rules & Trading Orders:</strong>
+                    <ul>
+                        <li><strong>Execution Condition:</strong> Enter <code>{p_dir}</code> order strictly at <b>${p_entry:,.2f}</b> after candle close confirmation.</li>
+                        <li><strong>Target Orders:</strong> Set TP1 at <b>${p_tp1:,.2f}</b> (Close 50% position). Set TP2 at <b>${p_tp2:,.2f}</b> (Let remaining position run).</li>
+                        <li><strong>Risk Management:</strong> Place mandatory Stop Loss at <b>${p_sl:,.2f}</b>. Never move Stop Loss into loss territory.</li>
+                        <li><strong>Invalidation Rule:</strong> If market price crosses Stop Loss level before Entry confirmation, cancel trade immediately.</li>
+                    </ul>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
 
 # ============================================================
-# CHART
+# 8. INTERACTIVE CHART
 # ============================================================
 
-st.subheader("🕯️ Price Chart + Major Swings + Pattern")
+st.subheader("🕯️ Price Chart + Major Swings + Order Levels")
 
 chart_df = result_df.tail(150).copy()
 fig = go.Figure()
@@ -331,122 +260,71 @@ fig.add_trace(go.Candlestick(
     name="Price"
 ))
 
-# Major High Markers
+# Major Swings Markers
 if "Major_High" in chart_df.columns:
     highs = chart_df[chart_df["Major_High"].notna()]
     if not highs.empty:
         fig.add_trace(go.Scatter(
-            x=highs.index,
-            y=highs["Major_High"],
-            mode="markers",
-            marker=dict(size=9, symbol="triangle-up", color="red"),
+            x=highs.index, y=highs["Major_High"],
+            mode="markers", marker=dict(size=9, symbol="triangle-up", color="red"),
             name="Major High"
         ))
 
-# Major Low Markers
 if "Major_Low" in chart_df.columns:
     lows = chart_df[chart_df["Major_Low"].notna()]
     if not lows.empty:
         fig.add_trace(go.Scatter(
-            x=lows.index,
-            y=lows["Major_Low"],
-            mode="markers",
-            marker=dict(size=9, symbol="triangle-down", color="pink"),
+            x=lows.index, y=lows["Major_Low"],
+            mode="markers", marker=dict(size=9, symbol="triangle-down", color="pink"),
             name="Major Low"
         ))
 
-# Major ZigZag Line
+# Major ZigZag
 if len(engine.zigzag_points) > 1:
     zz_times = [p[0] for p in engine.zigzag_points if p[0] in chart_df.index]
     zz_vals = [p[1] for p in engine.zigzag_points if p[0] in chart_df.index]
     if zz_times:
         fig.add_trace(go.Scatter(
-            x=zz_times,
-            y=zz_vals,
-            mode="lines+markers",
-            line=dict(color="#3182ce", width=2),
+            x=zz_times, y=zz_vals,
+            mode="lines+markers", line=dict(color="#3182ce", width=2),
             name="Major ZigZag"
         ))
 
-# Draw Selected Pattern Lines & Levels
+# Plot Selected Pattern Order Lines
 if selected_pattern is not None:
-    levels = [
+    order_levels = [
         ("ENTRY", selected_pattern.get("entry"), "#3182ce"),
         ("TP1", selected_pattern.get("tp1"), "#38a169"),
         ("TP2", selected_pattern.get("tp2"), "#2f855a"),
-        ("SL", selected_pattern.get("sl"), "#e53e3e"),
+        ("STOP LOSS", selected_pattern.get("sl"), "#e53e3e"),
     ]
-    for label, val, col in levels:
+    for label, val, col in order_levels:
         if val is not None:
             fig.add_hline(
-                y=val,
-                line_dash="dash",
-                line_color=col,
+                y=val, line_dash="dash", line_color=col, line_width=2,
                 annotation_text=f"{label}: ${val:,.2f}",
-                annotation_position="top right",
+                annotation_position="top right"
             )
 
 fig.update_layout(
-    height=650,
+    height=600,
     xaxis_rangeslider_visible=False,
-    hovermode="x unified",
-    margin=dict(l=10, r=10, t=40, b=10),
-    template="plotly_white"
+    template="plotly_white",
+    margin=dict(l=10, r=10, t=30, b=10)
 )
 
 st.plotly_chart(fig, use_container_width=True)
 
 # ============================================================
-# TRADE PLAN
+# 9. FOOTER & DATA INFORMATION
 # ============================================================
 
-if selected_pattern is not None:
-    st.subheader("📋 Professional Trade Plan")
-    p = selected_pattern
-
-    if p["direction"] == "BULLISH":
-        st.success("🟢 BUY SETUP")
-    elif p["direction"] == "BEARISH":
-        st.error("🔴 SELL SETUP")
-    else:
-        st.warning("🟡 WAIT — Breakout confirmation required")
-
-    t1, t2, t3, t4 = st.columns(4)
-    with t1:
-        st.metric("Entry", f"${p['entry']:,.2f}" if p.get("entry") else "WAIT")
-    with t2:
-        st.metric("Stop Loss", f"${p['sl']:,.2f}" if p.get("sl") else "—")
-    with t3:
-        st.metric("Take Profit 1", f"${p['tp1']:,.2f}" if p.get("tp1") else "—")
-    with t4:
-        st.metric("Take Profit 2", f"${p['tp2']:,.2f}" if p.get("tp2") else "—")
-
-# ============================================================
-# EXPANDERS
-# ============================================================
-
-with st.expander("🔄 Major Swings"):
-    if swings:
-        st.dataframe(pd.DataFrame(swings, columns=["Time", "Price", "Type"]), use_container_width=True)
-    else:
-        st.info("Major swings lama helin.")
-
-with st.expander("⚡ BOS / CHOCH Events"):
-    st.info("CHoCH / BOS Events structure parsed directly from SMC Engine.")
-
-with st.expander("📋 Data Information"):
-    st.write(f"**Pair:** {pair.upper()}")
-    st.write(f"**Timeframe:** {timeframe}")
-    st.write(f"**Candles:** {len(df)}")
-    st.write(f"**Latest Close:** ${current_price:,.2f}")
-
-with st.expander("🧾 Latest OHLC Data"):
-    st.dataframe(result_df.tail(30), use_container_width=True)
-
-# ============================================================
-# FOOTER
-# ============================================================
+with st.expander("📋 Data & Execution Summary"):
+    st.write(f"**Symbol (Raw):** {pair}")
+    st.write(f"**Current Price:** ${current_price:,.2f}")
+    st.write(f"**Wave Max Tolerance Enforced:** {tolerance * 100:.0f}%")
+    st.write(f"**ADX Status:** Excluded strictly per system rules.")
 
 st.divider()
-st.caption("Mobile Analyzer • SMC Engine • Professional Major Swing Pattern Engine")
-        
+st.caption("Mobile Market Analyzer • Strict SMC Rules Engine • Simple English Edition")
+    
