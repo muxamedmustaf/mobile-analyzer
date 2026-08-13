@@ -8,6 +8,7 @@ st.set_page_config(page_title="SMC Market Structure Engine", layout="wide")
 
 st.title("⚡ SMC Market Structure Engine")
 
+# الشريط الجانبي للإعدادات
 st.sidebar.header("⚙️ Configuration")
 symbol = st.sidebar.text_input("Trading Symbol (Raw Format):", value="BTCUSDT")
 depth = st.sidebar.slider("ZigZag Depth", min_value=3, max_value=20, value=8)
@@ -38,12 +39,15 @@ def get_market_data():
 df = get_market_data()
 current_price = float(df['Close'].iloc[-1])
 
+# تشغيل محرك الأنماط
 engine = SMCPatternEngine(df, depth=depth, max_tolerance=tolerance)
 analysis = engine.detect_market_patterns()
 
+# تقييم الإشارة الإلزامية (بدون ADX وبقيم مطلقة للـ TP/SL)
 rsi_val = 28.5
 signal_result = engine.evaluate_strict_signal(symbol=symbol, current_price=current_price, rsi_val=rsi_val)
 
+# عرض حالة هيكل السوق
 structure_status = analysis["structure_status"]
 if "CHoCH" in structure_status:
     st.markdown(f"### 🟢 {structure_status}")
@@ -63,11 +67,13 @@ if analysis["details"]:
     cols[1].metric("Wave 2 Length", f"{analysis['details']['wave2_length']}")
     cols[2].metric("Difference Ratio / Tolerance", f"{analysis['details']['diff_ratio']*100:.1f}% / Max {tolerance*100:.0f}%")
 
-st.markdown("### 🕯️ Price Chart + Major Swings + Pattern")
+# رسم الشارت التفاعلي
+st.markdown("### 🕯️ Price Chart + Major Swings + Order Lines")
 
 df_swings = engine.calculate_major_swings()
 fig = go.Figure()
 
+# رسم الشموع اليابانية
 fig.add_trace(go.Candlestick(
     x=df_swings.index,
     open=df_swings['Open'],
@@ -77,6 +83,7 @@ fig.add_trace(go.Candlestick(
     name="Price"
 ))
 
+# رسم نقاط القمم الرئيسية
 fig.add_trace(go.Scatter(
     x=df_swings.index,
     y=df_swings['Major_High'],
@@ -85,6 +92,7 @@ fig.add_trace(go.Scatter(
     marker=dict(color='red', size=9, symbol='triangle-up')
 ))
 
+# رسم نقاط القيعان الرئيسية
 fig.add_trace(go.Scatter(
     x=df_swings.index,
     y=df_swings['Major_Low'],
@@ -93,6 +101,7 @@ fig.add_trace(go.Scatter(
     marker=dict(color='pink', size=9, symbol='triangle-down')
 ))
 
+# رسم خط الموجات الزيجزاج (Major ZigZag)
 if len(engine.zigzag_points) > 1:
     zz_times = [p[0] for p in engine.zigzag_points]
     zz_vals = [p[1] for p in engine.zigzag_points]
@@ -104,15 +113,57 @@ if len(engine.zigzag_points) > 1:
         line=dict(color='#3182ce', width=2)
     ))
 
+# -------------------------------------------------------------
+# 🎯 رسم خطوط الأوامر (ORDER LINES) مباشرة على الشارت
+# -------------------------------------------------------------
+if signal_result["Status"] == "VALID_SIGNAL":
+    entry_p = signal_result['Entry_Price']
+    tp_p = signal_result['Take_Profit_Absolute']
+    sl_p = signal_result['Stop_Loss_Absolute']
+
+    # 1. خط سعر الدخول (Entry Price Line)
+    fig.add_hline(
+        y=entry_p,
+        line_dash="dash",
+        line_color="#3182ce",
+        line_width=2,
+        annotation_text=f" ENTRY: ${entry_p:,.2f}",
+        annotation_position="bottom right",
+        annotation_font_color="#3182ce"
+    )
+
+    # 2. خط أخذ الربح (Take Profit Line)
+    fig.add_hline(
+        y=tp_p,
+        line_dash="dash",
+        line_color="#38a169",
+        line_width=2,
+        annotation_text=f" TP (Absolute): ${tp_p:,.2f}",
+        annotation_position="top right",
+        annotation_font_color="#38a169"
+    )
+
+    # 3. خط وقف الخسارة (Stop Loss Line)
+    fig.add_hline(
+        y=sl_p,
+        line_dash="dash",
+        line_color="#e53e3e",
+        line_width=2,
+        annotation_text=f" SL (Absolute): ${sl_p:,.2f}",
+        annotation_position="bottom right",
+        annotation_font_color="#e53e3e"
+    )
+
 fig.update_layout(
     template="plotly_white",
-    height=500,
+    height=550,
     xaxis_rangeslider_visible=False,
     margin=dict(l=20, r=20, t=20, b=20)
 )
 
 st.plotly_chart(fig, use_container_width=True)
 
+# عرض تفاصيل التنفيذ المطلقة
 st.markdown("---")
 st.markdown("### 📋 Mandatory Execution Details (Absolute Values)")
 
