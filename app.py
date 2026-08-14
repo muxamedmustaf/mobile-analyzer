@@ -21,7 +21,7 @@ st.set_page_config(
 st.title("📊 Financial Market Pattern & Indicator Scanner")
 
 # ==========================================================
-# 2. TRADINGVIEW STYLE TOP NAVBAR (Asset & Timeframes)
+# 2. TRADINGVIEW STYLE TOP NAVBAR (Original Timeframe Bar)
 # ==========================================================
 st.markdown("### 🎛️ TradingView Toolbar & Timeframe Bar")
 
@@ -33,7 +33,7 @@ with col_btn:
     st.write("##")
     run_scan = st.button("🚀 Run Analysis", use_container_width=True)
 
-# TRADINGVIEW HORIZONTAL TIMEFRAME BAR
+# TRADINGVIEW HORIZONTAL TIMEFRAME BAR (ORIGINAL SETUP)
 tf_options = ["1m", "5m", "15m", "30m", "1h", "4h", "1D", "1W", "1M"]
 selected_tf = st.radio(
     "⏱️ Select Timeframe (TradingView Standard):",
@@ -41,6 +41,13 @@ selected_tf = st.radio(
     index=6, # Default 1D
     horizontal=True
 )
+
+# CHART HEIGHT AND ZOOM CONTROLS
+c_zoom, c_height = st.columns([2, 2])
+with c_zoom:
+    visible_candles = st.slider("🔍 Zoom Level (Shumacyada la arkayo):", min_value=30, max_value=300, value=80, step=10)
+with c_height:
+    chart_height = st.slider("📐 Chart Height (Dhererka Chart-ka):", min_value=400, max_value=1000, value=650, step=50)
 
 # Automated YFinance Mapping for Max Candles without API Crash
 tf_map = {
@@ -140,28 +147,30 @@ if run_scan:
 
             fig = go.Figure()
 
-            # Candlestick Series
+            # Candlestick Series with Dark Red / Dark Green Colors
             fig.add_trace(go.Candlestick(
                 x=df_res.index,
                 open=df_res['Open'],
                 high=df_res['High'],
                 low=df_res['Low'],
                 close=df_res['Close'],
-                name="Candlesticks"
+                name="Candlesticks",
+                increasing=dict(line=dict(color='#089981', width=1), fillcolor='#089981'), # Dark Green
+                decreasing=dict(line=dict(color='#F23645', width=1), fillcolor='#F23645')  # Dark Red
             ))
 
             # EMA 50 Line
             if 'EMA50' in df_res.columns:
                 fig.add_trace(go.Scatter(
                     x=df_res.index, y=df_res['EMA50'],
-                    line=dict(color='orange', width=1.5), name="EMA 50"
+                    line=dict(color='#FF9800', width=1.5), name="EMA 50"
                 ))
 
             # EMA 200 Line
             if 'EMA200' in df_res.columns:
                 fig.add_trace(go.Scatter(
                     x=df_res.index, y=df_res['EMA200'],
-                    line=dict(color='deepskyblue', width=2), name="EMA 200"
+                    line=dict(color='#29B6F6', width=2), name="EMA 200"
                 ))
 
             # Pivot Points (Structural Highs H & Lows L)
@@ -171,48 +180,75 @@ if run_scan:
 
                 fig.add_trace(go.Scatter(
                     x=pivots_h.index, y=pivots_h['Pivot_H'],
-                    mode='markers', marker=dict(symbol='triangle-down', size=11, color='red'),
-                    name="Structural Resistance (H)"
+                    mode='markers', marker=dict(symbol='triangle-down', size=10, color='#F23645'),
+                    name="Pivot High (H)"
                 ))
 
                 fig.add_trace(go.Scatter(
                     x=pivots_l.index, y=pivots_l['Pivot_L'],
-                    mode='markers', marker=dict(symbol='triangle-up', size=11, color='green'),
-                    name="Structural Support (L)"
+                    mode='markers', marker=dict(symbol='triangle-up', size=10, color='#089981'),
+                    name="Pivot Low (L)"
                 ))
 
-                # ------------------------------------------------
-                # PATTERN OVERLAY DRAWING (رسم حدود النمط الهيكلي)
-                # ------------------------------------------------
+                # Pattern Boundary Lines Overlay
                 pivots_h_recent = pivots_h.tail(3)
                 pivots_l_recent = pivots_l.tail(3)
 
                 if len(pivots_h_recent) >= 2:
                     fig.add_trace(go.Scatter(
-                        x=pivots_h_recent.index,
-                        y=pivots_h_recent['Pivot_H'],
-                        mode='lines+markers',
-                        line=dict(color='#FFD700', width=2.5, dash='dash'),
-                        name=f"Pattern Resistance Line ({result['pattern']})"
+                        x=pivots_h_recent.index, y=pivots_h_recent['Pivot_H'],
+                        mode='lines+markers', line=dict(color='#FFD700', width=2, dash='dashdot'),
+                        name=f"Pattern Resistance ({result['pattern']})"
                     ))
 
                 if len(pivots_l_recent) >= 2:
                     fig.add_trace(go.Scatter(
-                        x=pivots_l_recent.index,
-                        y=pivots_l_recent['Pivot_L'],
-                        mode='lines+markers',
-                        line=dict(color='#00FFFF', width=2.5, dash='dash'),
-                        name=f"Pattern Support Line ({result['pattern']})"
+                        x=pivots_l_recent.index, y=pivots_l_recent['Pivot_L'],
+                        mode='lines+markers', line=dict(color='#00FFFF', width=2, dash='dashdot'),
+                        name=f"Pattern Support ({result['pattern']})"
                     ))
 
+            # Order Lines (ENTRY, SL, TP) placed nicely at the right margin
+            if signal in ["STRONG BUY", "STRONG SELL"]:
+                orders = [
+                    ("ENTRY", result['entry'], "#2962FF"),
+                    ("STOP LOSS", result['sl'], "#F23645"),
+                    ("TAKE PROFIT", result['tp'], "#089981")
+                ]
+                for label, val, col in orders:
+                    fig.add_hline(
+                        y=val,
+                        line_dash="dash",
+                        line_color=col,
+                        line_width=1.5,
+                        annotation_text=f" <b>{label}: {val}</b>",
+                        annotation_position="top right",
+                        annotation_font_size=11,
+                        annotation_font_color=col
+                    )
+
+            # Zoom range calculation for clear candles
+            x_min = df_res.index[-visible_candles] if total_candles > visible_candles else df_res.index[0]
+            x_max = df_res.index[-1]
+
             fig.update_layout(
-                title=f"{symbol} - Chart Timeframe: {selected_tf} | Loaded Candles: {total_candles}",
-                xaxis_title="Time / Date",
-                yaxis_title="Price",
+                title=f"<b>{symbol}</b> ({selected_tf}) | Pattern: <b>{result['pattern']}</b>",
                 template="plotly_dark",
-                height=650,
-                xaxis_rangeslider_visible=False
+                height=chart_height,
+                xaxis_rangeslider_visible=False,
+                margin=dict(l=10, r=80, t=40, b=10),
+                xaxis=dict(
+                    range=[x_min, x_max],
+                    type="date"
+                ),
+                yaxis=dict(
+                    side="right",
+                    gridcolor="#2A2E39",
+                    zerolinecolor="#2A2E39"
+                ),
+                plot_bgcolor="#131722",
+                paper_bgcolor="#131722"
             )
 
             st.plotly_chart(fig, use_container_width=True)
-                
+                              
