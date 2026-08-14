@@ -250,8 +250,10 @@ if run_scan:
                 title=f"<b>{symbol}</b> ({selected_tf}) | Pattern: <b>{result['pattern']}</b>",
                 template=plotly_tpl,
                 height=chart_height,
+                autosize=True,
                 xaxis_rangeslider_visible=False,
-                margin=dict(l=10, r=80, t=40, b=10),
+                margin=dict(l=5, r=40, t=35, b=10), # Optimized margins to maximize screen width
+                showlegend=False, # Hides legend from obstructing chart space on mobile
                 xaxis=dict(
                     range=[x_min, x_max],
                     type="date"
@@ -266,4 +268,17 @@ if run_scan:
             )
 
             st.plotly_chart(fig, use_container_width=True)
-            
+
+            # ----------------------------------------------------
+            # E. COLLAPSIBLE BOTTOM LEGEND / ITEM KEYS (>> ARROW CLICK)
+            # ----------------------------------------------------
+            with st.expander(">> 📌 Click to Toggle Chart Legend / Indicators Keys (Midabyada & Astamaha Chart-ka)"):
+                st.markdown("""
+                * 🟢 **Green Candles / 🔴 Red Candles**: Candlestick Price Movement
+                * 🟧 **Orange Line**: EMA 50
+                * 🟦 **Light Blue Line**: EMA 200
+                * 🔻 **Red Triangles**: Pivot High (H) Structural Resistance
+                * 🔺 **Green Triangles**: Pivot Low (L) Structural Support
+                * 🟨 / 🩵 **Dash-Dot Lines**: Pattern Resistance & Support Ranges
+                """)
+                          
