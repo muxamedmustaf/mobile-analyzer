@@ -42,12 +42,19 @@ selected_tf = st.radio(
     horizontal=True
 )
 
-# CHART HEIGHT AND ZOOM CONTROLS
-c_zoom, c_height = st.columns([2, 2])
-with c_zoom:
-    visible_candles = st.slider("🔍 Zoom Level (Shumacyada la arkayo):", min_value=30, max_value=300, value=80, step=10)
-with c_height:
-    chart_height = st.slider("📐 Chart Height (Dhererka Chart-ka):", min_value=400, max_value=1000, value=650, step=50)
+# EXPANDABLE CONTROLS TO FREE UP SCREEN SPACE (COLLAPSED BY DEFAULT)
+with st.expander("⚙️ Chart Settings & Display Controls (Goo'aami Muuqaalka Chart-ka)"):
+    c_zoom, c_height, c_theme = st.columns([2, 2, 2])
+    with c_zoom:
+        visible_candles = st.slider("🔍 Zoom Level (Shumacyada la arkayo):", min_value=20, max_value=300, value=60, step=10)
+    with c_height:
+        chart_height = st.slider("📐 Chart Height (Dhererka Chart-ka):", min_value=350, max_value=1000, value=550, step=50)
+    with c_theme:
+        chart_theme = st.selectbox(
+            "🎨 Background Theme (Midabka Chart-ka):",
+            options=["TradingView Dark", "Classic White", "Midnight Navy"],
+            index=0
+        )
 
 # Automated YFinance Mapping for Max Candles without API Crash
 tf_map = {
@@ -231,9 +238,17 @@ if run_scan:
             x_min = df_res.index[-visible_candles] if total_candles > visible_candles else df_res.index[0]
             x_max = df_res.index[-1]
 
+            # DYNAMIC BACKGROUND COLOR MAPPING
+            bg_color_map = {
+                "TradingView Dark": ("#131722", "#2A2E39", "plotly_dark"),
+                "Classic White": ("#FFFFFF", "#E0E0E0", "plotly_white"),
+                "Midnight Navy": ("#0B192C", "#1E3E62", "plotly_dark")
+            }
+            bg_bg, grid_col, plotly_tpl = bg_color_map[chart_theme]
+
             fig.update_layout(
                 title=f"<b>{symbol}</b> ({selected_tf}) | Pattern: <b>{result['pattern']}</b>",
-                template="plotly_dark",
+                template=plotly_tpl,
                 height=chart_height,
                 xaxis_rangeslider_visible=False,
                 margin=dict(l=10, r=80, t=40, b=10),
@@ -243,12 +258,12 @@ if run_scan:
                 ),
                 yaxis=dict(
                     side="right",
-                    gridcolor="#2A2E39",
-                    zerolinecolor="#2A2E39"
+                    gridcolor=grid_col,
+                    zerolinecolor=grid_col
                 ),
-                plot_bgcolor="#131722",
-                paper_bgcolor="#131722"
+                plot_bgcolor=bg_bg,
+                paper_bgcolor=bg_bg
             )
 
             st.plotly_chart(fig, use_container_width=True)
-                              
+            
