@@ -196,24 +196,63 @@ if run_scan:
                     mode='markers', marker=dict(symbol='triangle-up', size=10, color='#089981'),
                     name="Pivot Low (L)"
                 ))
-
-                # Pattern Boundary Lines Overlay
+                                # Pattern Boundary Lines Overlay
                 pivots_h_recent = pivots_h.tail(3)
                 pivots_l_recent = pivots_l.tail(3)
 
                 if len(pivots_h_recent) >= 2:
                     fig.add_trace(go.Scatter(
-                        x=pivots_h_recent.index, y=pivots_h_recent['Pivot_H'],
-                        mode='lines+markers', line=dict(color='#FFD700', width=2, dash='dashdot'),
+                        x=pivots_h_recent.index,
+                        y=pivots_h_recent['Pivot_H'],
+                        mode='lines+markers',
+                        line=dict(
+                            color='#FFD700',
+                            width=2,
+                            dash='dashdot'
+                        ),
                         name=f"Pattern Resistance ({result['pattern']})"
                     ))
 
                 if len(pivots_l_recent) >= 2:
                     fig.add_trace(go.Scatter(
-                        x=pivots_l_recent.index, y=pivots_l_recent['Pivot_L'],
-                        mode='lines+markers', line=dict(color='#00FFFF', width=2, dash='dashdot'),
+                        x=pivots_l_recent.index,
+                        y=pivots_l_recent['Pivot_L'],
+                        mode='lines+markers',
+                        line=dict(
+                            color='#00FFFF',
+                            width=2,
+                            dash='dashdot'
+                        ),
                         name=f"Pattern Support ({result['pattern']})"
                     ))
+
+                # ------------------------------------------------
+                # COMPLETE PATTERN START TO END LINE
+                # ------------------------------------------------
+                pattern_start = result.get('pattern_start')
+                pattern_end = result.get('pattern_end')
+
+                if (
+                    pattern_start is not None
+                    and pattern_end is not None
+                    and pattern_start in df_res.index
+                    and pattern_end in df_res.index
+                    and pattern_start != pattern_end
+                ):
+                    start_price = df_res.loc[pattern_start, 'Close']
+                    end_price = df_res.loc[pattern_end, 'Close']
+
+                    fig.add_trace(go.Scatter(
+                        x=[pattern_start, pattern_end],
+                        y=[start_price, end_price],
+                        mode='lines',
+                        line=dict(
+                            color='#FFFFFF',
+                            width=3
+                        ),
+                        name=f"Pattern Start → End ({result['pattern']})"
+                    ))
+
 
             # Order Lines (ENTRY, SL, TP) placed nicely at the right margin
             if signal in ["STRONG BUY", "STRONG SELL"]:
