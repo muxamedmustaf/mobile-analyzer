@@ -649,5 +649,4 @@ def run_full_analysis(df):
         # Structural levels
         "structural_high": struct_h,
         "structural_low": struct_l
-            }
-    
+    }
