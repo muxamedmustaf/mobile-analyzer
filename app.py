@@ -18,7 +18,7 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("📊 Financial Market Pattern & Indicator Scanner")
+st.title("📊 MOHAMAED MUSTAF TRADING RULES")
 
 # ==========================================================
 # 2. TRADINGVIEW STYLE TOP NAVBAR (Original Timeframe Bar)
