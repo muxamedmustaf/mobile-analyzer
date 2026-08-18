@@ -30,56 +30,103 @@ def calculate_indicators(df):
 
 
 # ==========================================================
-# 2. PIVOT DETECTION & STRICT ALTERNATION
+# 2. ZIGZAG INDICATOR (DEFAULT: 12, 5, 3)
 # ==========================================================
-def detect_pivots(df, window=3):
+def calculate_zigzag(df, depth=12, deviation=5, backstep=3):
+    """
+    حساب مؤشر الزجزاج بناءً على الإعدادات الافتراضية (12, 5, 3)
+    """
     df = df.copy()
+    highs = df['High'].values
+    lows = df['Low'].values
+    n = len(df)
 
-    df['Pivot_H'] = np.nan
-    df['Pivot_L'] = np.nan
+    zigzag_val = [np.nan] * n
+    zigzag_type = [None] * n  # 'H' for High, 'L' for Low
 
-    for i in range(window, len(df) - window):
-        high_range = df['High'].iloc[i - window:i + window + 1]
-        low_range = df['Low'].iloc[i - window:i + window + 1]
+    stat = 0  # 0: seeking, 1: peak, -1: valley
+    last_high_idx = -1
+    last_low_idx = -1
+    last_high_val = 0.0
+    last_low_val = 0.0
 
-        if df['High'].iloc[i] == high_range.max():
-            df.loc[df.index[i], 'Pivot_H'] = df['High'].iloc[i]
+    dev_threshold = deviation / 100.0  # تحويل الانحراف إلى نسبة مئوية
 
-        if df['Low'].iloc[i] == low_range.min():
-            df.loc[df.index[i], 'Pivot_L'] = df['Low'].iloc[i]
+    for i in range(depth, n):
+        # البحث عن القمة والقاع في فترة depth
+        window_highs = highs[i - depth + 1 : i + 1]
+        window_lows = lows[i - depth + 1 : i + 1]
 
+        max_idx = i - depth + 1 + np.argmax(window_highs)
+        min_idx = i - depth + 1 + np.argmin(window_lows)
+
+        current_high = highs[max_idx]
+        current_low = lows[min_idx]
+
+        if stat == 0:
+            if current_high >= highs[i] and max_idx == i:
+                stat = 1
+                last_high_idx = i
+                last_high_val = highs[i]
+                zigzag_val[i] = highs[i]
+                zigzag_type[i] = 'H'
+            elif current_low <= lows[i] and min_idx == i:
+                stat = -1
+                last_low_idx = i
+                last_low_val = lows[i]
+                zigzag_val[i] = lows[i]
+                zigzag_type[i] = 'L'
+
+        elif stat == 1:  # البحث عن قاع جديد أو تحديث القمة الأعلى
+            if max_idx == i and highs[i] > last_high_val:
+                zigzag_val[last_high_idx] = np.nan
+                zigzag_type[last_high_idx] = None
+                last_high_idx = i
+                last_high_val = highs[i]
+                zigzag_val[i] = highs[i]
+                zigzag_type[i] = 'H'
+
+            elif min_idx == i and (last_high_val - lows[i]) / last_high_val >= dev_threshold:
+                if (i - last_high_idx) >= backstep:
+                    stat = -1
+                    last_low_idx = i
+                    last_low_val = lows[i]
+                    zigzag_val[i] = lows[i]
+                    zigzag_type[i] = 'L'
+
+        elif stat == -1:  # البحث عن قمة جديدة أو تحديث القاع الأدنى
+            if min_idx == i and lows[i] < last_low_val:
+                zigzag_val[last_low_idx] = np.nan
+                zigzag_type[last_low_idx] = None
+                last_low_idx = i
+                last_low_val = lows[i]
+                zigzag_val[i] = lows[i]
+                zigzag_type[i] = 'L'
+
+            elif max_idx == i and (highs[i] - last_low_val) / last_low_val >= dev_threshold:
+                if (i - last_low_idx) >= backstep:
+                    stat = 1
+                    last_high_idx = i
+                    last_high_val = highs[i]
+                    zigzag_val[i] = highs[i]
+                    zigzag_type[i] = 'H'
+
+    df['ZigZag_Val'] = zigzag_val
+    df['ZigZag_Type'] = zigzag_type
     return df
 
 
-def get_strict_alternating_pivots(df):
+def get_zigzag_pivots(df):
     """
-    تصفية النقاط المحورية وضمان التناوب الزمني الصارم (H -> L -> H -> L)
+    استخراج النقاط المحورية المؤكدة الصادرة من مؤشر الزجزاج فقط
     """
-    pivots_h = df['Pivot_H'].dropna()
-    pivots_l = df['Pivot_L'].dropna()
+    pivots = []
+    zigzag_df = df.dropna(subset=['ZigZag_Val'])
 
-    combined = []
-    for idx, value in pivots_h.items():
-        combined.append((idx, "H", value))
-    for idx, value in pivots_l.items():
-        combined.append((idx, "L", value))
+    for idx, row in zigzag_df.iterrows():
+        pivots.append((idx, row['ZigZag_Type'], row['ZigZag_Val']))
 
-    combined.sort(key=lambda x: x[0])
-
-    filtered = []
-    for p in combined:
-        if not filtered:
-            filtered.append(p)
-        else:
-            if p[1] != filtered[-1][1]:
-                filtered.append(p)
-            else:
-                if p[1] == 'H' and p[2] > filtered[-1][2]:
-                    filtered[-1] = p
-                elif p[1] == 'L' and p[2] < filtered[-1][2]:
-                    filtered[-1] = p
-
-    return filtered
+    return pivots
 
 
 # ==========================================================
@@ -98,39 +145,36 @@ def equal_waves(wave_a_len, wave_b_len, tolerance=WAVE_TOLERANCE):
 
 
 # ==========================================================
-# 4. ADVANCED SCAN 15 PATTERNS (DYNAMIC SLIDING WINDOW)
+# 4. SCAN 15 CHART PATTERNS USING ZIGZAG WAVES
 # ==========================================================
 def scan_15_patterns(df):
-    pivots = get_strict_alternating_pivots(df)
+    pivots = get_zigzag_pivots(df)
 
     if len(pivots) < 6:
         return ("NO PATTERN DETECTED", "Neutral", 0.0, 0.0, None, None)
 
-    last_close = df['Close'].iloc[-1]
-    
-    # البحث عبر نافذة متحركة في آخر 20 نقطة محورية بدلاً من إجبار النمط على أحدث 6 نقاط
+    # الاعتماد على نقاط الزجزاج المحسوبة
     recent_pivots = pivots[-20:]
 
-    # --- 1. HEAD AND SHOULDERS (H1 -> L1 -> H2 -> L2 -> H3) ---
+    # --- 1. HEAD AND SHOULDERS ---
     for i in range(len(recent_pivots) - 4):
         p5, p4, p3, p2, p1 = recent_pivots[i:i+5]
         if p5[1] == 'H' and p4[1] == 'L' and p3[1] == 'H' and p2[1] == 'L' and p1[1] == 'H':
             h1, l1, h2, l2, h3 = p5[2], p4[2], p3[2], p2[2], p1[2]
             wave_ls = abs(h1 - l1)
             wave_rs = abs(h3 - l2)
-            # شرط بروز الرأس بنسبة 1.5% على الأقل لمنع التقاط التذبذب الأفقي
-            if h2 > h1 * 1.015 and h2 > h3 * 1.015 and within_tolerance(h1, h3) and equal_waves(wave_ls, wave_rs):
+            if h2 > h1 and h2 > h3 and within_tolerance(h1, h3) and equal_waves(wave_ls, wave_rs):
                 neckline = min(l1, l2)
                 return ("Head and Shoulders", "Bearish", h2, neckline, p5[0], p1[0])
 
-    # --- 2. INVERSE HEAD AND SHOULDERS (L1 -> H1 -> L2 -> H2 -> L3) ---
+    # --- 2. INVERSE HEAD AND SHOULDERS ---
     for i in range(len(recent_pivots) - 4):
         p5, p4, p3, p2, p1 = recent_pivots[i:i+5]
         if p5[1] == 'L' and p4[1] == 'H' and p3[1] == 'L' and p2[1] == 'H' and p1[1] == 'L':
             l1, h1, l2, h2, l3 = p5[2], p4[2], p3[2], p2[2], p1[2]
             wave_ls = abs(h1 - l1)
             wave_rs = abs(h2 - l3)
-            if l2 < l1 * 0.985 and l2 < l3 * 0.985 and within_tolerance(l1, l3) and equal_waves(wave_ls, wave_rs):
+            if l2 < l1 and l2 < l3 and within_tolerance(l1, l3) and equal_waves(wave_ls, wave_rs):
                 neckline = max(h1, h2)
                 return ("Inverse Head and Shoulders", "Bullish", neckline, l2, p5[0], p1[0])
 
@@ -170,7 +214,7 @@ def scan_15_patterns(df):
             if within_tolerance(h1, h2) and equal_waves(wave1, wave2):
                 return ("Double Top", "Bearish", h2, l1, p3[0], p1[0])
 
-    # --- ANATOMY OF 4-PIVOT PATTERNS ---
+    # --- 4-PIVOT PATTERNS ---
     for i in range(len(recent_pivots) - 3):
         p4, p3, p2, p1 = recent_pivots[i:i+4]
         
@@ -205,7 +249,7 @@ def scan_15_patterns(df):
         # Falling Wedge
         if p4[1] == 'H' and p3[1] == 'L' and p2[1] == 'H' and p1[1] == 'L':
             h1, l1, h2, l2 = p4[2], p3[2], p2[2], p1[2]
-            w1, w2 = abs(h1 - l1), abs(h2 - l2)
+            w1, w2 = abs(h1 - l1), abs(h2 - l1)
             if h2 < h1 and l2 < l1 and equal_waves(w1, w2):
                 return ("Falling Wedge", "Bullish", h2, l2, p4[0], p1[0])
 
@@ -219,7 +263,7 @@ def scan_15_patterns(df):
         # Bearish Flag
         if p4[1] == 'L' and p3[1] == 'H' and p2[1] == 'L' and p1[1] == 'H':
             l1, h1, l2, h2 = p4[2], p3[2], p2[2], p1[2]
-            w1, w2 = abs(h1 - l1), abs(h2 - l2)
+            w1, w2 = abs(h1 - l1), abs(h2 - l1)
             if h2 > h1 and l2 > l1 and equal_waves(w1, w2):
                 return ("Bearish Flag", "Bearish", h2, l1, p4[0], p1[0])
 
@@ -241,11 +285,11 @@ def scan_15_patterns(df):
 
 
 # ==========================================================
-# 5. STRICT 100% VERIFICATION ENGINE
+# 5. STRICT 100% VERIFICATION ENGINE (UNCHANGED SIGNALS)
 # ==========================================================
 def run_full_analysis(df):
     df = calculate_indicators(df)
-    df = detect_pivots(df)
+    df = calculate_zigzag(df, depth=12, deviation=5, backstep=3)
 
     (
         pattern_name,
@@ -263,6 +307,7 @@ def run_full_analysis(df):
     ema200 = latest['EMA200']
     rsi = latest['RSI']
 
+    # الإبقاء الكامل على شروط الإشارات الخاصة بك دون أي تغيير
     c_ema_bull = close > ema200 and ema50 > ema200
     c_ema_bear = close < ema200 and ema50 < ema200
     c_rsi = 30 <= rsi <= 70
@@ -334,5 +379,5 @@ def run_full_analysis(df):
         "pattern_end": pattern_end,
         "structural_high": struct_h,
         "structural_low": struct_l
-            }
-        
+        }
+                
