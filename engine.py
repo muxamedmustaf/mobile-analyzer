@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import plotly.graph_objects as go
 
 # ==========================================================
 # 1. CALCULATE INDICATORS
@@ -31,7 +32,7 @@ def eq(a, b, tol=0.05):
     return abs(a - b) / max(abs(a), abs(b)) <= tol if max(abs(a), abs(b)) > 0 else False
 
 # ==========================================================
-# 3. STRICT SCANNER FOR ALL 15 PATTERNS
+# 3. STRICT SCANNER FOR ALL 15 PATTERNS (CORRECTED ORDER & LOGIC)
 # ==========================================================
 def scan_15_patterns(df):
     ph, pl = df['Pivot_H'].dropna(), df['Pivot_L'].dropna()
@@ -43,42 +44,54 @@ def scan_15_patterns(df):
     p_start, p_end = min(ph.index[-3], pl.index[-3]), max(ph.index[-1], pl.index[-1])
     close = df['Close'].iloc[-1]
 
-    # --- ALL 15 PATTERNS WITH PRIOR TREND FILTERS ---
-    if h1 < h2 and eq(h2, h3) and l1 < l2 < l3:
-        return "Ascending Triangle", "Bullish", h3, l3, p_start, p_end
-    if l1 > l2 and eq(l2, l3) and h1 > h2 > h3:
-        return "Descending Triangle", "Bearish", h3, l3, p_start, p_end
-    if h1 > h2 > h3 and l1 < l2 < l3:
-        return "Symmetrical Triangle", "Neutral", h3, l3, p_start, p_end
-    if h1 > h2 and eq(l2, l3) and h2 > l2 and h2 > l3:
-        return "Double Bottom", "Bullish", h2, l3, p_start, p_end
-    if l1 < l2 and eq(h2, h3) and l2 < h2 and l2 < h3:
-        return "Double Top", "Bearish", h3, l2, p_start, p_end
-    if df['Close'].loc[ph.index[-3]] > df['EMA200'].loc[ph.index[-3]] and h2 >= h1 * 1.40 and l1 >= h1 * 0.70 and eq(l1, l2, 0.10) and eq(h1, h3, 0.05):
+    # --- 1. HEAD & SHOULDERS (أولوية أولى - شروط ديناميكية للأسواق) ---
+    if h2 > h1 and h2 > h3 and eq(h1, h3, 0.08) and eq(l1, l2, 0.08):
         return "Head and Shoulders", "Bearish", h2, min(l1, l2), p_start, p_end
-    if df['Close'].loc[pl.index[-3]] < df['EMA200'].loc[pl.index[-3]] and l2 <= l1 * 0.60 and h1 <= l1 * 1.30 and eq(h1, h2, 0.10) and eq(l1, l3, 0.05):
+    if l2 < l1 and l2 < l3 and eq(l1, l3, 0.08) and eq(h1, h2, 0.08):
         return "Inverse Head and Shoulders", "Bullish", max(h1, h2), l2, p_start, p_end
-    if l1 < l2 and h1 < h2 and close > h2:
+
+    # --- 2. TRIPLE & DOUBLE TOPS/BOTTOMS ---
+    if eq(l1, l2, 0.04) and eq(l2, l3, 0.04) and h1 > l1 and h2 > l2:
+        return "Triple Bottom", "Bullish", max(h1, h2, h3), l3, p_start, p_end
+    if eq(h1, h2, 0.04) and eq(h2, h3, 0.04) and l1 < h1 and l2 < h2:
+        return "Triple Top", "Bearish", h3, min(l1, l2, l3), p_start, p_end
+    if eq(l2, l3, 0.04) and h2 > l2 and h2 > l3:
+        return "Double Bottom", "Bullish", h2, l3, p_start, p_end
+    if eq(h2, h3, 0.04) and l2 < h2 and l2 < h3:
+        return "Double Top", "Bearish", h3, l2, p_start, p_end
+
+    # --- 3. WEDGES (اعتماد ضيق القناة / الانحراف) ---
+    slope_h = h3 - h1
+    slope_l = l3 - l1
+    if h1 < h2 < h3 and l1 < l2 < l3 and slope_h < slope_l:
+        return "Rising Wedge", "Bearish", h3, l3, p_start, p_end
+    if h1 > h2 > h3 and l1 > l2 > l3 and slope_h < slope_l:
+        return "Falling Wedge", "Bullish", h3, l3, p_start, p_end
+
+    # --- 4. FLAGS (قناة موازية تصحيحية) ---
+    if h1 < h2 and l1 < l2 and close > h2:
         return "Bullish Flag", "Bullish", h2, l2, p_start, p_end
     if h1 > h2 and l1 > l2 and close < l2:
         return "Bearish Flag", "Bearish", h2, l2, p_start, p_end
-    if l1 < l2 and h1 > h2 and close > h2:
+
+    # --- 5. PENNANTS (مثلث تصحيحي ضيق) ---
+    if h1 > h2 and l1 < l2 and close > h2:
         return "Bullish Pennant", "Bullish", h2, l2, p_start, p_end
-    if h1 > h2 and l1 > l2 and close < l2:
+    if h1 > h2 and l1 < l2 and close < l2:
         return "Bearish Pennant", "Bearish", h2, l2, p_start, p_end
-    if h1 < h2 < h3 and l1 < l2 < l3 and (h3 - h1) < (l3 - l1):
-        return "Rising Wedge", "Bearish", h3, l3, p_start, p_end
-    if h1 > h2 > h3 and l1 > l2 > l3 and (h1 - h3) > (l1 - l3):
-        return "Falling Wedge", "Bullish", h3, l3, p_start, p_end
-    if h1 > h2 and eq(l1, l2) and eq(l2, l3) and h1 > l1 and h2 > l2:
-        return "Triple Bottom", "Bullish", max(h1, h2, h3), l3, p_start, p_end
-    if l1 < l2 and eq(h1, h2) and eq(h2, h3) and l1 < h1 and l2 < h2:
-        return "Triple Top", "Bearish", h3, min(l1, l2, l3), p_start, p_end
+
+    # --- 6. TRIANGLES (الأنماط العامة - أولوية أخيرة لمنع الابتلاع) ---
+    if h1 < h2 and eq(h2, h3, 0.04) and l1 < l2 < l3:
+        return "Ascending Triangle", "Bullish", h3, l3, p_start, p_end
+    if l1 > l2 and eq(l2, l3, 0.04) and h1 > h2 > h3:
+        return "Descending Triangle", "Bearish", h3, l3, p_start, p_end
+    if h1 > h2 > h3 and l1 < l2 < l3:
+        return "Symmetrical Triangle", "Neutral", h3, l3, p_start, p_end
 
     return "NO PATTERN DETECTED", "Neutral", h3, l3, p_start, p_end
 
 # ==========================================================
-# 4. FULL ANALYSIS ENGINE (100% COMPATIBLE STRUCTURE)
+# 4. FULL ANALYSIS ENGINE
 # ==========================================================
 def run_full_analysis(df):
     df = calculate_indicators(df)
@@ -157,3 +170,66 @@ def run_full_analysis(df):
         "structural_high": struct_h,
         "structural_low": struct_l
     }
+
+# ==========================================================
+# 5. GEOMETRIC PATTERN PLOTTER (PLOTLY)
+# ==========================================================
+def plot_pattern_geometry(analysis_result):
+    df = analysis_result['df']
+    p_name = analysis_result['pattern']
+    bias = analysis_result['bias']
+    p_start = analysis_result['pattern_start']
+    p_end = analysis_result['pattern_end']
+    
+    fig = go.Figure()
+
+    # 1. رسم الشموع اليابانية
+    fig.add_trace(go.Candlestick(
+        x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
+        name="Price"
+    ))
+
+    # 2. رسم المتوسطات المتحركة EMA
+    fig.add_trace(go.Scatter(x=df.index, y=df['EMA50'], line=dict(color='orange', width=1.5), name='EMA 50'))
+    fig.add_trace(go.Scatter(x=df.index, y=df['EMA200'], line=dict(color='deepskyblue', width=2), name='EMA 200'))
+
+    # 3. الرسم الهندسي للنمط المظلل (Polygon)
+    if p_start and p_end and p_name != "NO PATTERN DETECTED":
+        ph = df['Pivot_H'].dropna().loc[p_start:p_end]
+        pl = df['Pivot_L'].dropna().loc[p_start:p_end]
+        
+        if len(ph) >= 2 and len(pl) >= 2:
+            x_coords = list(ph.index) + list(pl.index)[::-1]
+            y_coords = list(ph.values) + list(pl.values)[::-1]
+
+            fill_color = "rgba(46, 204, 113, 0.18)" if bias == "Bullish" else "rgba(231, 76, 60, 0.18)"
+            line_color = "#2ecc71" if bias == "Bullish" else "#e74c3c"
+
+            # تظليل مساحة النمط بدقة داخل حدود النمط زمنياً فقط
+            fig.add_trace(go.Scatter(
+                x=x_coords, y=y_coords,
+                fill='toself',
+                fillcolor=fill_color,
+                line=dict(color=line_color, width=2),
+                name=f"Pattern: {p_name}"
+            ))
+
+            # نقاط مرتكزات القمم والقيعان كرموز هندسية فقط
+            fig.add_trace(go.Scatter(
+                x=ph.index, y=ph.values, mode='markers',
+                marker=dict(size=8, color='gold', symbol='triangle-down'), name='High Pivots'
+            ))
+            fig.add_trace(go.Scatter(
+                x=pl.index, y=pl.values, mode='markers',
+                marker=dict(size=8, color='cyan', symbol='triangle-up'), name='Low Pivots'
+            ))
+
+    fig.update_layout(
+        title=f"Chart Analysis | Pattern: {p_name} ({bias}) | Signal: {analysis_result['signal']}",
+        template="plotly_dark",
+        xaxis_rangeslider_visible=False,
+        showlegend=True
+    )
+    
+    return fig
+    
