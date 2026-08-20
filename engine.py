@@ -445,7 +445,7 @@ def plot_pattern_geometry(analysis_result):
         # If pattern_start/end are integer candle positions,
         # convert them to the real dataframe index.
         try:
-        # ==========================================================
+        
 # 5. DYNAMIC MULTI-POINT GEOMETRIC PLOTTER
 # ==========================================================
 def plot_pattern_geometry(analysis_result):
