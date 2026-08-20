@@ -525,61 +525,38 @@ def plot_pattern_geometry(analysis_result):
             ),
             name=f'Neckline / Resistance ({struct_h:.4f})'
         ))
-
-        # --------------------------------------------------
-        # B. Support
-        # --------------------------------------------------
-        fig.add_trace(go.Scatter(
-            x=[p_start, df.index[-1]],
-            y=[struct_l, struct_l],
-            mode='lines',
-            line=dict(
-                color='cyan',
-                width=2,
-                dash='dot'
-            ),
-            name=f'Support Level ({struct_l:.4f})'
-        ))
-
-        # --------------------------------------------------
-        # C. Combine pivots exactly as before
-        # --------------------------------------------------
-        pivots = (
-            [(idx, val) for idx, val in ph.items()] +
-            [(idx, val) for idx, val in pl.items()]
-        )
 def plot_pattern_geometry(analysis_result):
-    df = analysis_result['df']
-    p_name = analysis_result['pattern']
-    bias = analysis_result['bias']
-    p_start = analysis_result['pattern_start']
-    p_end = analysis_result['pattern_end']
-    struct_h = analysis_result['structural_high']
-    struct_l = analysis_result['structural_low']
+    df = analysis_result["df"]
+    p_name = analysis_result["pattern"]
+    bias = analysis_result["bias"]
+    p_start = analysis_result["pattern_start"]
+    p_end = analysis_result["pattern_end"]
+    struct_h = analysis_result["structural_high"]
+    struct_l = analysis_result["structural_low"]
 
     fig = go.Figure()
 
     fig.add_trace(go.Candlestick(
         x=df.index,
-        open=df['Open'],
-        high=df['High'],
-        low=df['Low'],
-        close=df['Close'],
+        open=df["Open"],
+        high=df["High"],
+        low=df["Low"],
+        close=df["Close"],
         name="Price"
     ))
 
     fig.add_trace(go.Scatter(
         x=df.index,
-        y=df['EMA50'],
-        line=dict(color='orange', width=1.5),
-        name='EMA 50'
+        y=df["EMA50"],
+        line=dict(color="orange", width=1.5),
+        name="EMA 50"
     ))
 
     fig.add_trace(go.Scatter(
         x=df.index,
-        y=df['EMA200'],
-        line=dict(color='deepskyblue', width=2),
-        name='EMA 200'
+        y=df["EMA200"],
+        line=dict(color="deepskyblue", width=2),
+        name="EMA 200"
     ))
 
     if p_name != "NO PATTERN DETECTED" and p_start is not None and p_end is not None:
@@ -593,8 +570,8 @@ def plot_pattern_geometry(analysis_result):
         except Exception:
             pass
 
-        ph = df['Pivot_H'].dropna()
-        pl = df['Pivot_L'].dropna()
+        ph = df["Pivot_H"].dropna()
+        pl = df["Pivot_L"].dropna()
 
         try:
             ph = ph.loc[p_start:p_end]
@@ -609,17 +586,17 @@ def plot_pattern_geometry(analysis_result):
         fig.add_trace(go.Scatter(
             x=[p_start, df.index[-1]],
             y=[struct_h, struct_h],
-            mode='lines',
-            line=dict(color='gold', width=2.5, dash='dash'),
-            name=f'Neckline / Resistance ({struct_h:.4f})'
+            mode="lines",
+            line=dict(color="gold", width=2.5, dash="dash"),
+            name=f"Neckline / Resistance ({struct_h:.4f})"
         ))
 
         fig.add_trace(go.Scatter(
             x=[p_start, df.index[-1]],
             y=[struct_l, struct_l],
-            mode='lines',
-            line=dict(color='cyan', width=2, dash='dot'),
-            name=f'Support Level ({struct_l:.4f})'
+            mode="lines",
+            line=dict(color="cyan", width=2, dash="dot"),
+            name=f"Support Level ({struct_l:.4f})"
         ))
 
         pivots = (
@@ -633,23 +610,19 @@ def plot_pattern_geometry(analysis_result):
             x_skel = [pt[0] for pt in pivots]
             y_skel = [pt[1] for pt in pivots]
 
-            line_color = (
-                '#2ecc71'
-                if bias == 'Bullish'
-                else '#e74c3c'
-            )
+            line_color = "#2ecc71" if bias == "Bullish" else "#e74c3c"
 
             fig.add_trace(go.Scatter(
                 x=x_skel,
                 y=y_skel,
-                mode='lines+markers',
+                mode="lines+markers",
                 line=dict(color=line_color, width=3),
                 marker=dict(
                     size=8,
-                    color='yellow',
-                    symbol='circle'
+                    color="yellow",
+                    symbol="circle"
                 ),
-                name=f'{p_name} Structure'
+                name=f"{p_name} Structure"
             ))
 
     fig.update_layout(
