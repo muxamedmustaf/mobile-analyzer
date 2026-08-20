@@ -44,8 +44,8 @@ st.markdown(
         background:
             radial-gradient(circle at 88% 12%, rgba(0, 115, 255, .13), transparent 26%),
             radial-gradient(circle at 15% 45%, rgba(0, 255, 190, .06), transparent 28%),
-            #020712;
-        color: #f7f9ff;
+            #172033;
+        color: #172033;
     }
 
     .main .block-container {
@@ -73,9 +73,9 @@ st.markdown(
 
     .brand-badge,
     .live-badge {
-        border: 1px solid rgba(0, 255, 200, .25);
-        background: rgba(7, 20, 35, .72);
-        box-shadow: 0 0 25px rgba(0, 255, 200, .07);
+        border: 1px solid rgba(0, 160, 130, .25);
+        background: rgba(255, 255, 255, .96);
+        box-shadow: 0 0 25px rgba(0, 160, 130, .07);
         border-radius: 16px;
         padding: 12px 20px;
         font-weight: 700;
@@ -83,11 +83,11 @@ st.markdown(
     }
 
     .brand-badge {
-        color: #19f4cf;
+        color: #008f78;
     }
 
     .live-badge {
-        color: #16f1c2;
+        color: #008f78;
         border-radius: 30px;
     }
 
@@ -126,7 +126,7 @@ st.markdown(
     }
 
     .hero-gradient {
-        background: linear-gradient(90deg, #ffffff 0%, #ffffff 37%, #2e62ff 63%, #00e7c0 100%);
+        background: linear-gradient(90deg, #172033 0%, #172033 37%, #2e62ff 63%, #00e7c0 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
@@ -135,7 +135,7 @@ st.markdown(
     .hero-subtitle {
         position: relative;
         z-index: 2;
-        color: #aeb9cb;
+        color: #5f6b7a;
         font-size: 18px;
         line-height: 1.7;
         margin-top: 24px;
@@ -144,13 +144,13 @@ st.markdown(
 
     /* Cards */
     .modern-card {
-        background: linear-gradient(145deg, rgba(11, 22, 40, .94), rgba(3, 11, 24, .92));
-        border: 1px solid rgba(83, 110, 160, .23);
+        background: linear-gradient(145deg, rgba(255, 255, 255, .98), rgba(248, 250, 252, .98));
+        border: 1px solid rgba(100, 116, 139, .25);
         border-radius: 26px;
         padding: 26px;
         box-shadow:
-            inset 0 1px 0 rgba(255,255,255,.035),
-            0 18px 50px rgba(0,0,0,.22);
+            inset 0 1px 0 rgba(15,23,42,.04),
+            0 18px 50px rgba(15, 23, 42, .08);
         margin-top: 18px;
     }
 
@@ -182,12 +182,12 @@ st.markdown(
     .card-title {
         font-size: 20px;
         font-weight: 700;
-        color: #ffffff;
+        color: #172033;
     }
 
     .card-subtitle {
         font-size: 14px;
-        color: #98a5b9;
+        color: #64748b;
         margin-top: 4px;
     }
 
@@ -199,9 +199,9 @@ st.markdown(
     div[data-testid="stTextInput"] input {
         height: 62px;
         border-radius: 18px;
-        background: #071222 !important;
-        color: #ffffff !important;
-        border: 1px solid #344dff !important;
+        background: #ffffff !important;
+        color: #172033 !important;
+        border: 1px solid #3155ff !important;
         box-shadow:
             0 0 0 1px rgba(49, 86, 255, .15),
             0 0 24px rgba(52, 77, 255, .08);
@@ -211,7 +211,7 @@ st.markdown(
     }
 
     div[data-testid="stTextInput"] input:focus {
-        border-color: #00e9c0 !important;
+        border-color: #00a889 !important;
         box-shadow: 0 0 20px rgba(0, 233, 192, .15) !important;
     }
 
@@ -221,20 +221,20 @@ st.markdown(
         min-height: 66px;
         border: 0;
         border-radius: 18px;
-        color: #ffffff;
+        color: #172033;
         font-size: 20px;
         font-weight: 800;
         background: linear-gradient(100deg, #3155ff 0%, #168cff 42%, #08d8b0 100%);
         box-shadow:
             0 12px 35px rgba(24, 104, 255, .25),
-            inset 0 1px 0 rgba(255,255,255,.25);
+            inset 0 1px 0 rgba(255,255,255,.55);
         transition: transform .15s ease, filter .15s ease;
     }
 
     div[data-testid="stButton"] > button:hover {
         transform: translateY(-2px);
         filter: brightness(1.08);
-        color: #ffffff;
+        color: #172033;
     }
 
     div[data-testid="stButton"] > button:active {
@@ -251,10 +251,10 @@ st.markdown(
         min-width: 88px;
         min-height: 52px;
         justify-content: center;
-        border: 1px solid #20304c !important;
+        border: 1px solid #cbd5e1 !important;
         border-radius: 18px !important;
-        background: #071222 !important;
-        color: #e7edf7 !important;
+        background: #ffffff !important;
+        color: #334155 !important;
         padding: 0 18px !important;
         transition: all .15s ease;
     }
@@ -264,12 +264,12 @@ st.markdown(
     }
 
     div[role="radiogroup"] > label:has(input:checked) {
-        border-color: #00e9c0 !important;
-        background: rgba(0, 214, 173, .08) !important;
+        border-color: #00a889 !important;
+        background: rgba(0, 168, 137, .08) !important;
         box-shadow:
-            0 0 22px rgba(0, 233, 192, .14),
-            inset 0 0 20px rgba(0, 233, 192, .03);
-        color: #12edc3 !important;
+            0 0 22px rgba(0, 168, 137, .14),
+            inset 0 0 20px rgba(0, 168, 137, .03);
+        color: #008f78 !important;
     }
 
     div[role="radiogroup"] > label p {
@@ -279,8 +279,8 @@ st.markdown(
 
     /* Metrics */
     div[data-testid="metric-container"] {
-        background: #071222;
-        border: 1px solid rgba(80, 110, 160, .22);
+        background: #ffffff;
+        border: 1px solid rgba(100, 116, 139, .22);
         border-radius: 18px;
         padding: 15px;
     }
@@ -294,7 +294,7 @@ st.markdown(
     }
 
     div[data-testid="stExpander"] summary {
-        color: #ffffff;
+        color: #172033;
         font-weight: 700;
     }
 
@@ -303,21 +303,21 @@ st.markdown(
         border-radius: 22px;
         padding: 22px;
         margin: 18px 0;
-        border: 1px solid rgba(255,255,255,.08);
+        border: 1px solid rgba(100,116,139,.18);
     }
 
     .status-buy {
-        background: linear-gradient(135deg, rgba(0, 220, 160, .14), rgba(2, 25, 28, .85));
-        border-color: rgba(0, 239, 190, .35);
+        background: linear-gradient(135deg, rgba(0, 168, 137, .10), rgba(240, 253, 250, .98));
+        border-color: rgba(0, 168, 137, .35);
     }
 
     .status-sell {
-        background: linear-gradient(135deg, rgba(242, 54, 69, .14), rgba(28, 7, 13, .85));
+        background: linear-gradient(135deg, rgba(242, 54, 69, .08), rgba(255, 245, 246, .98));
         border-color: rgba(242, 54, 69, .35);
     }
 
     .status-wait {
-        background: linear-gradient(135deg, rgba(255, 185, 0, .11), rgba(25, 19, 5, .85));
+        background: linear-gradient(135deg, rgba(255, 185, 0, .10), rgba(255, 251, 235, .98));
         border-color: rgba(255, 185, 0, .28);
     }
 
@@ -327,7 +327,7 @@ st.markdown(
     }
 
     .small-muted {
-        color: #8f9db2;
+        color: #64748b;
         font-size: 13px;
     }
 
@@ -506,7 +506,7 @@ with st.expander("⚙️  Chart Settings & Display Controls"):
     with c_theme:
         chart_theme = st.selectbox(
             "🎨 Chart Theme",
-            options=["TradingView Dark", "Classic White", "Midnight Navy"],
+            options=["Classic White", "TradingView Dark", "Midnight Navy"],
             index=0,
         )
 
