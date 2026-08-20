@@ -414,7 +414,7 @@ def plot_pattern_geometry(analysis_result):
 
     fig = go.Figure()
 
-    # 1. رسم الشموع والمتوسطات
+    # 1. Candles + EMA
     fig.add_trace(go.Candlestick(
         x=df.index,
         open=df['Open'],
@@ -438,15 +438,37 @@ def plot_pattern_geometry(analysis_result):
         name='EMA 200'
     ))
 
-    # 2. رسم النموذج المكتشف فقط
+    # 2. Pattern geometry
     if p_name != "NO PATTERN DETECTED" and p_start is not None and p_end is not None:
 
-        # أخذ الارتكازات الموجودة داخل نطاق النموذج فقط
-        ph = df['Pivot_H'].dropna().loc[p_start:p_end]
-        pl = df['Pivot_L'].dropna().loc[p_start:p_end]
+        # Preserve original index relationship.
+        # If pattern_start/end are integer candle positions,
+        # convert them to the real dataframe index.
+        try:
+            if p_start not in df.index:
+                p_start = df.index[int(p_start)]
+
+            if p_end not in df.index:
+                p_end = df.index[int(p_end)]
+        except Exception:
+            pass
+
+        # Get pivots only inside the detected pattern range
+        ph = df['Pivot_H'].dropna()
+        pl = df['Pivot_L'].dropna()
+
+        try:
+            ph = ph.loc[p_start:p_end]
+        except Exception:
+            ph = ph.iloc[0:0]
+
+        try:
+            pl = pl.loc[p_start:p_end]
+        except Exception:
+            pl = pl.iloc[0:0]
 
         # --------------------------------------------------
-        # A. خط المقاومة / العنق
+        # A. Resistance / Neckline
         # --------------------------------------------------
         fig.add_trace(go.Scatter(
             x=[p_start, df.index[-1]],
@@ -461,7 +483,7 @@ def plot_pattern_geometry(analysis_result):
         ))
 
         # --------------------------------------------------
-        # B. خط الدعم
+        # B. Support
         # --------------------------------------------------
         fig.add_trace(go.Scatter(
             x=[p_start, df.index[-1]],
@@ -476,7 +498,7 @@ def plot_pattern_geometry(analysis_result):
         ))
 
         # --------------------------------------------------
-        # C. ترتيب الارتكازات زمنيًا
+        # C. Combine pivots exactly as before
         # --------------------------------------------------
         pivots = (
             [(idx, val) for idx, val in ph.items()] +
@@ -486,7 +508,7 @@ def plot_pattern_geometry(analysis_result):
         pivots.sort(key=lambda x: x[0])
 
         # --------------------------------------------------
-        # D. رسم هيكل النموذج
+        # D. Draw detected structure
         # --------------------------------------------------
         if pivots:
 
@@ -495,10 +517,8 @@ def plot_pattern_geometry(analysis_result):
 
             line_color = (
                 '#2ecc71'
-                if bias in ['Bullish', 'BULLISH']
+                if bias == 'Bullish'
                 else '#e74c3c'
-                if bias in ['Bearish', 'BEARISH']
-                else '#f1c40f'
             )
 
             fig.add_trace(go.Scatter(
