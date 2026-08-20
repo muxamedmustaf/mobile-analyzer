@@ -1,551 +1,987 @@
-import pandas as pd
-import numpy as np
+import streamlit as st
+import yfinance as yf
 import plotly.graph_objects as go
+import pandas as pd
 
 # ==========================================================
-# 1. CALCULATE INDICATORS (SAFE & ROBUST)
+# SMART MARKET ANALYZER
+# MODERN MOBILE-FIRST UI
+# BACKEND LOGIC PRESERVED
 # ==========================================================
-def calculate_indicators(df):
-    df = df.copy()
-    df['EMA50'] = df['Close'].ewm(span=50, adjust=False).mean()
-    df['EMA200'] = df['Close'].ewm(span=200, adjust=False).mean()
-    
-    delta = df['Close'].diff()
-    gain = (delta.where(delta > 0, 0.0)).rolling(14).mean()
-    loss = (-delta.where(delta < 0, 0.0)).rolling(14).mean()
-    
-    loss_safe = np.where(loss == 0, 1e-9, loss)
-    rs = gain / loss_safe
-    df['RSI'] = 100 - (100 / (1 + rs))
-    df['RSI'] = df['RSI'].fillna(50.0)
-    return df
+
+try:
+    from pattern_engine import run_full_analysis
+except ImportError:
+    from engine import run_full_analysis
+
 
 # ==========================================================
-# 2. PIVOT DETECTION
+# 1. PAGE CONFIG
 # ==========================================================
-def detect_pivots(df, window=3):
-    df = df.copy()
-    df['Pivot_H'], df['Pivot_L'] = np.nan, np.nan
-    
-    for i in range(window, len(df) - window):
-        high_win = df['High'].iloc[i - window:i + window + 1]
-        low_win = df['Low'].iloc[i - window:i + window + 1]
-        
-        if not high_win.empty and df['High'].iloc[i] == high_win.max():
-            df.loc[df.index[i], 'Pivot_H'] = df['High'].iloc[i]
-        if not low_win.empty and df['Low'].iloc[i] == low_win.min():
-            df.loc[df.index[i], 'Pivot_L'] = df['Low'].iloc[i]
-            
-    return df
+
+st.set_page_config(
+    page_title="Smart Market Analyzer",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
+
 
 # ==========================================================
-# 3. PERCENTAGE MATCH ENGINE (1% STRICT TOLERANCE LIMIT)
+# 2. MODERN UI / CSS
 # ==========================================================
-def calc_match_score(val1, val2, max_tol=0.01):
+
+st.markdown(
     """
-    تحويل نسبة التباين بين نقطتين إلى نسبة تطابق هندسي من 0% إلى 100%
-    """
-    if max(abs(val1), abs(val2)) == 0:
-        return 100.0
-    var_pct = abs(val1 - val2) / max(abs(val1), abs(val2))
-    if var_pct <= max_tol:
-        return (1.0 - (var_pct / max_tol)) * 100.0
-    return 0.0
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
-def scan_all_patterns_by_percentage(df):
-    ph, pl = df['Pivot_H'].dropna(), df['Pivot_L'].dropna()
-    if len(ph) < 3 or len(pl) < 3:
-        return "NO PATTERN DETECTED", "Neutral", 0.0, 0.0, None, None, 0.0
-
-    h3, h2, h1 = ph.iloc[-1], ph.iloc[-2], ph.iloc[-3]
-    l3, l2, l1 = pl.iloc[-1], pl.iloc[-2], pl.iloc[-3]
-    
-    p_start = min(ph.index[-3], pl.index[-3])
-    p_end = max(ph.index[-1], pl.index[-1])
-    close = df['Close'].iloc[-1]
-    
-    TOL = 0.01  # نسبة التباين الأقصى المسموح بها: 1% فقط
-    candidates = []
-
-    # --- 1. TRIPLE BOTTOM & TOP (فحص التباين التراكمي لـ 3 مرتكزات) ---
-    max_l, min_l = max(l1, l2, l3), min(l1, l2, l3)
-    var_triple_l = (max_l - min_l) / max_l
-    if var_triple_l <= TOL:
-        score = (1.0 - (var_triple_l / TOL)) * 100.0
-        candidates.append({"name": "Triple Bottom", "bias": "Bullish", "h": max(h1, h2, h3), "l": min_l, "start": p_start, "end": p_end, "match": score})
-
-    max_h, min_h = max(h1, h2, h3), min(h1, h2, h3)
-    var_triple_h = (max_h - min_h) / max_h
-    if var_triple_h <= TOL:
-        score = (1.0 - (var_triple_h / TOL)) * 100.0
-        candidates.append({"name": "Triple Top", "bias": "Bearish", "h": max_h, "l": min(l1, l2, l3), "start": p_start, "end": p_end, "match": score})
-
-    # --- 2. DOUBLE BOTTOM (W PATTERN) & DOUBLE TOP (M PATTERN) ---
-    if h3 > l3:
-        score_w = calc_match_score(l2, l3, TOL)
-        if score_w > 0:
-            candidates.append({"name": "Double Bottom (W Pattern)", "bias": "Bullish", "h": max(h2, h3), "l": min(l2, l3), "start": p_start, "end": p_end, "match": score_w})
-
-    if l3 < h3:
-        score_m = calc_match_score(h2, h3, TOL)
-        if score_m > 0:
-            candidates.append({"name": "Double Top (M Pattern)", "bias": "Bearish", "h": max(h2, h3), "l": min(l2, l3), "start": p_start, "end": p_end, "match": score_m})
-
-    # --- 3. HEAD AND SHOULDERS / INVERSE ---
-    if len(ph) >= 3 and len(pl) >= 2 and h2 > h1 and h2 > h3:
-        score_hs = calc_match_score(h1, h3, TOL)
-        if score_hs > 0:
-            candidates.append({"name": "Head and Shoulders", "bias": "Bearish", "h": h2, "l": min(l1, l2), "start": p_start, "end": p_end, "match": score_hs})
-
-    if len(pl) >= 3 and len(ph) >= 2 and l2 < l1 and l2 < l3:
-        score_ihs = calc_match_score(l1, l3, TOL)
-        if score_ihs > 0:
-            candidates.append({"name": "Inverse Head and Shoulders", "bias": "Bullish", "h": max(h1, h2), "l": l2, "start": p_start, "end": p_end, "match": score_ihs})
-
-    # --- 4. DYNAMIC WEDGES (SLOPE MATCHING) ---
-    slope_h = (h3 - h1) / max(h1, h3)
-    slope_l = (l3 - l1) / max(l1, l3)
-
-    if h1 > h2 > h3 and slope_h < 0:
-        var_wedge = min(abs(slope_h), TOL)
-        score = (1.0 - (var_wedge / TOL)) * 50.0 + 50.0
-        candidates.append({"name": "Falling Wedge", "bias": "Bullish", "h": h3, "l": l3, "start": p_start, "end": p_end, "match": score})
-
-    if h1 < h2 < h3 and slope_h > 0:
-        var_wedge = min(abs(slope_h), TOL)
-        score = (1.0 - (var_wedge / TOL)) * 50.0 + 50.0
-        candidates.append({"name": "Rising Wedge", "bias": "Bearish", "h": h3, "l": l3, "start": p_start, "end": p_end, "match": score})
-
-    # --- 5. TRIANGLES & FLAGS ---
-    if h1 < h2 and calc_match_score(h2, h3, TOL) > 0 and l1 < l2 < l3:
-        score = calc_match_score(h2, h3, TOL)
-        candidates.append({"name": "Ascending Triangle", "bias": "Bullish", "h": h3, "l": l3, "start": p_start, "end": p_end, "match": score})
-
-    if l1 > l2 and calc_match_score(l2, l3, TOL) > 0 and h1 > h2 > h3:
-        score = calc_match_score(l2, l3, TOL)
-        candidates.append({"name": "Descending Triangle", "bias": "Bearish", "h": h3, "l": l3, "start": p_start, "end": p_end, "match": score})
-
-    if not candidates:
-        return "NO PATTERN DETECTED", "Neutral", h3, l3, p_start, p_end, 0.0
-
-    # المفاضلة واختيار أعلى نمط من حيث نسبة التطابق المئوية
-    best = max(candidates, key=lambda x: x["match"])
-    return best["name"], best["bias"], best["h"], best["l"], best["start"], best["end"], round(best["match"], 2)
-
-# ==========================================================
-# 4. FULL ANALYSIS ENGINE
-# ==========================================================
-def run_full_analysis(df):
-    df = calculate_indicators(df)
-    df = detect_pivots(df)
-
-    pattern_name, bias, struct_h, struct_l, pattern_start, pattern_end, match_pct = scan_all_patterns_by_percentage(df)
-
-    latest = df.iloc[-1]
-    close, ema50, ema200, rsi = latest['Close'], latest['EMA50'], latest['EMA200'], latest['RSI']
-
-    c_ema_bull = (close > ema200) and (ema50 > ema200)
-    c_ema_bear = (close < ema200) and (close < ema50)
-    c_rsi = (30 <= rsi <= 75)
-    c_breakout = (close > struct_h)
-    c_breakdown = (close < struct_l)
-
-    final_signal = "NO SIGNAL / WAITING"
-    rejected_reasons = []
-
-    if bias in ["Bullish", "Bullish Reversal"]:
-        if not c_breakout:
-            rejected_reasons.append(f"Breakout Failed: Close ({close:.4f}) <= Resistance ({struct_h:.4f})")
-        if not c_ema_bull:
-            rejected_reasons.append(f"EMA Trend Failed: Close ({close:.4f}) must be above EMA200 ({ema200:.4f}) & EMA50 ({ema50:.4f})")
-        if not c_rsi:
-            rejected_reasons.append(f"RSI Filter Failed: RSI ({rsi:.1f}) outside range 30-75")
-        if c_breakout and c_ema_bull and c_rsi:
-            final_signal = "STRONG BUY"
-
-    elif bias in ["Bearish", "Bearish Reversal"]:
-        if not c_breakdown:
-            rejected_reasons.append(f"Breakdown Failed: Close ({close:.4f}) >= Support ({struct_l:.4f})")
-        if not c_ema_bear:
-            rejected_reasons.append(f"EMA Trend Failed: Close ({close:.4f}) must be below EMA200 ({ema200:.4f}) & EMA50 ({ema50:.4f})")
-        if not c_rsi:
-            rejected_reasons.append(f"RSI Filter Failed: RSI ({rsi:.1f}) outside range 30-75")
-        if c_breakdown and c_ema_bear and c_rsi:
-            final_signal = "STRONG SELL"
-    else:
-        rejected_reasons.append("Waiting for structural breakout direction.")
-
-    entry_price = round(close, 4)
-    sl, tp = "N/A", "N/A"
-
-    if final_signal == "STRONG BUY":
-        sl_val = round(struct_l, 4)
-        risk = entry_price - sl_val
-        sl, tp = sl_val, round(entry_price + (risk * 2), 4)
-        status_msg = f"100% Criteria Passed! {pattern_name} confirmed with {match_pct}% Match Score."
-    elif final_signal == "STRONG SELL":
-        sl_val = round(struct_h, 4)
-        risk = sl_val - entry_price
-        sl, tp = sl_val, round(entry_price - (risk * 2), 4)
-        status_msg = f"100% Criteria Passed! {pattern_name} confirmed with {match_pct}% Match Score."
-    else:
-        status_msg = f"Pattern: {pattern_name} ({match_pct}% Match) | REJECTED: " + " | ".join(rejected_reasons)
-
-    return {
-        "df": df, "pattern": pattern_name, "bias": bias, "match_pct": match_pct,
-        "signal": final_signal, "reason": status_msg, "entry": entry_price, "sl": sl, "tp": tp,
-        "close": entry_price, "ema50": round(ema50, 4), "ema200": round(ema200, 4),
-        "rsi": round(rsi, 2), "pattern_start": pattern_start, "pattern_end": pattern_end,
-        "structural_high": struct_h, "structural_low": struct_l
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif;
     }
 
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
-
-# ==========================================================
-# 1. CALCULATE INDICATORS (SAFE & ROBUST)
-# ==========================================================
-def calculate_indicators(df):
-    df = df.copy()
-    df['EMA50'] = df['Close'].ewm(span=50, adjust=False).mean()
-    df['EMA200'] = df['Close'].ewm(span=200, adjust=False).mean()
-    
-    delta = df['Close'].diff()
-    gain = (delta.where(delta > 0, 0.0)).rolling(14).mean()
-    loss = (-delta.where(delta < 0, 0.0)).rolling(14).mean()
-    
-    loss_safe = np.where(loss == 0, 1e-9, loss)
-    rs = gain / loss_safe
-    df['RSI'] = 100 - (100 / (1 + rs))
-    df['RSI'] = df['RSI'].fillna(50.0)
-    return df
-
-# ==========================================================
-# 2. PIVOT DETECTION
-# ==========================================================
-def detect_pivots(df, window=3):
-    df = df.copy()
-    df['Pivot_H'], df['Pivot_L'] = np.nan, np.nan
-    
-    for i in range(window, len(df) - window):
-        high_win = df['High'].iloc[i - window:i + window + 1]
-        low_win = df['Low'].iloc[i - window:i + window + 1]
-        
-        if not high_win.empty and df['High'].iloc[i] == high_win.max():
-            df.loc[df.index[i], 'Pivot_H'] = df['High'].iloc[i]
-        if not low_win.empty and df['Low'].iloc[i] == low_win.min():
-            df.loc[df.index[i], 'Pivot_L'] = df['Low'].iloc[i]
-            
-    return df
-
-# ==========================================================
-# 3. PERCENTAGE MATCH ENGINE (1% STRICT TOLERANCE LIMIT)
-# ==========================================================
-def calc_match_score(val1, val2, max_tol=0.01):
-    """
-    تحويل نسبة التباين بين نقطتين إلى نسبة تطابق هندسي من 0% إلى 100%
-    """
-    if max(abs(val1), abs(val2)) == 0:
-        return 100.0
-    var_pct = abs(val1 - val2) / max(abs(val1), abs(val2))
-    if var_pct <= max_tol:
-        return (1.0 - (var_pct / max_tol)) * 100.0
-    return 0.0
-
-def scan_all_patterns_by_percentage(df):
-    ph, pl = df['Pivot_H'].dropna(), df['Pivot_L'].dropna()
-    if len(ph) < 3 or len(pl) < 3:
-        return "NO PATTERN DETECTED", "Neutral", 0.0, 0.0, None, None, 0.0
-
-    h3, h2, h1 = ph.iloc[-1], ph.iloc[-2], ph.iloc[-3]
-    l3, l2, l1 = pl.iloc[-1], pl.iloc[-2], pl.iloc[-3]
-    
-    p_start = min(ph.index[-3], pl.index[-3])
-    p_end = max(ph.index[-1], pl.index[-1])
-    close = df['Close'].iloc[-1]
-    
-    TOL = 0.01  # نسبة التباين الأقصى المسموح بها: 1% فقط
-    candidates = []
-
-    # --- 1. TRIPLE BOTTOM & TOP (فحص التباين التراكمي لـ 3 مرتكزات) ---
-    max_l, min_l = max(l1, l2, l3), min(l1, l2, l3)
-    var_triple_l = (max_l - min_l) / max_l
-    if var_triple_l <= TOL:
-        score = (1.0 - (var_triple_l / TOL)) * 100.0
-        candidates.append({"name": "Triple Bottom", "bias": "Bullish", "h": max(h1, h2, h3), "l": min_l, "start": p_start, "end": p_end, "match": score})
-
-    max_h, min_h = max(h1, h2, h3), min(h1, h2, h3)
-    var_triple_h = (max_h - min_h) / max_h
-    if var_triple_h <= TOL:
-        score = (1.0 - (var_triple_h / TOL)) * 100.0
-        candidates.append({"name": "Triple Top", "bias": "Bearish", "h": max_h, "l": min(l1, l2, l3), "start": p_start, "end": p_end, "match": score})
-
-    # --- 2. DOUBLE BOTTOM (W PATTERN) & DOUBLE TOP (M PATTERN) ---
-    if h3 > l3:
-        score_w = calc_match_score(l2, l3, TOL)
-        if score_w > 0:
-            candidates.append({"name": "Double Bottom (W Pattern)", "bias": "Bullish", "h": max(h2, h3), "l": min(l2, l3), "start": p_start, "end": p_end, "match": score_w})
-
-    if l3 < h3:
-        score_m = calc_match_score(h2, h3, TOL)
-        if score_m > 0:
-            candidates.append({"name": "Double Top (M Pattern)", "bias": "Bearish", "h": max(h2, h3), "l": min(l2, l3), "start": p_start, "end": p_end, "match": score_m})
-
-    # --- 3. HEAD AND SHOULDERS / INVERSE ---
-    if len(ph) >= 3 and len(pl) >= 2 and h2 > h1 and h2 > h3:
-        score_hs = calc_match_score(h1, h3, TOL)
-        if score_hs > 0:
-            candidates.append({"name": "Head and Shoulders", "bias": "Bearish", "h": h2, "l": min(l1, l2), "start": p_start, "end": p_end, "match": score_hs})
-
-    if len(pl) >= 3 and len(ph) >= 2 and l2 < l1 and l2 < l3:
-        score_ihs = calc_match_score(l1, l3, TOL)
-        if score_ihs > 0:
-            candidates.append({"name": "Inverse Head and Shoulders", "bias": "Bullish", "h": max(h1, h2), "l": l2, "start": p_start, "end": p_end, "match": score_ihs})
-
-    # --- 4. DYNAMIC WEDGES (SLOPE MATCHING) ---
-    slope_h = (h3 - h1) / max(h1, h3)
-    slope_l = (l3 - l1) / max(l1, l3)
-
-    if h1 > h2 > h3 and slope_h < 0:
-        var_wedge = min(abs(slope_h), TOL)
-        score = (1.0 - (var_wedge / TOL)) * 50.0 + 50.0
-        candidates.append({"name": "Falling Wedge", "bias": "Bullish", "h": h3, "l": l3, "start": p_start, "end": p_end, "match": score})
-
-    if h1 < h2 < h3 and slope_h > 0:
-        var_wedge = min(abs(slope_h), TOL)
-        score = (1.0 - (var_wedge / TOL)) * 50.0 + 50.0
-        candidates.append({"name": "Rising Wedge", "bias": "Bearish", "h": h3, "l": l3, "start": p_start, "end": p_end, "match": score})
-
-    # --- 5. TRIANGLES & FLAGS ---
-    if h1 < h2 and calc_match_score(h2, h3, TOL) > 0 and l1 < l2 < l3:
-        score = calc_match_score(h2, h3, TOL)
-        candidates.append({"name": "Ascending Triangle", "bias": "Bullish", "h": h3, "l": l3, "start": p_start, "end": p_end, "match": score})
-
-    if l1 > l2 and calc_match_score(l2, l3, TOL) > 0 and h1 > h2 > h3:
-        score = calc_match_score(l2, l3, TOL)
-        candidates.append({"name": "Descending Triangle", "bias": "Bearish", "h": h3, "l": l3, "start": p_start, "end": p_end, "match": score})
-
-    if not candidates:
-        return "NO PATTERN DETECTED", "Neutral", h3, l3, p_start, p_end, 0.0
-
-    # المفاضلة واختيار أعلى نمط من حيث نسبة التطابق المئوية
-    best = max(candidates, key=lambda x: x["match"])
-    return best["name"], best["bias"], best["h"], best["l"], best["start"], best["end"], round(best["match"], 2)
-
-# ==========================================================
-# 4. FULL ANALYSIS ENGINE
-# ==========================================================
-def run_full_analysis(df):
-    df = calculate_indicators(df)
-    df = detect_pivots(df)
-
-    pattern_name, bias, struct_h, struct_l, pattern_start, pattern_end, match_pct = scan_all_patterns_by_percentage(df)
-
-    latest = df.iloc[-1]
-    close, ema50, ema200, rsi = latest['Close'], latest['EMA50'], latest['EMA200'], latest['RSI']
-
-    c_ema_bull = (close > ema200) and (ema50 > ema200)
-    c_ema_bear = (close < ema200) and (close < ema50)
-    c_rsi = (30 <= rsi <= 75)
-    c_breakout = (close > struct_h)
-    c_breakdown = (close < struct_l)
-
-    final_signal = "NO SIGNAL / WAITING"
-    rejected_reasons = []
-
-    if bias in ["Bullish", "Bullish Reversal"]:
-        if not c_breakout:
-            rejected_reasons.append(f"Breakout Failed: Close ({close:.4f}) <= Resistance ({struct_h:.4f})")
-        if not c_ema_bull:
-            rejected_reasons.append(f"EMA Trend Failed: Close ({close:.4f}) must be above EMA200 ({ema200:.4f}) & EMA50 ({ema50:.4f})")
-        if not c_rsi:
-            rejected_reasons.append(f"RSI Filter Failed: RSI ({rsi:.1f}) outside range 30-75")
-        if c_breakout and c_ema_bull and c_rsi:
-            final_signal = "STRONG BUY"
-
-    elif bias in ["Bearish", "Bearish Reversal"]:
-        if not c_breakdown:
-            rejected_reasons.append(f"Breakdown Failed: Close ({close:.4f}) >= Support ({struct_l:.4f})")
-        if not c_ema_bear:
-            rejected_reasons.append(f"EMA Trend Failed: Close ({close:.4f}) must be below EMA200 ({ema200:.4f}) & EMA50 ({ema50:.4f})")
-        if not c_rsi:
-            rejected_reasons.append(f"RSI Filter Failed: RSI ({rsi:.1f}) outside range 30-75")
-        if c_breakdown and c_ema_bear and c_rsi:
-            final_signal = "STRONG SELL"
-    else:
-        rejected_reasons.append("Waiting for structural breakout direction.")
-
-    entry_price = round(close, 4)
-    sl, tp = "N/A", "N/A"
-
-    if final_signal == "STRONG BUY":
-        sl_val = round(struct_l, 4)
-        risk = entry_price - sl_val
-        sl, tp = sl_val, round(entry_price + (risk * 2), 4)
-        status_msg = f"100% Criteria Passed! {pattern_name} confirmed with {match_pct}% Match Score."
-    elif final_signal == "STRONG SELL":
-        sl_val = round(struct_h, 4)
-        risk = sl_val - entry_price
-        sl, tp = sl_val, round(entry_price - (risk * 2), 4)
-        status_msg = f"100% Criteria Passed! {pattern_name} confirmed with {match_pct}% Match Score."
-    else:
-        status_msg = f"Pattern: {pattern_name} ({match_pct}% Match) | REJECTED: " + " | ".join(rejected_reasons)
-
-    return {
-        "df": df, "pattern": pattern_name, "bias": bias, "match_pct": match_pct,
-        "signal": final_signal, "reason": status_msg, "entry": entry_price, "sl": sl, "tp": tp,
-        "close": entry_price, "ema50": round(ema50, 4), "ema200": round(ema200, 4),
-        "rsi": round(rsi, 2), "pattern_start": pattern_start, "pattern_end": pattern_end,
-        "structural_high": struct_h, "structural_low": struct_l
+    .stApp {
+        background:
+            radial-gradient(circle at 88% 12%, rgba(0, 115, 255, .13), transparent 26%),
+            radial-gradient(circle at 15% 45%, rgba(0, 255, 190, .06), transparent 28%),
+            #020712;
+        color: #f7f9ff;
     }
 
+    .main .block-container {
+        max-width: 1180px;
+        padding: 28px 22px 50px;
+    }
+
+    /* Remove default Streamlit decoration */
+    header[data-testid="stHeader"] {
+        background: transparent;
+    }
+
+    #MainMenu, footer {
+        visibility: hidden;
+    }
+
+    /* Top badges */
+    .top-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 14px;
+        margin-bottom: 32px;
+    }
+
+    .brand-badge,
+    .live-badge {
+        border: 1px solid rgba(0, 255, 200, .25);
+        background: rgba(7, 20, 35, .72);
+        box-shadow: 0 0 25px rgba(0, 255, 200, .07);
+        border-radius: 16px;
+        padding: 12px 20px;
+        font-weight: 700;
+        letter-spacing: .3px;
+    }
+
+    .brand-badge {
+        color: #19f4cf;
+    }
+
+    .live-badge {
+        color: #16f1c2;
+        border-radius: 30px;
+    }
+
+    /* Hero */
+    .hero {
+        position: relative;
+        min-height: 300px;
+        padding: 8px 0 28px;
+        overflow: hidden;
+    }
+
+    .hero:after {
+        content: "";
+        position: absolute;
+        right: -50px;
+        top: 35px;
+        width: 48%;
+        height: 220px;
+        opacity: .35;
+        background:
+            linear-gradient(145deg, transparent 42%, #08f0c0 43%, transparent 44%),
+            linear-gradient(160deg, transparent 50%, #6347ff 51%, transparent 52%),
+            linear-gradient(170deg, transparent 64%, #1e70ff 65%, transparent 66%);
+        pointer-events: none;
+    }
+
+    .hero-title {
+        position: relative;
+        z-index: 2;
+        max-width: 700px;
+        font-size: clamp(42px, 6vw, 78px);
+        line-height: .98;
+        font-weight: 800;
+        letter-spacing: -2.5px;
+        margin: 0;
+    }
+
+    .hero-gradient {
+        background: linear-gradient(90deg, #ffffff 0%, #ffffff 37%, #2e62ff 63%, #00e7c0 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+
+    .hero-subtitle {
+        position: relative;
+        z-index: 2;
+        color: #aeb9cb;
+        font-size: 18px;
+        line-height: 1.7;
+        margin-top: 24px;
+        max-width: 650px;
+    }
+
+    /* Cards */
+    .modern-card {
+        background: linear-gradient(145deg, rgba(11, 22, 40, .94), rgba(3, 11, 24, .92));
+        border: 1px solid rgba(83, 110, 160, .23);
+        border-radius: 26px;
+        padding: 26px;
+        box-shadow:
+            inset 0 1px 0 rgba(255,255,255,.035),
+            0 18px 50px rgba(0,0,0,.22);
+        margin-top: 18px;
+    }
+
+    .card-heading {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        margin-bottom: 18px;
+    }
+
+    .icon-circle {
+        width: 48px;
+        height: 48px;
+        min-width: 48px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 23px;
+        background: linear-gradient(145deg, #1269db, #05377f);
+        box-shadow: 0 0 25px rgba(24, 105, 255, .28);
+    }
+
+    .purple-icon {
+        background: linear-gradient(145deg, #763cff, #3d11b6);
+        box-shadow: 0 0 25px rgba(116, 48, 255, .25);
+    }
+
+    .card-title {
+        font-size: 20px;
+        font-weight: 700;
+        color: #ffffff;
+    }
+
+    .card-subtitle {
+        font-size: 14px;
+        color: #98a5b9;
+        margin-top: 4px;
+    }
+
+    /* Streamlit inputs */
+    div[data-testid="stTextInput"] label {
+        display: none;
+    }
+
+    div[data-testid="stTextInput"] input {
+        height: 62px;
+        border-radius: 18px;
+        background: #071222 !important;
+        color: #ffffff !important;
+        border: 1px solid #344dff !important;
+        box-shadow:
+            0 0 0 1px rgba(49, 86, 255, .15),
+            0 0 24px rgba(52, 77, 255, .08);
+        font-size: 20px !important;
+        font-weight: 700;
+        padding: 0 22px;
+    }
+
+    div[data-testid="stTextInput"] input:focus {
+        border-color: #00e9c0 !important;
+        box-shadow: 0 0 20px rgba(0, 233, 192, .15) !important;
+    }
+
+    /* Main action button */
+    div[data-testid="stButton"] > button {
+        width: 100%;
+        min-height: 66px;
+        border: 0;
+        border-radius: 18px;
+        color: #ffffff;
+        font-size: 20px;
+        font-weight: 800;
+        background: linear-gradient(100deg, #3155ff 0%, #168cff 42%, #08d8b0 100%);
+        box-shadow:
+            0 12px 35px rgba(24, 104, 255, .25),
+            inset 0 1px 0 rgba(255,255,255,.25);
+        transition: transform .15s ease, filter .15s ease;
+    }
+
+    div[data-testid="stButton"] > button:hover {
+        transform: translateY(-2px);
+        filter: brightness(1.08);
+        color: #ffffff;
+    }
+
+    div[data-testid="stButton"] > button:active {
+        transform: translateY(0);
+    }
+
+    /* Timeframe radio */
+    div[role="radiogroup"] {
+        gap: 10px !important;
+        flex-wrap: wrap !important;
+    }
+
+    div[role="radiogroup"] > label {
+        min-width: 88px;
+        min-height: 52px;
+        justify-content: center;
+        border: 1px solid #20304c !important;
+        border-radius: 18px !important;
+        background: #071222 !important;
+        color: #e7edf7 !important;
+        padding: 0 18px !important;
+        transition: all .15s ease;
+    }
+
+    div[role="radiogroup"] > label:hover {
+        border-color: #3e67ff !important;
+    }
+
+    div[role="radiogroup"] > label:has(input:checked) {
+        border-color: #00e9c0 !important;
+        background: rgba(0, 214, 173, .08) !important;
+        box-shadow:
+            0 0 22px rgba(0, 233, 192, .14),
+            inset 0 0 20px rgba(0, 233, 192, .03);
+        color: #12edc3 !important;
+    }
+
+    div[role="radiogroup"] > label p {
+        font-weight: 700 !important;
+        font-size: 16px !important;
+    }
+
+    /* Metrics */
+    div[data-testid="metric-container"] {
+        background: #071222;
+        border: 1px solid rgba(80, 110, 160, .22);
+        border-radius: 18px;
+        padding: 15px;
+    }
+
+    /* Expander */
+    div[data-testid="stExpander"] {
+        background: linear-gradient(145deg, rgba(11,22,40,.94), rgba(3,11,24,.92));
+        border: 1px solid rgba(83,110,160,.23);
+        border-radius: 24px;
+        margin-top: 18px;
+    }
+
+    div[data-testid="stExpander"] summary {
+        color: #ffffff;
+        font-weight: 700;
+    }
+
+    /* Status cards */
+    .status-card {
+        border-radius: 22px;
+        padding: 22px;
+        margin: 18px 0;
+        border: 1px solid rgba(255,255,255,.08);
+    }
+
+    .status-buy {
+        background: linear-gradient(135deg, rgba(0, 220, 160, .14), rgba(2, 25, 28, .85));
+        border-color: rgba(0, 239, 190, .35);
+    }
+
+    .status-sell {
+        background: linear-gradient(135deg, rgba(242, 54, 69, .14), rgba(28, 7, 13, .85));
+        border-color: rgba(242, 54, 69, .35);
+    }
+
+    .status-wait {
+        background: linear-gradient(135deg, rgba(255, 185, 0, .11), rgba(25, 19, 5, .85));
+        border-color: rgba(255, 185, 0, .28);
+    }
+
+    .status-main {
+        font-size: 28px;
+        font-weight: 800;
+    }
+
+    .small-muted {
+        color: #8f9db2;
+        font-size: 13px;
+    }
+
+    /* Chart wrapper */
+    .section-title {
+        font-size: 23px;
+        font-weight: 800;
+        margin-top: 30px;
+        margin-bottom: 10px;
+    }
+
+    @media (max-width: 700px) {
+        .main .block-container {
+            padding: 18px 12px 35px;
+        }
+
+        .top-row {
+            margin-bottom: 22px;
+        }
+
+        .brand-badge,
+        .live-badge {
+            padding: 9px 12px;
+            font-size: 12px;
+        }
+
+        .hero {
+            min-height: 255px;
+        }
+
+        .hero-title {
+            font-size: 43px;
+            letter-spacing: -1.8px;
+        }
+
+        .hero-subtitle {
+            font-size: 15px;
+        }
+
+        .modern-card {
+            padding: 20px 16px;
+            border-radius: 22px;
+        }
+
+        div[role="radiogroup"] > label {
+            min-width: 70px;
+            padding: 0 12px !important;
+        }
+    }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+
 # ==========================================================
-# 5. DYNAMIC MULTI-POINT GEOMETRIC PLOTTER
+# 3. HEADER
 # ==========================================================
-def plot_pattern_geometry(analysis_result):
-    df = analysis_result['df']
-    p_name = analysis_result['pattern']
-    bias = analysis_result['bias']
-    p_start = analysis_result['pattern_start']
-    p_end = analysis_result['pattern_end']
-    struct_h = analysis_result['structural_high']
-    struct_l = analysis_result['structural_low']
 
-    fig = go.Figure()
+st.markdown(
+    """
+<div class="top-row">
+    <div class="brand-badge">📈 SMART MARKET ANALYZER</div>
+    <div class="live-badge">⚡ Real-time Analysis</div>
+</div>
 
-    # 1. Candles + EMA
-    fig.add_trace(go.Candlestick(
-        x=df.index,
-        open=df['Open'],
-        high=df['High'],
-        low=df['Low'],
-        close=df['Close'],
-        name="Price"
-    ))
+<div class="hero">
+    <h1 class="hero-title">
+        Financial Market<br>
+        Pattern &<br>
+        <span class="hero-gradient">Indicator Scanner</span>
+    </h1>
+    <div class="hero-subtitle">
+        Advanced pattern detection • Powerful indicators<br>
+        Smart insights • Better decisions
+    </div>
+</div>
+""",
+    unsafe_allow_html=True,
+)
 
-    fig.add_trace(go.Scatter(
-        x=df.index,
-        y=df['EMA50'],
-        line=dict(color='orange', width=1.5),
-        name='EMA 50'
-    ))
 
-    fig.add_trace(go.Scatter(
-        x=df.index,
-        y=df['EMA200'],
-        line=dict(color='deepskyblue', width=2),
-        name='EMA 200'
-    ))
+# ==========================================================
+# 4. MARKET ASSET CARD
+# ==========================================================
 
-    # 2. Pattern geometry
-    if p_name != "NO PATTERN DETECTED" and p_start is not None and p_end is not None:
+st.markdown(
+    """
+<div class="modern-card">
+    <div class="card-heading">
+        <div class="icon-circle">🌐</div>
+        <div>
+            <div class="card-title">Market Asset Symbol (Ticker)</div>
+            <div class="card-subtitle">Enter the symbol you want to analyze</div>
+        </div>
+    </div>
+</div>
+""",
+    unsafe_allow_html=True,
+)
 
-        # Preserve original index relationship.
-        # If pattern_start/end are integer candle positions,
-        # convert them to the real dataframe index.
-        try:
-            if p_start not in df.index:
-                p_start = df.index[int(p_start)]
+symbol = st.text_input(
+    "Market Asset Symbol",
+    value="XAUUSD=X",
+    placeholder="e.g. XAUUSD=X, EURUSD=X, BTC-USD",
+)
 
-            if p_end not in df.index:
-                p_end = df.index[int(p_end)]
-        except Exception:
-            pass
+st.markdown(
+    '<div class="small-muted" style="margin:6px 4px 12px;">Yahoo Finance ticker • Example: XAUUSD=X</div>',
+    unsafe_allow_html=True,
+)
 
-        # Get pivots only inside the detected pattern range
-        ph = df['Pivot_H'].dropna()
-        pl = df['Pivot_L'].dropna()
+run_scan = st.button("🚀  Run Analysis", use_container_width=True)
 
-        try:
-            ph = ph.loc[p_start:p_end]
-        except Exception:
-            ph = ph.iloc[0:0]
 
-        try:
-            pl = pl.loc[p_start:p_end]
-        except Exception:
-            pl = pl.iloc[0:0]
+# ==========================================================
+# 5. TIMEFRAME CARD
+# ==========================================================
 
-        # --------------------------------------------------
-        # A. Resistance / Neckline
-        # --------------------------------------------------
-        fig.add_trace(go.Scatter(
-            x=[p_start, df.index[-1]],
-            y=[struct_h, struct_h],
-            mode='lines',
-            line=dict(
-                color='gold',
-                width=2.5,
-                dash='dash'
-            ),
-            name=f'Neckline / Resistance ({struct_h:.4f})'
-        ))
+st.markdown(
+    """
+<div class="modern-card">
+    <div class="card-heading">
+        <div class="icon-circle">◷</div>
+        <div>
+            <div class="card-title">Select Timeframe (TradingView Standard)</div>
+            <div class="card-subtitle">Choose your preferred chart timeframe</div>
+        </div>
+    </div>
+</div>
+""",
+    unsafe_allow_html=True,
+)
 
-        # --------------------------------------------------
-        # B. Support
-        # --------------------------------------------------
-        fig.add_trace(go.Scatter(
-            x=[p_start, df.index[-1]],
-            y=[struct_l, struct_l],
-            mode='lines',
-            line=dict(
-                color='cyan',
-                width=2,
-                dash='dot'
-            ),
-            name=f'Support Level ({struct_l:.4f})'
-        ))
+tf_options = ["1m", "5m", "15m", "30m", "1h", "4h", "1D", "1W", "1M"]
 
-        # --------------------------------------------------
-        # C. Combine pivots exactly as before
-        # --------------------------------------------------
-        pivots = (
-            [(idx, val) for idx, val in ph.items()] +
-            [(idx, val) for idx, val in pl.items()]
-        )
+selected_tf = st.radio(
+    "Select Timeframe",
+    options=tf_options,
+    index=5,
+    horizontal=True,
+    label_visibility="collapsed",
+)
 
-        pivots.sort(key=lambda x: x[0])
 
-        # --------------------------------------------------
-        # D. Draw detected structure
-        # --------------------------------------------------
-        if pivots:
+# ==========================================================
+# 6. CHART SETTINGS
+# ==========================================================
 
-            x_skel = [pt[0] for pt in pivots]
-            y_skel = [pt[1] for pt in pivots]
-
-            line_color = (
-                '#2ecc71'
-                if bias == 'Bullish'
-                else '#e74c3c'
-            )
-
-            fig.add_trace(go.Scatter(
-                x=x_skel,
-                y=y_skel,
-                mode='lines+markers',
-                line=dict(
-                    color=line_color,
-                    width=3
-                ),
-                marker=dict(
-                    size=8,
-                    color='yellow',
-                    symbol='circle'
-                ),
-                name=f'{p_name} Structure'
-            ))
-
-    fig.update_layout(
-        title=(
-            f"Chart | Pattern: {p_name} "
-            f"({analysis_result['match_pct']}% Match) | "
-            f"Signal: {analysis_result['signal']}"
-        ),
-        template="plotly_dark",
-        xaxis_rangeslider_visible=False,
-        showlegend=True
+with st.expander("⚙️  Chart Settings & Display Controls"):
+    st.markdown(
+        '<div class="small-muted">Customize your chart view and analysis preferences.</div>',
+        unsafe_allow_html=True,
     )
 
-    return fig
+    c_zoom, c_height, c_theme = st.columns(3)
+
+    with c_zoom:
+        visible_candles = st.slider(
+            "🔍 Candles Visible",
+            min_value=20,
+            max_value=300,
+            value=60,
+            step=10,
+        )
+
+    with c_height:
+        chart_height = st.slider(
+            "📐 Chart Height",
+            min_value=350,
+            max_value=1000,
+            value=550,
+            step=50,
+        )
+
+    with c_theme:
+        chart_theme = st.selectbox(
+            "🎨 Chart Theme",
+            options=["Classic White", "TradingView Dark", "Midnight Navy"],
+            index=0,
+        )
+
+
+# ==========================================================
+# 7. YFINANCE TIMEFRAME MAPPING
+# ==========================================================
+
+tf_map = {
+    "1m": {"interval": "1m", "period": "7d"},
+    "5m": {"interval": "5m", "period": "60d"},
+    "15m": {"interval": "15m", "period": "60d"},
+    "30m": {"interval": "30m", "period": "60d"},
+    "1h": {"interval": "1h", "period": "2y"},
+    "4h": {"interval": "1h", "period": "2y"},
+    "1D": {"interval": "1d", "period": "max"},
+    "1W": {"interval": "1wk", "period": "max"},
+    "1M": {"interval": "1mo", "period": "max"},
+}
+
+current_setting = tf_map[selected_tf]
+
+
+# ==========================================================
+# 8. ANALYSIS
+# ==========================================================
+
+if run_scan:
+    with st.spinner(
+        f"Loading market data for {symbol} • {selected_tf} • {current_setting['period']}..."
+    ):
+        try:
+            df = yf.download(
+                symbol,
+                period=current_setting["period"],
+                interval=current_setting["interval"],
+                progress=False,
+                auto_adjust=False,
+            )
+        except Exception:
+            df = pd.DataFrame()
+
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
+    # 4H resampling preserved
+    if selected_tf == "4h" and not df.empty:
+        df = df.resample("4h").agg(
+            {
+                "Open": "first",
+                "High": "max",
+                "Low": "min",
+                "Close": "last",
+                "Volume": "sum",
+            }
+        ).dropna()
+
+    if df.empty or len(df) < 14:
+        st.error(
+            f"⚠️ Data for {symbol} is unavailable or insufficient for this timeframe. "
+            "Please verify the ticker or choose another timeframe."
+        )
+
+    else:
+        # ======================================================
+        # BACKEND ENGINE — PRESERVED
+        # ======================================================
+
+        result = run_full_analysis(df)
+
+        df_res = result["df"]
+        total_candles = len(df_res)
+
+        signal = result["signal"]
+        pattern = result["pattern"]
+
+        # ======================================================
+        # SIGNAL CARD
+        # ======================================================
+
+        if signal == "STRONG BUY":
+            status_class = "status-buy"
+            status_icon = "🟢"
+        elif signal == "STRONG SELL":
+            status_class = "status-sell"
+            status_icon = "🔴"
+        else:
+            status_class = "status-wait"
+            status_icon = "🟡"
+
+        st.markdown(
+            f"""
+<div class="status-card {status_class}">
+    <div class="small-muted">FINAL MARKET SIGNAL • {total_candles} CANDLES</div>
+    <div class="status-main">{status_icon} {signal}</div>
+    <div style="margin-top:7px;color:#b9c5d8;">
+        Pattern: <b>{pattern}</b>
+    </div>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+
+        st.caption(f"Verification Detail: {result['reason']}")
+
+        # ======================================================
+        # EXECUTION LEVELS
+        # ======================================================
+
+        st.markdown(
+            '<div class="section-title">📐 Absolute Trade Execution Levels</div>',
+            unsafe_allow_html=True,
+        )
+
+        e1, e2, e3 = st.columns(3)
+
+        if signal in ["STRONG BUY", "STRONG SELL"]:
+            e1.metric("🎯 Entry Price", f"{result['entry']}")
+            e2.metric("🛑 Stop Loss", f"{result['sl']}")
+            e3.metric("🏆 Take Profit", f"{result['tp']}")
+        else:
+            e1.metric("🎯 Entry Price", "Waiting...")
+            e2.metric("🛑 Stop Loss", "N/A")
+            e3.metric("🏆 Take Profit", "N/A")
+
+        # ======================================================
+        # INDICATORS
+        # ======================================================
+
+        st.markdown(
+            '<div class="section-title">📊 Current Indicator Values</div>',
+            unsafe_allow_html=True,
+        )
+
+        m1, m2, m3, m4 = st.columns(4)
+
+        m1.metric("Close Price", f"{result['close']}")
+        m2.metric("EMA 50", f"{result['ema50']}")
+        m3.metric("EMA 200", f"{result['ema200']}")
+        m4.metric("RSI (14)", f"{result['rsi']}")
+
+        # ======================================================
+        # CHART
+        # ======================================================
+
+        st.markdown(
+            f'<div class="section-title">📈 Interactive Chart • {symbol} • {selected_tf}</div>',
+            unsafe_allow_html=True,
+        )
+
+        fig = go.Figure()
+
+        # Candlesticks
+        fig.add_trace(
+            go.Candlestick(
+                x=df_res.index,
+                open=df_res["Open"],
+                high=df_res["High"],
+                low=df_res["Low"],
+                close=df_res["Close"],
+                name="Candlesticks",
+                increasing=dict(
+                    line=dict(color="#089981", width=1),
+                    fillcolor="#089981",
+                ),
+                decreasing=dict(
+                    line=dict(color="#F23645", width=1),
+                    fillcolor="#F23645",
+                ),
+            )
+        )
+
+        # EMA 50
+        if "EMA50" in df_res.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=df_res.index,
+                    y=df_res["EMA50"],
+                    line=dict(color="#FF9800", width=1.5),
+                    name="EMA 50",
+                )
+            )
+
+        # EMA 200
+        if "EMA200" in df_res.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=df_res.index,
+                    y=df_res["EMA200"],
+                    line=dict(color="#29B6F6", width=2),
+                    name="EMA 200",
+                )
+            )
+
+        # Pivot points
+        if "Pivot_H" in df_res.columns and "Pivot_L" in df_res.columns:
+            pivots_h = df_res.dropna(subset=["Pivot_H"])
+            pivots_l = df_res.dropna(subset=["Pivot_L"])
+
+            fig.add_trace(
+                go.Scatter(
+                    x=pivots_h.index,
+                    y=pivots_h["Pivot_H"],
+                    mode="markers",
+                    marker=dict(
+                        symbol="triangle-down",
+                        size=10,
+                        color="#F23645",
+                    ),
+                    name="Pivot High (H)",
+                )
+            )
+
+            fig.add_trace(
+                go.Scatter(
+                    x=pivots_l.index,
+                    y=pivots_l["Pivot_L"],
+                    mode="markers",
+                    marker=dict(
+                        symbol="triangle-up",
+                        size=10,
+                        color="#089981",
+                    ),
+                    name="Pivot Low (L)",
+                )
+            )
+
+            # Recent structural boundaries
+            pivots_h_recent = pivots_h.tail(3)
+            pivots_l_recent = pivots_l.tail(3)
+
+            if len(pivots_h_recent) >= 2:
+                fig.add_trace(
+                    go.Scatter(
+                        x=pivots_h_recent.index,
+                        y=pivots_h_recent["Pivot_H"],
+                        mode="lines+markers",
+                        line=dict(
+                            color="#FFD700",
+                            width=2,
+                            dash="dashdot",
+                        ),
+                        name=f"Pattern Resistance ({pattern})",
+                    )
+                )
+
+            if len(pivots_l_recent) >= 2:
+                fig.add_trace(
+                    go.Scatter(
+                        x=pivots_l_recent.index,
+                        y=pivots_l_recent["Pivot_L"],
+                        mode="lines+markers",
+                        line=dict(
+                            color="#00FFFF",
+                            width=2,
+                            dash="dashdot",
+                        ),
+                        name=f"Pattern Support ({pattern})",
+                    )
+                )
+
+        # ======================================================
+        # DETECTED PATTERN GEOMETRY + NECKLINE
+        # Draw the found pattern only inside its own pivot range.
+        # Backend logic is untouched.
+        # ======================================================
+        pattern_start = result.get("pattern_start")
+        pattern_end = result.get("pattern_end")
+
+        if pattern and pattern != "NO PATTERN DETECTED":
+            ph = df_res["Pivot_H"].dropna() if "Pivot_H" in df_res.columns else pd.Series(dtype=float)
+            pl = df_res["Pivot_L"].dropna() if "Pivot_L" in df_res.columns else pd.Series(dtype=float)
+
+            # Use detected pattern range when available.
+            try:
+                if pattern_start in df_res.index and pattern_end in df_res.index:
+                    ph = ph.loc[pattern_start:pattern_end]
+                    pl = pl.loc[pattern_start:pattern_end]
+            except Exception:
+                pass
+
+            # Draw the actual detected swing skeleton.
+            swing_points = [(idx, val, "H") for idx, val in ph.items()]
+            swing_points += [(idx, val, "L") for idx, val in pl.items()]
+            swing_points.sort(key=lambda x: x[0])
+
+            if swing_points:
+                fig.add_trace(
+                    go.Scatter(
+                        x=[p[0] for p in swing_points],
+                        y=[p[1] for p in swing_points],
+                        mode="lines+markers",
+                        line=dict(color="#3155FF", width=3),
+                        marker=dict(size=8, color="#3155FF"),
+                        name=f"Detected {pattern}",
+                        hovertemplate="%{y}<extra>"+str(pattern)+"</extra>",
+                    )
+                )
+
+            # Neckline construction from the pivots of the found pattern.
+            # Double/Triple Top: support through intervening lows.
+            # Double/Triple Bottom: resistance through intervening highs.
+            # H&S: neckline through the two troughs.
+            # Inverse H&S: neckline through the two peaks.
+            neckline_x = []
+            neckline_y = []
+
+            p_lower = str(pattern).lower()
+
+            if "head and shoulders" in p_lower and "inverse" not in p_lower:
+                pts = list(pl.items())
+                if len(pts) >= 2:
+                    neckline_x = [pts[-2][0], pts[-1][0]]
+                    neckline_y = [pts[-2][1], pts[-1][1]]
+
+            elif "inverse head and shoulders" in p_lower:
+                pts = list(ph.items())
+                if len(pts) >= 2:
+                    neckline_x = [pts[-2][0], pts[-1][0]]
+                    neckline_y = [pts[-2][1], pts[-1][1]]
+
+            elif "double top" in p_lower or "triple top" in p_lower:
+                pts = list(pl.items())
+                if len(pts) >= 1:
+                    # Use the lowest/intervening support level in the detected range.
+                    idx, val = min(pts, key=lambda x: x[1])
+                    end_x = pattern_end if pattern_end in df_res.index else df_res.index[-1]
+                    neckline_x = [idx, end_x]
+                    neckline_y = [val, val]
+
+            elif "double bottom" in p_lower or "triple bottom" in p_lower:
+                pts = list(ph.items())
+                if len(pts) >= 1:
+                    idx, val = max(pts, key=lambda x: x[1])
+                    end_x = pattern_end if pattern_end in df_res.index else df_res.index[-1]
+                    neckline_x = [idx, end_x]
+                    neckline_y = [val, val]
+
+            elif "ascending triangle" in p_lower:
+                pts = list(ph.items())
+                if len(pts) >= 2:
+                    neckline_x = [pts[-2][0], pts[-1][0]]
+                    neckline_y = [pts[-2][1], pts[-1][1]]
+
+            elif "descending triangle" in p_lower:
+                pts = list(pl.items())
+                if len(pts) >= 2:
+                    neckline_x = [pts[-2][0], pts[-1][0]]
+                    neckline_y = [pts[-2][1], pts[-1][1]]
+
+            elif "wedge" in p_lower:
+                # Wedges are better represented by their two converging boundaries.
+                if len(ph) >= 2 and len(pl) >= 2:
+                    hp = list(ph.items())[-2:]
+                    lp = list(pl.items())[-2:]
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[hp[0][0], hp[1][0]],
+                            y=[hp[0][1], hp[1][1]],
+                            mode="lines",
+                            line=dict(color="#8B5CF6", width=2.5),
+                            name="Pattern Upper Boundary",
+                        )
+                    )
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[lp[0][0], lp[1][0]],
+                            y=[lp[0][1], lp[1][1]],
+                            mode="lines",
+                            line=dict(color="#8B5CF6", width=2.5),
+                            name="Pattern Lower Boundary",
+                        )
+                    )
+
+            if neckline_x and neckline_y:
+                fig.add_trace(
+                    go.Scatter(
+                        x=neckline_x,
+                        y=neckline_y,
+                        mode="lines",
+                        line=dict(color="#E0A800", width=3, dash="dash"),
+                        name="Neckline",
+                        hovertemplate="Neckline: %{y:.5f}<extra></extra>",
+                    )
+                )
+
+        # Entry / SL / TP
+        if signal in ["STRONG BUY", "STRONG SELL"]:
+            orders = [
+                ("ENTRY", result["entry"], "#2962FF"),
+                ("STOP LOSS", result["sl"], "#F23645"),
+                ("TAKE PROFIT", result["tp"], "#089981"),
+            ]
+
+            for label, val, col in orders:
+                fig.add_hline(
+                    y=val,
+                    line_dash="dash",
+                    line_color=col,
+                    line_width=1.5,
+                    annotation_text=f"<b>{label}: {val}</b>",
+                    annotation_position="top right",
+                    annotation_font_size=11,
+                    annotation_font_color=col,
+                )
+
+        # ======================================================
+        # CHART VIEW
+        # ======================================================
+
+        x_min = (
+            df_res.index[-visible_candles]
+            if total_candles > visible_candles
+            else df_res.index[0]
+        )
+        x_max = df_res.index[-1]
+
+        bg_color_map = {
+            "TradingView Dark": ("#131722", "#2A2E39", "plotly_dark"),
+            "Classic White": ("#FFFFFF", "#E0E0E0", "plotly_white"),
+            "Midnight Navy": ("#0B192C", "#1E3E62", "plotly_dark"),
+        }
+
+        bg_bg, grid_col, plotly_tpl = bg_color_map[chart_theme]
+
+        fig.update_layout(
+            title=f"<b>{symbol}</b> ({selected_tf}) | Pattern: <b>{pattern}</b>",
+            template=plotly_tpl,
+            height=chart_height,
+            autosize=True,
+            xaxis_rangeslider_visible=False,
+            margin=dict(l=5, r=40, t=72, b=28),
+            showlegend=False,
+            xaxis=dict(
+                range=[x_min, x_max],
+                type="date",
+                showgrid=True,
+                gridcolor=grid_col,
+            ),
+            yaxis=dict(
+                side="right",
+                gridcolor=grid_col,
+                zerolinecolor=grid_col,
+            ),
+            plot_bgcolor=bg_bg,
+            paper_bgcolor=bg_bg,
+        )
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True,
+            config={
+                "displaylogo": False,
+                "responsive": True,
+                "scrollZoom": True,
+            },
+        )
+
+        # ======================================================
+        # LEGEND
+        # ======================================================
+
+        with st.expander("📌 Chart Legend / Indicators"):
+            st.markdown(
+                """
+- 🟢 **Green Candles** — Bullish price movement
+- 🔴 **Red Candles** — Bearish price movement
+- 🟧 **Orange Line** — EMA 50
+- 🟦 **Light Blue Line** — EMA 200
+- 🔻 **Red Triangle** — Pivot High / Structural Resistance
+- 🔺 **Green Triangle** — Pivot Low / Structural Support
+- 🟨 **Gold Dash-Dot** — Pattern Resistance
+- 🟦 **Cyan Dash-Dot** — Pattern Support
+- 🔵 **Blue Line** — Entry
+- 🛑 **Red Line** — Stop Loss
+- 🟢 **Green Line** — Take Profit
+"""
+            )
