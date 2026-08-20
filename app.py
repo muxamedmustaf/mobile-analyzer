@@ -9,7 +9,7 @@ import pandas as pd
 # BACKEND LOGIC PRESERVED
 # ==========================================================
 
-from pattern_engine import run_full_analysis
+from engine import run_full_analysis
 
 # ==========================================================
 # 1. PAGE CONFIG
