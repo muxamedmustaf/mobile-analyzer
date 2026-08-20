@@ -401,7 +401,7 @@ def run_full_analysis(df):
     }
 
 # ==========================================================
-# 5. GEOMETRIC PLOTTER
+# 5. DYNAMIC MULTI-POINT GEOMETRIC PLOTTER
 # ==========================================================
 def plot_pattern_geometry(analysis_result):
     df = analysis_result['df']
@@ -409,52 +409,63 @@ def plot_pattern_geometry(analysis_result):
     bias = analysis_result['bias']
     p_start = analysis_result['pattern_start']
     p_end = analysis_result['pattern_end']
+    struct_h = analysis_result['structural_high']
+    struct_l = analysis_result['structural_low']
     
     fig = go.Figure()
 
+    # 1. رسم الشموع والمتوسطات
     fig.add_trace(go.Candlestick(
         x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Price"
     ))
-
     fig.add_trace(go.Scatter(x=df.index, y=df['EMA50'], line=dict(color='orange', width=1.5), name='EMA 50'))
     fig.add_trace(go.Scatter(x=df.index, y=df['EMA200'], line=dict(color='deepskyblue', width=2), name='EMA 200'))
 
-    if p_start and p_end and p_name != "NO PATTERN DETECTED":
+    # 2. رسم الهيكل بناءً على النطاق الزمني للنمط المكتشف
+    if p_name != "NO PATTERN DETECTED" and p_start and p_end:
+        # استخراج كافة الارتكازات الواقعة ضمن نطاق تكوين النمط حصراً
         ph = df['Pivot_H'].dropna().loc[p_start:p_end]
         pl = df['Pivot_L'].dropna().loc[p_start:p_end]
-        
-        if len(ph) >= 1 and len(pl) >= 1:
-            h_points = sorted(list(zip(ph.index, ph.values)), key=lambda x: x[0])
-            l_points = sorted(list(zip(pl.index, pl.values)), key=lambda x: x[0])
 
-            polygon_points = h_points + l_points[::-1] + [h_points[0]]
+        # أ. رسم خط العنق / المقاومة الأفقي
+        fig.add_trace(go.Scatter(
+            x=[p_start, df.index[-1]],
+            y=[struct_h, struct_h],
+            mode='lines',
+            line=dict(color='gold', width=2.5, dash='dash'),
+            name=f'Neckline / Resistance ({struct_h:.4f})'
+        ))
 
-            x_coords = [pt[0] for pt in polygon_points]
-            y_coords = [pt[1] for pt in polygon_points]
+        # ب. رسم خط الدعم الأفقي
+        fig.add_trace(go.Scatter(
+            x=[p_start, df.index[-1]],
+            y=[struct_l, struct_l],
+            mode='lines',
+            line=dict(color='cyan', width=2, dash='dot'),
+            name=f'Support Level ({struct_l:.4f})'
+        ))
 
-            fill_color = "rgba(46, 204, 113, 0.22)" if bias == "Bullish" else "rgba(231, 76, 60, 0.22)"
-            line_color = "#2ecc71" if bias == "Bullish" else "#e74c3c"
+        # ج. دمج وتجهيز جميع الارتكازات (بغض النظر عن عددها) وترتيبها زمنيًا
+        pivots = [(idx, val) for idx, val in ph.items()] + [(idx, val) for idx, val in pl.items()]
+        pivots.sort(key=lambda x: x[0])  # ترتيب زمني دقيق
 
+        if pivots:
+            x_skel = [pt[0] for pt in pivots]
+            y_skel = [pt[1] for pt in pivots]
+
+            line_color = '#2ecc71' if bias == 'Bullish' else '#e74c3c'
+
+            # د. رسم الهيكل الهندسي الموصل بين كافة النقاط المتوفرة
             fig.add_trace(go.Scatter(
-                x=x_coords, y=y_coords,
-                mode='lines',
-                fill='toself',
-                fillcolor=fill_color,
-                line=dict(color=line_color, width=2),
-                name=f"Pattern: {p_name} ({analysis_result['match_pct']}% Match)"
-            ))
-
-            fig.add_trace(go.Scatter(
-                x=ph.index, y=ph.values, mode='markers',
-                marker=dict(size=8, color='gold', symbol='triangle-down'), name='High Pivots'
-            ))
-            fig.add_trace(go.Scatter(
-                x=pl.index, y=pl.values, mode='markers',
-                marker=dict(size=8, color='cyan', symbol='triangle-up'), name='Low Pivots'
+                x=x_skel, y=y_skel,
+                mode='lines+markers',
+                line=dict(color=line_color, width=3),
+                marker=dict(size=8, color='yellow', symbol='circle'),
+                name=f'{p_name} Structure'
             ))
 
     fig.update_layout(
-        title=f"Chart Analysis | Pattern: {p_name} ({analysis_result['match_pct']}% Match) | Signal: {analysis_result['signal']}",
+        title=f"Chart | Pattern: {p_name} ({analysis_result['match_pct']}% Match) | Signal: {analysis_result['signal']}",
         template="plotly_dark",
         xaxis_rangeslider_visible=False,
         showlegend=True
