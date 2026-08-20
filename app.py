@@ -9,9 +9,7 @@ import pandas as pd
 # BACKEND LOGIC PRESERVED
 # ==========================================================
 
-try:
-    from pattern_engine import run_full_analysis
-except ImportError:
+from pattern_engine import run_full_analysis
     from engine import run_full_analysis
 
 
