@@ -32,7 +32,7 @@ def eq(a, b, tol=0.05):
     return abs(a - b) / max(abs(a), abs(b)) <= tol if max(abs(a), abs(b)) > 0 else False
 
 # ==========================================================
-# 3. STRICT SCANNER FOR ALL 15 PATTERNS (CORRECTED ORDER & LOGIC)
+# 3. STRICT SCANNER FOR ALL 15 PATTERNS (ACCURATE NECKLINE)
 # ==========================================================
 def scan_15_patterns(df):
     ph, pl = df['Pivot_H'].dropna(), df['Pivot_L'].dropna()
@@ -44,23 +44,23 @@ def scan_15_patterns(df):
     p_start, p_end = min(ph.index[-3], pl.index[-3]), max(ph.index[-1], pl.index[-1])
     close = df['Close'].iloc[-1]
 
-    # --- 1. HEAD & SHOULDERS (أولوية أولى - شروط ديناميكية للأسواق) ---
+    # --- 1. HEAD & SHOULDERS ---
     if h2 > h1 and h2 > h3 and eq(h1, h3, 0.08) and eq(l1, l2, 0.08):
         return "Head and Shoulders", "Bearish", h2, min(l1, l2), p_start, p_end
     if l2 < l1 and l2 < l3 and eq(l1, l3, 0.08) and eq(h1, h2, 0.08):
         return "Inverse Head and Shoulders", "Bullish", max(h1, h2), l2, p_start, p_end
 
-    # --- 2. TRIPLE & DOUBLE TOPS/BOTTOMS ---
-    if eq(l1, l2, 0.04) and eq(l2, l3, 0.04) and h1 > l1 and h2 > l2:
-        return "Triple Bottom", "Bullish", max(h1, h2, h3), l3, p_start, p_end
-    if eq(h1, h2, 0.04) and eq(h2, h3, 0.04) and l1 < h1 and l2 < h2:
-        return "Triple Top", "Bearish", h3, min(l1, l2, l3), p_start, p_end
-    if eq(l2, l3, 0.04) and h2 > l2 and h2 > l3:
-        return "Double Bottom", "Bullish", h2, l3, p_start, p_end
-    if eq(h2, h3, 0.04) and l2 < h2 and l2 < h3:
-        return "Double Top", "Bearish", h3, l2, p_start, p_end
+    # --- 2. TRIPLE & DOUBLE TOPS/BOTTOMS (تم تصحيح خط المقاومة Neckline) ---
+    if eq(l1, l2, 0.04) and eq(l2, l3, 0.04) and h2 > l2 and h3 > l3:
+        return "Triple Bottom", "Bullish", max(h2, h3), min(l1, l2, l3), p_start, p_end
+    if eq(h1, h2, 0.04) and eq(h2, h3, 0.04) and l2 < h2 and l3 < h3:
+        return "Triple Top", "Bearish", max(h1, h2, h3), min(l2, l3), p_start, p_end
+    if eq(l2, l3, 0.04) and h3 > l3:
+        return "Double Bottom", "Bullish", h3, min(l2, l3), p_start, p_end
+    if eq(h2, h3, 0.04) and l3 < h3:
+        return "Double Top", "Bearish", max(h2, h3), l3, p_start, p_end
 
-    # --- 3. WEDGES (اعتماد ضيق القناة / الانحراف) ---
+    # --- 3. WEDGES ---
     slope_h = h3 - h1
     slope_l = l3 - l1
     if h1 < h2 < h3 and l1 < l2 < l3 and slope_h < slope_l:
@@ -68,19 +68,19 @@ def scan_15_patterns(df):
     if h1 > h2 > h3 and l1 > l2 > l3 and slope_h < slope_l:
         return "Falling Wedge", "Bullish", h3, l3, p_start, p_end
 
-    # --- 4. FLAGS (قناة موازية تصحيحية) ---
+    # --- 4. FLAGS ---
     if h1 < h2 and l1 < l2 and close > h2:
         return "Bullish Flag", "Bullish", h2, l2, p_start, p_end
     if h1 > h2 and l1 > l2 and close < l2:
         return "Bearish Flag", "Bearish", h2, l2, p_start, p_end
 
-    # --- 5. PENNANTS (مثلث تصحيحي ضيق) ---
+    # --- 5. PENNANTS ---
     if h1 > h2 and l1 < l2 and close > h2:
         return "Bullish Pennant", "Bullish", h2, l2, p_start, p_end
     if h1 > h2 and l1 < l2 and close < l2:
         return "Bearish Pennant", "Bearish", h2, l2, p_start, p_end
 
-    # --- 6. TRIANGLES (الأنماط العامة - أولوية أخيرة لمنع الابتلاع) ---
+    # --- 6. TRIANGLES ---
     if h1 < h2 and eq(h2, h3, 0.04) and l1 < l2 < l3:
         return "Ascending Triangle", "Bullish", h3, l3, p_start, p_end
     if l1 > l2 and eq(l2, l3, 0.04) and h1 > h2 > h3:
@@ -118,9 +118,9 @@ def run_full_analysis(df):
         if not c_breakout:
             rejected_reasons.append(f"Breakout Level Failed: Close ({close:.2f}) <= Resistance ({struct_h:.2f})")
         if not c_ema_bull:
-            rejected_reasons.append(f"EMA Trend Failed: Close ({close:.2f}) must be above EMA200 ({ema200:.2f}) and EMA50 ({ema50:.2f}) must be above EMA200")
+            rejected_reasons.append(f"EMA Trend Failed: Close ({close:.2f}) must be above EMA200 ({ema200:.2f})")
         if not c_rsi:
-            rejected_reasons.append(f"RSI Filter Failed: RSI ({rsi:.1f}) is outside 30-75")
+            rejected_reasons.append(f"RSI Filter Failed: RSI ({rsi:.1f}) outside range")
         if c_breakout and c_ema_bull and c_rsi:
             final_signal = "STRONG BUY"
 
@@ -128,9 +128,9 @@ def run_full_analysis(df):
         if not c_breakdown:
             rejected_reasons.append(f"Breakdown Level Failed: Close ({close:.2f}) >= Support ({struct_l:.2f})")
         if not c_ema_bear:
-            rejected_reasons.append(f"EMA Trend Failed: Close ({close:.2f}) must be below EMA200 ({ema200:.2f}) and EMA50 ({ema50:.2f}) must be below EMA200")
+            rejected_reasons.append(f"EMA Trend Failed: Close ({close:.2f}) must be below EMA200 ({ema200:.2f})")
         if not c_rsi:
-            rejected_reasons.append(f"RSI Filter Failed: RSI ({rsi:.1f}) is outside 30-75")
+            rejected_reasons.append(f"RSI Filter Failed: RSI ({rsi:.1f}) outside range")
         if c_breakdown and c_ema_bear and c_rsi:
             final_signal = "STRONG SELL"
     else:
@@ -143,34 +143,26 @@ def run_full_analysis(df):
         sl_val = round(struct_l, 4)
         risk = entry_price - sl_val
         sl, tp = sl_val, round(entry_price + (risk * 2), 4)
-        status_msg = f"100% Criteria Passed! {pattern_name} confirmed with strict structure, EMA, RSI ({rsi:.1f}), and breakout."
+        status_msg = f"100% Criteria Passed! {pattern_name} confirmed."
     elif final_signal == "STRONG SELL":
         sl_val = round(struct_h, 4)
         risk = sl_val - entry_price
         sl, tp = sl_val, round(entry_price - (risk * 2), 4)
-        status_msg = f"100% Criteria Passed! {pattern_name} confirmed with strict structure, EMA, RSI ({rsi:.1f}), and breakdown."
+        status_msg = f"100% Criteria Passed! {pattern_name} confirmed."
     else:
         status_msg = "REJECTED: " + " | ".join(rejected_reasons)
 
     return {
-        "df": df,
-        "pattern": pattern_name,
-        "bias": bias,
-        "signal": final_signal,
-        "reason": status_msg,
-        "entry": entry_price,
-        "sl": sl,
-        "tp": tp,
-        "close": entry_price,
-        "ema50": round(ema50, 4),
-        "ema200": round(ema200, 4),
-        "rsi": round(rsi, 2),
-        "pattern_start": pattern_start,
-        "pattern_end": pattern_end,
-        "structural_high": struct_h,
-        "structural_low": struct_l
+        "df": df, "pattern": pattern_name, "bias": bias, "signal": final_signal,
+        "reason": status_msg, "entry": entry_price, "sl": sl, "tp": tp,
+        "close": entry_price, "ema50": round(ema50, 4), "ema200": round(ema200, 4),
+        "rsi": round(rsi, 2), "pattern_start": pattern_start, "pattern_end": pattern_end,
+        "structural_high": struct_h, "structural_low": struct_l
     }
 
+# ==========================================================
+# 5. GEOMETRIC PATTERN PLOTTER (FIXED POLYGON SHADING)
+# ==========================================================
 def plot_pattern_geometry(analysis_result):
     df = analysis_result['df']
     p_name = analysis_result['pattern']
@@ -180,54 +172,57 @@ def plot_pattern_geometry(analysis_result):
     
     fig = go.Figure()
 
-    # 1. رسم الشموع اليابانية
+    # 1. Candlestick Chart
     fig.add_trace(go.Candlestick(
         x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
         name="Price"
     ))
 
-    # 2. رسم المتوسطات المتحركة EMA
+    # 2. EMAs
     fig.add_trace(go.Scatter(x=df.index, y=df['EMA50'], line=dict(color='orange', width=1.5), name='EMA 50'))
     fig.add_trace(go.Scatter(x=df.index, y=df['EMA200'], line=dict(color='deepskyblue', width=2), name='EMA 200'))
 
-    # 3. الرسم الهندسي المظلل للنمط (Polygon)
+    # 3. Polygon Geometric Shading
     if p_start and p_end and p_name != "NO PATTERN DETECTED":
         ph = df['Pivot_H'].dropna().loc[p_start:p_end]
         pl = df['Pivot_L'].dropna().loc[p_start:p_end]
         
         if len(ph) >= 2 and len(pl) >= 2:
-            # دمج الإحداثيات لتشكيل مسار مغلق (القمم أولاً ثم القيعان بشكل معكوس)
-            x_coords = list(ph.index) + list(pl.index)[::-1]
-            y_coords = list(ph.values) + list(pl.values)[::-1]
+            # ترتيب زمني دقيق للمضلع المغلق
+            ph_sorted = ph.sort_index()
+            pl_sorted = pl.sort_index()
+
+            x_coords = list(ph_sorted.index) + list(pl_sorted.index)[::-1]
+            y_coords = list(ph_sorted.values) + list(pl_sorted.values)[::-1]
 
             fill_color = "rgba(46, 204, 113, 0.20)" if bias == "Bullish" else "rgba(231, 76, 60, 0.20)"
             line_color = "#2ecc71" if bias == "Bullish" else "#e74c3c"
 
-            # إضافة المضلع المظلل
+            # تظليل هندسي مغلق للنمط بدون خطوط ممتدة
             fig.add_trace(go.Scatter(
-                x=x_coords, 
-                y=y_coords,
+                x=x_coords, y=y_coords,
                 fill='toself',
                 fillcolor=fill_color,
                 line=dict(color=line_color, width=2),
                 name=f"Pattern: {p_name}"
             ))
 
-            # إظهار نقاط المرتكزات كرموز هندسية فقط
+            # نقاط القمم والقيعان فقط
             fig.add_trace(go.Scatter(
-                x=ph.index, y=ph.values, mode='markers',
+                x=ph_sorted.index, y=ph_sorted.values, mode='markers',
                 marker=dict(size=8, color='gold', symbol='triangle-down'), name='High Pivots'
             ))
             fig.add_trace(go.Scatter(
-                x=pl.index, y=pl.values, mode='markers',
+                x=pl_sorted.index, y=pl_sorted.values, mode='markers',
                 marker=dict(size=8, color='cyan', symbol='triangle-up'), name='Low Pivots'
             ))
 
     fig.update_layout(
-        title=f"NZDCAD=X (4h) | Pattern: {p_name} ({bias})",
+        title=f"Chart Analysis | Pattern: {p_name} ({bias}) | Signal: {analysis_result['signal']}",
         template="plotly_dark",
         xaxis_rangeslider_visible=False,
         showlegend=True
     )
     
     return fig
+    
