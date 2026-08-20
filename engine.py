@@ -171,9 +171,6 @@ def run_full_analysis(df):
         "structural_low": struct_l
     }
 
-# ==========================================================
-# 5. GEOMETRIC PATTERN PLOTTER (PLOTLY)
-# ==========================================================
 def plot_pattern_geometry(analysis_result):
     df = analysis_result['df']
     p_name = analysis_result['pattern']
@@ -193,28 +190,30 @@ def plot_pattern_geometry(analysis_result):
     fig.add_trace(go.Scatter(x=df.index, y=df['EMA50'], line=dict(color='orange', width=1.5), name='EMA 50'))
     fig.add_trace(go.Scatter(x=df.index, y=df['EMA200'], line=dict(color='deepskyblue', width=2), name='EMA 200'))
 
-    # 3. الرسم الهندسي للنمط المظلل (Polygon)
+    # 3. الرسم الهندسي المظلل للنمط (Polygon)
     if p_start and p_end and p_name != "NO PATTERN DETECTED":
         ph = df['Pivot_H'].dropna().loc[p_start:p_end]
         pl = df['Pivot_L'].dropna().loc[p_start:p_end]
         
         if len(ph) >= 2 and len(pl) >= 2:
+            # دمج الإحداثيات لتشكيل مسار مغلق (القمم أولاً ثم القيعان بشكل معكوس)
             x_coords = list(ph.index) + list(pl.index)[::-1]
             y_coords = list(ph.values) + list(pl.values)[::-1]
 
-            fill_color = "rgba(46, 204, 113, 0.18)" if bias == "Bullish" else "rgba(231, 76, 60, 0.18)"
+            fill_color = "rgba(46, 204, 113, 0.20)" if bias == "Bullish" else "rgba(231, 76, 60, 0.20)"
             line_color = "#2ecc71" if bias == "Bullish" else "#e74c3c"
 
-            # تظليل مساحة النمط بدقة داخل حدود النمط زمنياً فقط
+            # إضافة المضلع المظلل
             fig.add_trace(go.Scatter(
-                x=x_coords, y=y_coords,
+                x=x_coords, 
+                y=y_coords,
                 fill='toself',
                 fillcolor=fill_color,
                 line=dict(color=line_color, width=2),
                 name=f"Pattern: {p_name}"
             ))
 
-            # نقاط مرتكزات القمم والقيعان كرموز هندسية فقط
+            # إظهار نقاط المرتكزات كرموز هندسية فقط
             fig.add_trace(go.Scatter(
                 x=ph.index, y=ph.values, mode='markers',
                 marker=dict(size=8, color='gold', symbol='triangle-down'), name='High Pivots'
@@ -225,11 +224,10 @@ def plot_pattern_geometry(analysis_result):
             ))
 
     fig.update_layout(
-        title=f"Chart Analysis | Pattern: {p_name} ({bias}) | Signal: {analysis_result['signal']}",
+        title=f"NZDCAD=X (4h) | Pattern: {p_name} ({bias})",
         template="plotly_dark",
         xaxis_rangeslider_visible=False,
         showlegend=True
     )
     
     return fig
-    
