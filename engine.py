@@ -400,7 +400,6 @@ def run_full_analysis(df):
         "structural_high": struct_h, "structural_low": struct_l
     }
 
-# ==========================================================
 # 5. DYNAMIC MULTI-POINT GEOMETRIC PLOTTER
 # ==========================================================
 def plot_pattern_geometry(analysis_result):
