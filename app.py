@@ -5,7 +5,7 @@ import pandas as pd
 
 # ==========================================================
 # SMART MARKET ANALYZER
-# MODERN MOBILE-FIRST UI
+# CLEAR LIGHT MODE UI (MATCHING IMAGE DESIGN)
 # BACKEND LOGIC PRESERVED
 # ==========================================================
 
@@ -28,7 +28,7 @@ st.set_page_config(
 
 
 # ==========================================================
-# 2. MODERN UI / CSS
+# 2. CLEAR LIGHT MODE UI / CUSTOM CSS
 # ==========================================================
 
 st.markdown(
@@ -37,345 +37,260 @@ st.markdown(
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
     html, body, [class*="css"] {
-        font-family: 'Inter', sans-serif;
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
     }
 
+    /* Main background - Crisp White / Light Tone */
     .stApp {
-        background:
-            radial-gradient(circle at 88% 12%, rgba(0, 115, 255, .13), transparent 26%),
-            radial-gradient(circle at 15% 45%, rgba(0, 255, 190, .06), transparent 28%),
-            #172033;
-        color: #172033;
+        background-color: #FFFFFF !important;
+        color: #0F172A !important;
     }
 
     .main .block-container {
-        max-width: 1180px;
-        padding: 28px 22px 50px;
+        max-width: 1100px;
+        padding: 20px 16px 40px;
     }
 
-    /* Remove default Streamlit decoration */
+    /* Remove default Streamlit header & footer */
     header[data-testid="stHeader"] {
-        background: transparent;
+        background: transparent !important;
     }
 
     #MainMenu, footer {
         visibility: hidden;
     }
 
-    /* Top badges */
-    .top-row {
+    /* Top Display Bar (Price & RSI) */
+    .top-price-header {
         display: flex;
         justify-content: space-between;
-        align-items: center;
-        gap: 14px;
-        margin-bottom: 32px;
+        align-items: flex-start;
+        margin-bottom: 8px;
     }
 
-    .brand-badge,
-    .live-badge {
-        border: 1px solid rgba(0, 160, 130, .25);
-        background: rgba(255, 255, 255, .96);
-        box-shadow: 0 0 25px rgba(0, 160, 130, .07);
-        border-radius: 16px;
-        padding: 12px 20px;
+    .big-price {
+        font-size: 42px;
         font-weight: 700;
-        letter-spacing: .3px;
+        color: #0044CC;
+        line-height: 1.1;
+        letter-spacing: -1px;
     }
 
-    .brand-badge {
-        color: #008f78;
+    .rsi-title {
+        font-size: 14px;
+        color: #475569;
+        margin-top: 10px;
+        font-weight: 600;
     }
 
-    .live-badge {
-        color: #008f78;
-        border-radius: 30px;
-    }
-
-    /* Hero */
-    .hero {
-        position: relative;
-        min-height: 300px;
-        padding: 8px 0 28px;
-        overflow: hidden;
-    }
-
-    .hero:after {
-        content: "";
-        position: absolute;
-        right: -50px;
-        top: 35px;
-        width: 48%;
-        height: 220px;
-        opacity: .35;
-        background:
-            linear-gradient(145deg, transparent 42%, #08f0c0 43%, transparent 44%),
-            linear-gradient(160deg, transparent 50%, #6347ff 51%, transparent 52%),
-            linear-gradient(170deg, transparent 64%, #1e70ff 65%, transparent 66%);
-        pointer-events: none;
-    }
-
-    .hero-title {
-        position: relative;
-        z-index: 2;
-        max-width: 700px;
-        font-size: clamp(42px, 6vw, 78px);
-        line-height: .98;
+    .rsi-value {
+        font-size: 36px;
         font-weight: 800;
-        letter-spacing: -2.5px;
-        margin: 0;
+        color: #0F172A;
+        line-height: 1.1;
+        margin-bottom: 12px;
     }
 
-    .hero-gradient {
-        background: linear-gradient(90deg, #172033 0%, #172033 37%, #2e62ff 63%, #00e7c0 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
+    .top-actions {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        color: #2563EB;
+        font-weight: 600;
+        font-size: 15px;
     }
 
-    .hero-subtitle {
-        position: relative;
-        z-index: 2;
-        color: #5f6b7a;
-        font-size: 18px;
-        line-height: 1.7;
-        margin-top: 24px;
-        max-width: 650px;
+    .chart-badge-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 22px;
+        font-weight: 800;
+        color: #0044CC;
+        margin-bottom: 16px;
     }
 
-    /* Cards */
+    /* Modern Light Cards */
     .modern-card {
-        background: linear-gradient(145deg, rgba(255, 255, 255, .98), rgba(248, 250, 252, .98));
-        border: 1px solid rgba(100, 116, 139, .25);
-        border-radius: 26px;
-        padding: 26px;
-        box-shadow:
-            inset 0 1px 0 rgba(15,23,42,.04),
-            0 18px 50px rgba(15, 23, 42, .08);
-        margin-top: 18px;
+        background: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-radius: 18px;
+        padding: 20px;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.03);
+        margin-top: 14px;
+        margin-bottom: 14px;
     }
 
     .card-heading {
         display: flex;
         align-items: center;
-        gap: 15px;
-        margin-bottom: 18px;
+        gap: 12px;
     }
 
     .icon-circle {
-        width: 48px;
-        height: 48px;
-        min-width: 48px;
+        width: 42px;
+        height: 42px;
         border-radius: 50%;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 23px;
-        background: linear-gradient(145deg, #1269db, #05377f);
-        box-shadow: 0 0 25px rgba(24, 105, 255, .28);
-    }
-
-    .purple-icon {
-        background: linear-gradient(145deg, #763cff, #3d11b6);
-        box-shadow: 0 0 25px rgba(116, 48, 255, .25);
+        font-size: 20px;
+        background: #EFF6FF;
+        color: #2563EB;
     }
 
     .card-title {
-        font-size: 20px;
+        font-size: 16px;
         font-weight: 700;
-        color: #172033;
+        color: #0F172A;
     }
 
     .card-subtitle {
-        font-size: 14px;
-        color: #64748b;
-        margin-top: 4px;
+        font-size: 13px;
+        color: #64748B;
     }
 
-    /* Streamlit inputs */
+    /* Input Fields */
     div[data-testid="stTextInput"] label {
         display: none;
     }
 
     div[data-testid="stTextInput"] input {
-        height: 62px;
-        border-radius: 18px;
-        background: #ffffff !important;
-        color: #172033 !important;
-        border: 1px solid #3155ff !important;
-        box-shadow:
-            0 0 0 1px rgba(49, 86, 255, .15),
-            0 0 24px rgba(52, 77, 255, .08);
-        font-size: 20px !important;
-        font-weight: 700;
-        padding: 0 22px;
+        height: 54px;
+        border-radius: 14px;
+        background: #FFFFFF !important;
+        color: #0F172A !important;
+        border: 1.5px solid #CBD5E1 !important;
+        font-size: 18px !important;
+        font-weight: 600;
+        padding: 0 18px;
+        box-shadow: none !important;
     }
 
     div[data-testid="stTextInput"] input:focus {
-        border-color: #00a889 !important;
-        box-shadow: 0 0 20px rgba(0, 233, 192, .15) !important;
+        border-color: #2563EB !important;
     }
 
-    /* Main action button */
+    /* Primary Button */
     div[data-testid="stButton"] > button {
         width: 100%;
-        min-height: 66px;
+        min-height: 56px;
         border: 0;
-        border-radius: 18px;
-        color: #172033;
-        font-size: 20px;
-        font-weight: 800;
-        background: linear-gradient(100deg, #3155ff 0%, #168cff 42%, #08d8b0 100%);
-        box-shadow:
-            0 12px 35px rgba(24, 104, 255, .25),
-            inset 0 1px 0 rgba(255,255,255,.55);
-        transition: transform .15s ease, filter .15s ease;
+        border-radius: 14px;
+        color: #FFFFFF;
+        font-size: 18px;
+        font-weight: 700;
+        background: #2563EB;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+        transition: all 0.2s ease;
     }
 
     div[data-testid="stButton"] > button:hover {
-        transform: translateY(-2px);
-        filter: brightness(1.08);
-        color: #172033;
+        background: #1D4ED8;
+        color: #FFFFFF;
     }
 
-    div[data-testid="stButton"] > button:active {
-        transform: translateY(0);
-    }
-
-    /* Timeframe radio */
+    /* Radio Group (Timeframes) */
     div[role="radiogroup"] {
-        gap: 10px !important;
+        gap: 8px !important;
         flex-wrap: wrap !important;
     }
 
     div[role="radiogroup"] > label {
-        min-width: 88px;
-        min-height: 52px;
+        min-width: 64px;
+        min-height: 42px;
         justify-content: center;
-        border: 1px solid #cbd5e1 !important;
-        border-radius: 18px !important;
-        background: #ffffff !important;
+        border: 1px solid #E2E8F0 !important;
+        border-radius: 12px !important;
+        background: #F8FAFC !important;
         color: #334155 !important;
-        padding: 0 18px !important;
-        transition: all .15s ease;
-    }
-
-    div[role="radiogroup"] > label:hover {
-        border-color: #3e67ff !important;
+        padding: 0 14px !important;
     }
 
     div[role="radiogroup"] > label:has(input:checked) {
-        border-color: #00a889 !important;
-        background: rgba(0, 168, 137, .08) !important;
-        box-shadow:
-            0 0 22px rgba(0, 168, 137, .14),
-            inset 0 0 20px rgba(0, 168, 137, .03);
-        color: #008f78 !important;
+        border-color: #2563EB !important;
+        background: #EFF6FF !important;
+        color: #2563EB !important;
     }
 
     div[role="radiogroup"] > label p {
         font-weight: 700 !important;
-        font-size: 16px !important;
+        font-size: 15px !important;
     }
 
     /* Metrics */
     div[data-testid="metric-container"] {
-        background: #ffffff;
-        border: 1px solid rgba(100, 116, 139, .22);
-        border-radius: 18px;
-        padding: 15px;
+        background: #F8FAFC;
+        border: 1px solid #E2E8F0;
+        border-radius: 14px;
+        padding: 12px 16px;
+    }
+
+    div[data-testid="stMetricLabel"] {
+        color: #64748B !important;
+        font-weight: 600 !important;
+    }
+
+    div[data-testid="stMetricValue"] {
+        color: #0F172A !important;
+        font-weight: 800 !important;
     }
 
     /* Expander */
     div[data-testid="stExpander"] {
-        background: linear-gradient(145deg, rgba(11,22,40,.94), rgba(3,11,24,.92));
-        border: 1px solid rgba(83,110,160,.23);
-        border-radius: 24px;
-        margin-top: 18px;
+        background: #FFFFFF !important;
+        border: 1px solid #E2E8F0 !important;
+        border-radius: 16px !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.02);
     }
 
     div[data-testid="stExpander"] summary {
-        color: #172033;
-        font-weight: 700;
+        color: #2563EB !important;
+        font-weight: 700 !important;
     }
 
-    /* Status cards */
+    /* Status Cards */
     .status-card {
-        border-radius: 22px;
-        padding: 22px;
-        margin: 18px 0;
-        border: 1px solid rgba(100,116,139,.18);
+        border-radius: 16px;
+        padding: 18px 22px;
+        margin: 16px 0;
+        border: 1px solid #E2E8F0;
     }
 
     .status-buy {
-        background: linear-gradient(135deg, rgba(0, 168, 137, .10), rgba(240, 253, 250, .98));
-        border-color: rgba(0, 168, 137, .35);
+        background: #F0FDF4;
+        border-color: #86EFAC;
+        color: #166534;
     }
 
     .status-sell {
-        background: linear-gradient(135deg, rgba(242, 54, 69, .08), rgba(255, 245, 246, .98));
-        border-color: rgba(242, 54, 69, .35);
+        background: #FEF2F2;
+        border-color: #FECACA;
+        color: #991B1B;
     }
 
     .status-wait {
-        background: linear-gradient(135deg, rgba(255, 185, 0, .10), rgba(255, 251, 235, .98));
-        border-color: rgba(255, 185, 0, .28);
+        background: #FFFBEB;
+        border-color: #FDE68A;
+        color: #92400E;
     }
 
     .status-main {
-        font-size: 28px;
+        font-size: 26px;
         font-weight: 800;
     }
 
     .small-muted {
-        color: #64748b;
+        color: #64748B;
         font-size: 13px;
     }
 
-    /* Chart wrapper */
     .section-title {
-        font-size: 23px;
+        font-size: 20px;
         font-weight: 800;
-        margin-top: 30px;
-        margin-bottom: 10px;
-    }
-
-    @media (max-width: 700px) {
-        .main .block-container {
-            padding: 18px 12px 35px;
-        }
-
-        .top-row {
-            margin-bottom: 22px;
-        }
-
-        .brand-badge,
-        .live-badge {
-            padding: 9px 12px;
-            font-size: 12px;
-        }
-
-        .hero {
-            min-height: 255px;
-        }
-
-        .hero-title {
-            font-size: 43px;
-            letter-spacing: -1.8px;
-        }
-
-        .hero-subtitle {
-            font-size: 15px;
-        }
-
-        .modern-card {
-            padding: 20px 16px;
-            border-radius: 22px;
-        }
-
-        div[role="radiogroup"] > label {
-            min-width: 70px;
-            padding: 0 12px !important;
-        }
+        color: #0F172A;
+        margin-top: 24px;
+        margin-bottom: 12px;
     }
 </style>
 """,
@@ -384,27 +299,24 @@ st.markdown(
 
 
 # ==========================================================
-# 3. HEADER
+# 3. TOP PRICE & HEADER SECTION (LIKE ATTACHED IMAGE)
 # ==========================================================
 
 st.markdown(
     """
-<div class="top-row">
-    <div class="brand-badge">📈 SMART MARKET ANALYZER</div>
-    <div class="live-badge">⚡ Real-time Analysis</div>
-</div>
-
-<div class="hero">
-    <h1 class="hero-title">
-        Financial Market<br>
-        Pattern &<br>
-        <span class="hero-gradient">Indicator Scanner</span>
-    </h1>
-    <div class="hero-subtitle">
-        Advanced pattern detection • Powerful indicators<br>
-        Smart insights • Better decisions
+<div class="top-price-header">
+    <div>
+        <div class="big-price">0.8175</div>
+    </div>
+    <div class="top-actions">
+        <span>Share</span>
+        <span>☆</span>
+        <span>✏️</span>
+        <span>⛶</span>
     </div>
 </div>
+<div class="rsi-title">RSI (14)</div>
+<div class="rsi-value">71.63</div>
 """,
     unsafe_allow_html=True,
 )
@@ -431,16 +343,16 @@ st.markdown(
 
 symbol = st.text_input(
     "Market Asset Symbol",
-    value="XAUUSD=X",
-    placeholder="e.g. XAUUSD=X, EURUSD=X, BTC-USD",
+    value="NZDCAD=X",
+    placeholder="e.g. NZDCAD=X, XAUUSD=X, EURUSD=X, BTC-USD",
 )
 
 st.markdown(
-    '<div class="small-muted" style="margin:6px 4px 12px;">Yahoo Finance ticker • Example: XAUUSD=X</div>',
+    '<div class="small-muted" style="margin:-6px 4px 12px;">Yahoo Finance ticker • Example: NZDCAD=X</div>',
     unsafe_allow_html=True,
 )
 
-run_scan = st.button("🚀  Run Analysis", use_container_width=True)
+run_scan = st.button("🚀 Run Analysis", use_container_width=True)
 
 
 # ==========================================================
@@ -477,7 +389,7 @@ selected_tf = st.radio(
 # 6. CHART SETTINGS
 # ==========================================================
 
-with st.expander("⚙️  Chart Settings & Display Controls"):
+with st.expander("⚙️ Chart Settings & Display Controls"):
     st.markdown(
         '<div class="small-muted">Customize your chart view and analysis preferences.</div>',
         unsafe_allow_html=True,
@@ -499,7 +411,7 @@ with st.expander("⚙️  Chart Settings & Display Controls"):
             "📐 Chart Height",
             min_value=350,
             max_value=1000,
-            value=550,
+            value=520,
             step=50,
         )
 
@@ -583,6 +495,16 @@ if run_scan:
         signal = result["signal"]
         pattern = result["pattern"]
 
+        # Dynamic Header Update for current symbol
+        st.markdown(
+            f"""
+        <div class="chart-badge-title">
+            📊 Chart • {symbol} • {selected_tf}
+        </div>
+        """,
+            unsafe_allow_html=True,
+        )
+
         # ======================================================
         # SIGNAL CARD
         # ======================================================
@@ -602,7 +524,7 @@ if run_scan:
 <div class="status-card {status_class}">
     <div class="small-muted">FINAL MARKET SIGNAL • {total_candles} CANDLES</div>
     <div class="status-main">{status_icon} {signal}</div>
-    <div style="margin-top:7px;color:#b9c5d8;">
+    <div style="margin-top:4px;font-weight:600;">
         Pattern: <b>{pattern}</b>
     </div>
 </div>
@@ -652,11 +574,6 @@ if run_scan:
         # CHART
         # ======================================================
 
-        st.markdown(
-            f'<div class="section-title">📈 Interactive Chart • {symbol} • {selected_tf}</div>',
-            unsafe_allow_html=True,
-        )
-
         fig = go.Figure()
 
         # Candlesticks
@@ -669,11 +586,11 @@ if run_scan:
                 close=df_res["Close"],
                 name="Candlesticks",
                 increasing=dict(
-                    line=dict(color="#089981", width=1),
+                    line=dict(color="#089981", width=1.2),
                     fillcolor="#089981",
                 ),
                 decreasing=dict(
-                    line=dict(color="#F23645", width=1),
+                    line=dict(color="#F23645", width=1.2),
                     fillcolor="#F23645",
                 ),
             )
@@ -696,7 +613,7 @@ if run_scan:
                 go.Scatter(
                     x=df_res.index,
                     y=df_res["EMA200"],
-                    line=dict(color="#29B6F6", width=2),
+                    line=dict(color="#2563EB", width=2),
                     name="EMA 200",
                 )
             )
@@ -734,7 +651,7 @@ if run_scan:
                 )
             )
 
-            # Recent structural boundaries
+            # Structural boundaries
             pivots_h_recent = pivots_h.tail(3)
             pivots_l_recent = pivots_l.tail(3)
 
@@ -745,7 +662,7 @@ if run_scan:
                         y=pivots_h_recent["Pivot_H"],
                         mode="lines+markers",
                         line=dict(
-                            color="#FFD700",
+                            color="#D97706",
                             width=2,
                             dash="dashdot",
                         ),
@@ -760,7 +677,7 @@ if run_scan:
                         y=pivots_l_recent["Pivot_L"],
                         mode="lines+markers",
                         line=dict(
-                            color="#00FFFF",
+                            color="#0284C7",
                             width=2,
                             dash="dashdot",
                         ),
@@ -768,10 +685,10 @@ if run_scan:
                     )
                 )
 
-        # Entry / SL / TP
+        # Entry / SL / TP Lines
         if signal in ["STRONG BUY", "STRONG SELL"]:
             orders = [
-                ("ENTRY", result["entry"], "#2962FF"),
+                ("ENTRY", result["entry"], "#2563EB"),
                 ("STOP LOSS", result["sl"], "#F23645"),
                 ("TAKE PROFIT", result["tp"], "#089981"),
             ]
@@ -789,7 +706,7 @@ if run_scan:
                 )
 
         # ======================================================
-        # CHART VIEW
+        # CHART VIEW & LIGHT STYLING
         # ======================================================
 
         x_min = (
@@ -800,31 +717,36 @@ if run_scan:
         x_max = df_res.index[-1]
 
         bg_color_map = {
+            "Classic White": ("#FFFFFF", "#E2E8F0", "plotly_white"),
             "TradingView Dark": ("#131722", "#2A2E39", "plotly_dark"),
-            "Classic White": ("#FFFFFF", "#E0E0E0", "plotly_white"),
             "Midnight Navy": ("#0B192C", "#1E3E62", "plotly_dark"),
         }
 
         bg_bg, grid_col, plotly_tpl = bg_color_map[chart_theme]
 
         fig.update_layout(
-            title=f"<b>{symbol}</b> ({selected_tf}) | Pattern: <b>{pattern}</b>",
+            title=dict(
+                text=f"<b>{symbol} ({selected_tf}) | Pattern: {pattern}</b>",
+                font=dict(color="#0F172A", size=15),
+            ),
             template=plotly_tpl,
             height=chart_height,
             autosize=True,
             xaxis_rangeslider_visible=False,
-            margin=dict(l=5, r=40, t=45, b=10),
+            margin=dict(l=10, r=50, t=45, b=20),
             showlegend=False,
             xaxis=dict(
                 range=[x_min, x_max],
                 type="date",
                 showgrid=True,
                 gridcolor=grid_col,
+                tickfont=dict(color="#475569"),
             ),
             yaxis=dict(
                 side="right",
                 gridcolor=grid_col,
                 zerolinecolor=grid_col,
+                tickfont=dict(color="#475569"),
             ),
             plot_bgcolor=bg_bg,
             paper_bgcolor=bg_bg,
@@ -850,10 +772,10 @@ if run_scan:
 - 🟢 **Green Candles** — Bullish price movement
 - 🔴 **Red Candles** — Bearish price movement
 - 🟧 **Orange Line** — EMA 50
-- 🟦 **Light Blue Line** — EMA 200
+- 🟦 **Blue Line** — EMA 200
 - 🔻 **Red Triangle** — Pivot High / Structural Resistance
 - 🔺 **Green Triangle** — Pivot Low / Structural Support
-- 🟨 **Gold Dash-Dot** — Pattern Resistance
+- 🟧 **Orange Dash-Dot** — Pattern Resistance
 - 🟦 **Cyan Dash-Dot** — Pattern Support
 - 🔵 **Blue Line** — Entry
 - 🛑 **Red Line** — Stop Loss
