@@ -10,9 +10,9 @@ import pandas as pd
 # ==========================================================
 
 try:
-    from pattern_engine import run_full_analysis, detect_patterns
+    from pattern_engine import run_full_analysis
 except ImportError:
-    from engine import run_full_analysis, detect_patterns
+    from engine import run_full_analysis
 
 
 # ==========================================================
@@ -44,8 +44,8 @@ st.markdown(
         background:
             radial-gradient(circle at 88% 12%, rgba(0, 115, 255, .13), transparent 26%),
             radial-gradient(circle at 15% 45%, rgba(0, 255, 190, .06), transparent 28%),
-            #172033;
-        color: #172033;
+            #020712;
+        color: #f7f9ff;
     }
 
     .main .block-container {
@@ -73,9 +73,9 @@ st.markdown(
 
     .brand-badge,
     .live-badge {
-        border: 1px solid rgba(0, 160, 130, .25);
-        background: rgba(255, 255, 255, .96);
-        box-shadow: 0 0 25px rgba(0, 160, 130, .07);
+        border: 1px solid rgba(0, 255, 200, .25);
+        background: rgba(7, 20, 35, .72);
+        box-shadow: 0 0 25px rgba(0, 255, 200, .07);
         border-radius: 16px;
         padding: 12px 20px;
         font-weight: 700;
@@ -83,11 +83,11 @@ st.markdown(
     }
 
     .brand-badge {
-        color: #008f78;
+        color: #19f4cf;
     }
 
     .live-badge {
-        color: #008f78;
+        color: #16f1c2;
         border-radius: 30px;
     }
 
@@ -126,7 +126,7 @@ st.markdown(
     }
 
     .hero-gradient {
-        background: linear-gradient(90deg, #172033 0%, #172033 37%, #2e62ff 63%, #00e7c0 100%);
+        background: linear-gradient(90deg, #ffffff 0%, #ffffff 37%, #2e62ff 63%, #00e7c0 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
@@ -135,7 +135,7 @@ st.markdown(
     .hero-subtitle {
         position: relative;
         z-index: 2;
-        color: #5f6b7a;
+        color: #aeb9cb;
         font-size: 18px;
         line-height: 1.7;
         margin-top: 24px;
@@ -144,13 +144,13 @@ st.markdown(
 
     /* Cards */
     .modern-card {
-        background: linear-gradient(145deg, rgba(255, 255, 255, .98), rgba(248, 250, 252, .98));
-        border: 1px solid rgba(100, 116, 139, .25);
+        background: linear-gradient(145deg, rgba(11, 22, 40, .94), rgba(3, 11, 24, .92));
+        border: 1px solid rgba(83, 110, 160, .23);
         border-radius: 26px;
         padding: 26px;
         box-shadow:
-            inset 0 1px 0 rgba(15,23,42,.04),
-            0 18px 50px rgba(15, 23, 42, .08);
+            inset 0 1px 0 rgba(255,255,255,.035),
+            0 18px 50px rgba(0,0,0,.22);
         margin-top: 18px;
     }
 
@@ -182,12 +182,12 @@ st.markdown(
     .card-title {
         font-size: 20px;
         font-weight: 700;
-        color: #172033;
+        color: #ffffff;
     }
 
     .card-subtitle {
         font-size: 14px;
-        color: #64748b;
+        color: #98a5b9;
         margin-top: 4px;
     }
 
@@ -199,9 +199,9 @@ st.markdown(
     div[data-testid="stTextInput"] input {
         height: 62px;
         border-radius: 18px;
-        background: #ffffff !important;
-        color: #172033 !important;
-        border: 1px solid #3155ff !important;
+        background: #071222 !important;
+        color: #ffffff !important;
+        border: 1px solid #344dff !important;
         box-shadow:
             0 0 0 1px rgba(49, 86, 255, .15),
             0 0 24px rgba(52, 77, 255, .08);
@@ -211,7 +211,7 @@ st.markdown(
     }
 
     div[data-testid="stTextInput"] input:focus {
-        border-color: #00a889 !important;
+        border-color: #00e9c0 !important;
         box-shadow: 0 0 20px rgba(0, 233, 192, .15) !important;
     }
 
@@ -221,20 +221,20 @@ st.markdown(
         min-height: 66px;
         border: 0;
         border-radius: 18px;
-        color: #172033;
+        color: #ffffff;
         font-size: 20px;
         font-weight: 800;
         background: linear-gradient(100deg, #3155ff 0%, #168cff 42%, #08d8b0 100%);
         box-shadow:
             0 12px 35px rgba(24, 104, 255, .25),
-            inset 0 1px 0 rgba(255,255,255,.55);
+            inset 0 1px 0 rgba(255,255,255,.25);
         transition: transform .15s ease, filter .15s ease;
     }
 
     div[data-testid="stButton"] > button:hover {
         transform: translateY(-2px);
         filter: brightness(1.08);
-        color: #172033;
+        color: #ffffff;
     }
 
     div[data-testid="stButton"] > button:active {
@@ -251,10 +251,10 @@ st.markdown(
         min-width: 88px;
         min-height: 52px;
         justify-content: center;
-        border: 1px solid #cbd5e1 !important;
+        border: 1px solid #20304c !important;
         border-radius: 18px !important;
-        background: #ffffff !important;
-        color: #334155 !important;
+        background: #071222 !important;
+        color: #e7edf7 !important;
         padding: 0 18px !important;
         transition: all .15s ease;
     }
@@ -264,12 +264,12 @@ st.markdown(
     }
 
     div[role="radiogroup"] > label:has(input:checked) {
-        border-color: #00a889 !important;
-        background: rgba(0, 168, 137, .08) !important;
+        border-color: #00e9c0 !important;
+        background: rgba(0, 214, 173, .08) !important;
         box-shadow:
-            0 0 22px rgba(0, 168, 137, .14),
-            inset 0 0 20px rgba(0, 168, 137, .03);
-        color: #008f78 !important;
+            0 0 22px rgba(0, 233, 192, .14),
+            inset 0 0 20px rgba(0, 233, 192, .03);
+        color: #12edc3 !important;
     }
 
     div[role="radiogroup"] > label p {
@@ -279,8 +279,8 @@ st.markdown(
 
     /* Metrics */
     div[data-testid="metric-container"] {
-        background: #ffffff;
-        border: 1px solid rgba(100, 116, 139, .22);
+        background: #071222;
+        border: 1px solid rgba(80, 110, 160, .22);
         border-radius: 18px;
         padding: 15px;
     }
@@ -294,7 +294,7 @@ st.markdown(
     }
 
     div[data-testid="stExpander"] summary {
-        color: #172033;
+        color: #ffffff;
         font-weight: 700;
     }
 
@@ -303,21 +303,21 @@ st.markdown(
         border-radius: 22px;
         padding: 22px;
         margin: 18px 0;
-        border: 1px solid rgba(100,116,139,.18);
+        border: 1px solid rgba(255,255,255,.08);
     }
 
     .status-buy {
-        background: linear-gradient(135deg, rgba(0, 168, 137, .10), rgba(240, 253, 250, .98));
-        border-color: rgba(0, 168, 137, .35);
+        background: linear-gradient(135deg, rgba(0, 220, 160, .14), rgba(2, 25, 28, .85));
+        border-color: rgba(0, 239, 190, .35);
     }
 
     .status-sell {
-        background: linear-gradient(135deg, rgba(242, 54, 69, .08), rgba(255, 245, 246, .98));
+        background: linear-gradient(135deg, rgba(242, 54, 69, .14), rgba(28, 7, 13, .85));
         border-color: rgba(242, 54, 69, .35);
     }
 
     .status-wait {
-        background: linear-gradient(135deg, rgba(255, 185, 0, .10), rgba(255, 251, 235, .98));
+        background: linear-gradient(135deg, rgba(255, 185, 0, .11), rgba(25, 19, 5, .85));
         border-color: rgba(255, 185, 0, .28);
     }
 
@@ -327,7 +327,7 @@ st.markdown(
     }
 
     .small-muted {
-        color: #64748b;
+        color: #8f9db2;
         font-size: 13px;
     }
 
@@ -583,24 +583,6 @@ if run_scan:
         signal = result["signal"]
         pattern = result["pattern"]
 
-        # Pattern drawing data is read here only for chart display.
-        # Backend signal/entry/SL/TP logic is not changed.
-        drawing_pattern = None
-        try:
-            if isinstance(pattern, dict):
-                drawing_pattern = pattern
-            else:
-                detected = detect_patterns(df_res)
-                target_name = str(pattern).strip().lower()
-                for candidate in detected:
-                    if str(candidate.get("name", "")).strip().lower() == target_name:
-                        drawing_pattern = candidate
-                        break
-                if drawing_pattern is None and detected:
-                    drawing_pattern = detected[0]
-        except Exception:
-            drawing_pattern = None
-
         # ======================================================
         # SIGNAL CARD
         # ======================================================
@@ -787,78 +769,129 @@ if run_scan:
                 )
 
         # ======================================================
-        # PATTERN NECKLINE / BOUNDARIES
+        # DETECTED PATTERN GEOMETRY + NECKLINE
+        # Draw the found pattern only inside its own pivot range.
+        # Backend logic is untouched.
         # ======================================================
-        # Uses neckline_points already produced by the pattern engine.
-        # Nothing here changes pattern detection or trading logic.
-        if drawing_pattern:
-            neckline_points = drawing_pattern.get("neckline_points", [])
+        pattern_start = result.get("pattern_start")
+        pattern_end = result.get("pattern_end")
 
-            if not neckline_points:
-                metadata = drawing_pattern.get("metadata", {})
-                neckline_points = metadata.get("neckline_points", [])
+        if pattern and pattern != "NO PATTERN DETECTED":
+            ph = df_res["Pivot_H"].dropna() if "Pivot_H" in df_res.columns else pd.Series(dtype=float)
+            pl = df_res["Pivot_L"].dropna() if "Pivot_L" in df_res.columns else pd.Series(dtype=float)
 
-            def _chart_x(point):
-                idx = point.get("index") if isinstance(point, dict) else None
-                if idx is None:
-                    idx = point.get("position") if isinstance(point, dict) else None
-                try:
-                    idx = int(idx)
-                    if 0 <= idx < len(df_res):
-                        return df_res.index[idx]
-                except Exception:
-                    pass
-                if isinstance(point, dict):
-                    for key in ("timestamp", "time", "date", "datetime"):
-                        value = point.get(key)
-                        if value is not None:
-                            try:
-                                return pd.to_datetime(value)
-                            except Exception:
-                                pass
-                return None
+            # Use detected pattern range when available.
+            try:
+                if pattern_start in df_res.index and pattern_end in df_res.index:
+                    ph = ph.loc[pattern_start:pattern_end]
+                    pl = pl.loc[pattern_start:pattern_end]
+            except Exception:
+                pass
 
-            valid_neck = []
-            for point in neckline_points:
-                try:
-                    price = float(point.get("price"))
-                except Exception:
-                    continue
-                x_value = _chart_x(point)
-                if x_value is not None:
-                    valid_neck.append((x_value, price))
+            # Draw the actual detected swing skeleton.
+            swing_points = [(idx, val, "H") for idx, val in ph.items()]
+            swing_points += [(idx, val, "L") for idx, val in pl.items()]
+            swing_points.sort(key=lambda x: x[0])
 
-            # Standard neckline: connect the two neckline points.
-            if len(valid_neck) >= 2:
-                if len(valid_neck) == 2:
+            if swing_points:
+                fig.add_trace(
+                    go.Scatter(
+                        x=[p[0] for p in swing_points],
+                        y=[p[1] for p in swing_points],
+                        mode="lines+markers",
+                        line=dict(color="#3155FF", width=3),
+                        marker=dict(size=8, color="#3155FF"),
+                        name=f"Detected {pattern}",
+                        hovertemplate="%{y}<extra>"+str(pattern)+"</extra>",
+                    )
+                )
+
+            # Neckline construction from the pivots of the found pattern.
+            # Double/Triple Top: support through intervening lows.
+            # Double/Triple Bottom: resistance through intervening highs.
+            # H&S: neckline through the two troughs.
+            # Inverse H&S: neckline through the two peaks.
+            neckline_x = []
+            neckline_y = []
+
+            p_lower = str(pattern).lower()
+
+            if "head and shoulders" in p_lower and "inverse" not in p_lower:
+                pts = list(pl.items())
+                if len(pts) >= 2:
+                    neckline_x = [pts[-2][0], pts[-1][0]]
+                    neckline_y = [pts[-2][1], pts[-1][1]]
+
+            elif "inverse head and shoulders" in p_lower:
+                pts = list(ph.items())
+                if len(pts) >= 2:
+                    neckline_x = [pts[-2][0], pts[-1][0]]
+                    neckline_y = [pts[-2][1], pts[-1][1]]
+
+            elif "double top" in p_lower or "triple top" in p_lower:
+                pts = list(pl.items())
+                if len(pts) >= 1:
+                    # Use the lowest/intervening support level in the detected range.
+                    idx, val = min(pts, key=lambda x: x[1])
+                    end_x = pattern_end if pattern_end in df_res.index else df_res.index[-1]
+                    neckline_x = [idx, end_x]
+                    neckline_y = [val, val]
+
+            elif "double bottom" in p_lower or "triple bottom" in p_lower:
+                pts = list(ph.items())
+                if len(pts) >= 1:
+                    idx, val = max(pts, key=lambda x: x[1])
+                    end_x = pattern_end if pattern_end in df_res.index else df_res.index[-1]
+                    neckline_x = [idx, end_x]
+                    neckline_y = [val, val]
+
+            elif "ascending triangle" in p_lower:
+                pts = list(ph.items())
+                if len(pts) >= 2:
+                    neckline_x = [pts[-2][0], pts[-1][0]]
+                    neckline_y = [pts[-2][1], pts[-1][1]]
+
+            elif "descending triangle" in p_lower:
+                pts = list(pl.items())
+                if len(pts) >= 2:
+                    neckline_x = [pts[-2][0], pts[-1][0]]
+                    neckline_y = [pts[-2][1], pts[-1][1]]
+
+            elif "wedge" in p_lower:
+                # Wedges are better represented by their two converging boundaries.
+                if len(ph) >= 2 and len(pl) >= 2:
+                    hp = list(ph.items())[-2:]
+                    lp = list(pl.items())[-2:]
                     fig.add_trace(
                         go.Scatter(
-                            x=[valid_neck[0][0], valid_neck[1][0]],
-                            y=[valid_neck[0][1], valid_neck[1][1]],
+                            x=[hp[0][0], hp[1][0]],
+                            y=[hp[0][1], hp[1][1]],
                             mode="lines",
-                            line=dict(color="#2962FF", width=2.5),
-                            name="Neckline",
+                            line=dict(color="#8B5CF6", width=2.5),
+                            name="Pattern Upper Boundary",
                         )
                     )
-                else:
-                    # For patterns with two boundaries (e.g. symmetrical
-                    # triangles), draw each boundary separately.
-                    mid = len(valid_neck) // 2
-                    for start, end, label in [
-                        (0, mid, "Pattern Upper Boundary"),
-                        (mid, len(valid_neck), "Pattern Lower Boundary"),
-                    ]:
-                        segment = valid_neck[start:end]
-                        if len(segment) >= 2:
-                            fig.add_trace(
-                                go.Scatter(
-                                    x=[x for x, _ in segment],
-                                    y=[y for _, y in segment],
-                                    mode="lines",
-                                    line=dict(color="#2962FF", width=2.2, dash="dash"),
-                                    name=label,
-                                )
-                            )
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[lp[0][0], lp[1][0]],
+                            y=[lp[0][1], lp[1][1]],
+                            mode="lines",
+                            line=dict(color="#8B5CF6", width=2.5),
+                            name="Pattern Lower Boundary",
+                        )
+                    )
+
+            if neckline_x and neckline_y:
+                fig.add_trace(
+                    go.Scatter(
+                        x=neckline_x,
+                        y=neckline_y,
+                        mode="lines",
+                        line=dict(color="#E0A800", width=3, dash="dash"),
+                        name="Neckline",
+                        hovertemplate="Neckline: %{y:.5f}<extra></extra>",
+                    )
+                )
 
         # Entry / SL / TP
         if signal in ["STRONG BUY", "STRONG SELL"]:
@@ -905,7 +938,7 @@ if run_scan:
             height=chart_height,
             autosize=True,
             xaxis_rangeslider_visible=False,
-            margin=dict(l=5, r=40, t=45, b=10),
+            margin=dict(l=5, r=40, t=72, b=28),
             showlegend=False,
             xaxis=dict(
                 range=[x_min, x_max],
