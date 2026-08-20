@@ -10,8 +10,6 @@ import pandas as pd
 # ==========================================================
 
 from pattern_engine import run_full_analysis
-    
-
 
 # ==========================================================
 # 1. PAGE CONFIG
