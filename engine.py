@@ -411,64 +411,121 @@ def plot_pattern_geometry(analysis_result):
     p_end = analysis_result['pattern_end']
     struct_h = analysis_result['structural_high']
     struct_l = analysis_result['structural_low']
-    
+
     fig = go.Figure()
 
     # 1. رسم الشموع والمتوسطات
     fig.add_trace(go.Candlestick(
-        x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="Price"
+        x=df.index,
+        open=df['Open'],
+        high=df['High'],
+        low=df['Low'],
+        close=df['Close'],
+        name="Price"
     ))
-    fig.add_trace(go.Scatter(x=df.index, y=df['EMA50'], line=dict(color='orange', width=1.5), name='EMA 50'))
-    fig.add_trace(go.Scatter(x=df.index, y=df['EMA200'], line=dict(color='deepskyblue', width=2), name='EMA 200'))
 
-    # 2. رسم الهيكل بناءً على النطاق الزمني للنمط المكتشف
-    if p_name != "NO PATTERN DETECTED" and p_start and p_end:
-        # استخراج كافة الارتكازات الواقعة ضمن نطاق تكوين النمط حصراً
+    fig.add_trace(go.Scatter(
+        x=df.index,
+        y=df['EMA50'],
+        line=dict(color='orange', width=1.5),
+        name='EMA 50'
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=df.index,
+        y=df['EMA200'],
+        line=dict(color='deepskyblue', width=2),
+        name='EMA 200'
+    ))
+
+    # 2. رسم النموذج المكتشف فقط
+    if p_name != "NO PATTERN DETECTED" and p_start is not None and p_end is not None:
+
+        # أخذ الارتكازات الموجودة داخل نطاق النموذج فقط
         ph = df['Pivot_H'].dropna().loc[p_start:p_end]
         pl = df['Pivot_L'].dropna().loc[p_start:p_end]
 
-        # أ. رسم خط العنق / المقاومة الأفقي
+        # --------------------------------------------------
+        # A. خط المقاومة / العنق
+        # --------------------------------------------------
         fig.add_trace(go.Scatter(
             x=[p_start, df.index[-1]],
             y=[struct_h, struct_h],
             mode='lines',
-            line=dict(color='gold', width=2.5, dash='dash'),
+            line=dict(
+                color='gold',
+                width=2.5,
+                dash='dash'
+            ),
             name=f'Neckline / Resistance ({struct_h:.4f})'
         ))
 
-        # ب. رسم خط الدعم الأفقي
+        # --------------------------------------------------
+        # B. خط الدعم
+        # --------------------------------------------------
         fig.add_trace(go.Scatter(
             x=[p_start, df.index[-1]],
             y=[struct_l, struct_l],
             mode='lines',
-            line=dict(color='cyan', width=2, dash='dot'),
+            line=dict(
+                color='cyan',
+                width=2,
+                dash='dot'
+            ),
             name=f'Support Level ({struct_l:.4f})'
         ))
 
-        # ج. دمج وتجهيز جميع الارتكازات (بغض النظر عن عددها) وترتيبها زمنيًا
-        pivots = [(idx, val) for idx, val in ph.items()] + [(idx, val) for idx, val in pl.items()]
-        pivots.sort(key=lambda x: x[0])  # ترتيب زمني دقيق
+        # --------------------------------------------------
+        # C. ترتيب الارتكازات زمنيًا
+        # --------------------------------------------------
+        pivots = (
+            [(idx, val) for idx, val in ph.items()] +
+            [(idx, val) for idx, val in pl.items()]
+        )
 
+        pivots.sort(key=lambda x: x[0])
+
+        # --------------------------------------------------
+        # D. رسم هيكل النموذج
+        # --------------------------------------------------
         if pivots:
+
             x_skel = [pt[0] for pt in pivots]
             y_skel = [pt[1] for pt in pivots]
 
-            line_color = '#2ecc71' if bias == 'Bullish' else '#e74c3c'
+            line_color = (
+                '#2ecc71'
+                if bias in ['Bullish', 'BULLISH']
+                else '#e74c3c'
+                if bias in ['Bearish', 'BEARISH']
+                else '#f1c40f'
+            )
 
-            # د. رسم الهيكل الهندسي الموصل بين كافة النقاط المتوفرة
             fig.add_trace(go.Scatter(
-                x=x_skel, y=y_skel,
+                x=x_skel,
+                y=y_skel,
                 mode='lines+markers',
-                line=dict(color=line_color, width=3),
-                marker=dict(size=8, color='yellow', symbol='circle'),
+                line=dict(
+                    color=line_color,
+                    width=3
+                ),
+                marker=dict(
+                    size=8,
+                    color='yellow',
+                    symbol='circle'
+                ),
                 name=f'{p_name} Structure'
             ))
 
     fig.update_layout(
-        title=f"Chart | Pattern: {p_name} ({analysis_result['match_pct']}% Match) | Signal: {analysis_result['signal']}",
+        title=(
+            f"Chart | Pattern: {p_name} "
+            f"({analysis_result['match_pct']}% Match) | "
+            f"Signal: {analysis_result['signal']}"
+        ),
         template="plotly_dark",
         xaxis_rangeslider_visible=False,
         showlegend=True
     )
-    
+
     return fig
