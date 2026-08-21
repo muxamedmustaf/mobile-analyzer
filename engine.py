@@ -2,12 +2,19 @@ import pandas as pd
 import numpy as np
 
 # ==========================================================
-# 1. CALCULATE INDICATORS
+# 1. CALCULATE INDICATORS (MACD Histogram & RSI)
 # ==========================================================
 def calculate_indicators(df):
     df = df.copy()
     df['EMA50'] = df['Close'].ewm(span=50, adjust=False).mean()
     df['EMA200'] = df['Close'].ewm(span=200, adjust=False).mean()
+    
+    # MACD & Histogram Calculation
+    ema12 = df['Close'].ewm(span=12, adjust=False).mean()
+    ema26 = df['Close'].ewm(span=26, adjust=False).mean()
+    df['MACD'] = ema12 - ema26
+    df['MACD_Signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
+    df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
     
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0.0)).rolling(14).mean()
@@ -19,7 +26,7 @@ def calculate_indicators(df):
     return df
 
 # ==========================================================
-# 2. CUSTOM ZIGZAG DETECTION (Strict Depth=12)
+# 2. CUSTOM ZIGZAG DETECTION (H=Resistance, L=Support)
 # ==========================================================
 def calculate_zigzag(df, depth=12, deviation=5, backstep=3):
     df = df.copy()
@@ -29,7 +36,7 @@ def calculate_zigzag(df, depth=12, deviation=5, backstep=3):
     lows = df['Low'].values
     
     last_pivot_idx = 0
-    last_pivot_type = 0 # 1 for High, -1 for Low
+    last_pivot_type = 0 # 1 for High (Resistance), -1 for Low (Support)
     
     for i in range(depth, len(df) - backstep):
         window_high = np.max(highs[i-depth:i+1])
@@ -53,18 +60,16 @@ def calculate_zigzag(df, depth=12, deviation=5, backstep=3):
     return df
 
 # ==========================================================
-# 3. STRICT CHRONOLOGICAL PATTERN ENGINE (PERFECT MATCH)
+# 3. ROBUST PATTERN ENGINE (Slanted Necklines & Active Frontier)
 # ==========================================================
 def get_chronological_pivots(df):
-    """استخراج مصفوفة القمم والقيعان مرتبة زمنياً وبشكل متناوب صارم"""
     pivots = []
     for idx, row in df.iterrows():
         if not np.isnan(row['Pivot_H']):
-            pivots.append({'idx': idx, 'val': row['Pivot_H'], 'type': 'H'})
+            pivots.append({'idx': idx, 'val': row['Pivot_H'], 'type': 'H'}) # Resistance
         elif not np.isnan(row['Pivot_L']):
-            pivots.append({'idx': idx, 'val': row['Pivot_L'], 'type': 'L'})
+            pivots.append({'idx': idx, 'val': row['Pivot_L'], 'type': 'L'}) # Support
             
-    # تنقية المصفوفة لضمان تناوب صارم (H -> L -> H -> L)
     clean_pivots = []
     for p in pivots:
         if not clean_pivots:
@@ -73,7 +78,6 @@ def get_chronological_pivots(df):
             if clean_pivots[-1]['type'] != p['type']:
                 clean_pivots.append(p)
             else:
-                # إذا تكررت نفس النوع، نأخذ القمة الأعلى أو القاع الأقل
                 if p['type'] == 'H' and p['val'] > clean_pivots[-1]['val']:
                     clean_pivots[-1] = p
                 elif p['type'] == 'L' and p['val'] < clean_pivots[-1]['val']:
@@ -87,104 +91,125 @@ def scan_and_calculate_logic(df):
         return {"name": "NO PATTERN DETECTED", "bias": "Neutral", "match": 0}
 
     candidates = []
+    current_bar_idx = len(df) - 1
 
     # ---------------------------------------------------------
-    # A. DOUBLE TOP (M) -> Requiring Sequence: [H1, L1, H2]
+    # A. DOUBLE TOP (M)
     # ---------------------------------------------------------
     for i in range(len(pivots) - 2):
         p1, p2, p3 = pivots[i], pivots[i+1], pivots[i+2]
         if p1['type'] == 'H' and p2['type'] == 'L' and p3['type'] == 'H':
+            if (current_bar_idx - p3['idx']) > 20:
+                continue
+                
             h1, l1, h2 = p1['val'], p2['val'], p3['val']
-            # شرط المثالية: القمتان متساويتان بنسبة 1.5% والقاع أعمق بوضوح
-            if abs(h1 - h2) / max(h1, h2) <= 0.015 and l1 < min(h1, h2) * 0.98:
+            if abs(h1 - h2) / max(h1, h2) <= 0.03 and l1 < min(h1, h2) * 0.99:
                 neckline = l1
                 height = max(h1, h2) - neckline
                 candidates.append({
                     "name": "Double Top", "bias": "Bearish", "match": 95.0,
                     "nodes": [(p1['idx'], h1), (p2['idx'], l1), (p3['idx'], h2)],
                     "entry_trigger": neckline, 
-                    "neckline_start_idx": p2['idx'], # يبدأ تماماً من القاع بين القمتين
+                    "neckline_start_idx": p2['idx'],
                     "sl": max(h1, h2) * 1.001, "tp": neckline - height
                 })
 
     # ---------------------------------------------------------
-    # B. DOUBLE BOTTOM (W) -> Requiring Sequence: [L1, H1, L2]
+    # B. DOUBLE BOTTOM (W)
     # ---------------------------------------------------------
     for i in range(len(pivots) - 2):
         p1, p2, p3 = pivots[i], pivots[i+1], pivots[i+2]
         if p1['type'] == 'L' and p2['type'] == 'H' and p3['type'] == 'L':
+            if (current_bar_idx - p3['idx']) > 20:
+                continue
+                
             l1, h1, l2 = p1['val'], p2['val'], p3['val']
-            # شرط المثالية: القاعان متساويان بنسبة 1.5% والقمة أعلى بوضوح
-            if abs(l1 - l2) / max(l1, l2) <= 0.015 and h1 > max(l1, l2) * 1.02:
+            if abs(l1 - l2) / max(l1, l2) <= 0.03 and h1 > max(l1, l2) * 1.01:
                 neckline = h1
                 height = neckline - min(l1, l2)
                 candidates.append({
                     "name": "Double Bottom", "bias": "Bullish", "match": 95.0,
                     "nodes": [(p1['idx'], l1), (p2['idx'], h1), (p3['idx'], l2)],
                     "entry_trigger": neckline, 
-                    "neckline_start_idx": p2['idx'], # يبدأ تماماً من القمة بين القاعين
+                    "neckline_start_idx": p2['idx'],
                     "sl": min(l1, l2) * 0.999, "tp": neckline + height
                 })
 
     # ---------------------------------------------------------
-    # C. INVERSE HEAD AND SHOULDERS -> Sequence: [L1, H1, L2, H2, L3]
+    # C. INVERSE HEAD AND SHOULDERS (Slanted Neckline)
     # ---------------------------------------------------------
     for i in range(len(pivots) - 4):
         p1, p2, p3, p4, p5 = pivots[i], pivots[i+1], pivots[i+2], pivots[i+3], pivots[i+4]
+        
+        if (current_bar_idx - p5['idx']) > 20:
+            continue
+            
         if [p['type'] for p in [p1, p2, p3, p4, p5]] == ['L', 'H', 'L', 'H', 'L']:
             l1, h1, l2, h2, l3 = p1['val'], p2['val'], p3['val'], p4['val'], p5['val']
             
-            # الشروط الهندسية الصارمة 100%:
-            # 1. الرأس (L2) أعمق بوضوح من الكتف الأيسر (L1) والكتف الأيمن (L3)
-            # 2. تماثل الكتفين (L1 و L3) بفارق لا يتعدى 2%
             is_head_deeper = (l2 < l1) and (l2 < l3)
-            shoulder_symmetry = abs(l1 - l3) / max(l1, l3) <= 0.02
-            head_prominence = (min(l1, l3) - l2) >= (max(h1, h2) - min(l1, l3)) * 0.3
+            shoulder_symmetry = abs(l1 - l3) / max(l1, l3) <= 0.04
+            head_prominence = (min(l1, l3) - l2) >= (max(h1, h2) - min(l1, l3)) * 0.25
             
             if is_head_deeper and shoulder_symmetry and head_prominence:
-                neckline = max(h1, h2)
-                height = neckline - l2
+                idx1, val1 = p2['idx'], h1
+                idx2, val2 = p4['idx'], h2
+                if idx2 != idx1:
+                    slope = (val2 - val1) / (idx2 - idx1)
+                    neckline_at_current = val2 + slope * (current_bar_idx - idx2)
+                else:
+                    neckline_at_current = max(h1, h2)
+                    
+                height = neckline_at_current - l2
                 candidates.append({
                     "name": "Inverse Head and Shoulders", "bias": "Bullish", "match": 98.0,
                     "nodes": [(p1['idx'], l1), (p2['idx'], h1), (p3['idx'], l2), (p4['idx'], h2), (p5['idx'], l3)],
-                    "entry_trigger": neckline, 
-                    "neckline_start_idx": p2['idx'], # يبدأ من القمة الأولى الفاصلة H1
-                    "sl": l3 * 0.999, "tp": neckline + height
+                    "entry_trigger": round(neckline_at_current, 4), 
+                    "neckline_start_idx": p2['idx'],
+                    "sl": l3 * 0.999, "tp": round(neckline_at_current + height, 4)
                 })
 
     # ---------------------------------------------------------
-    # D. HEAD AND SHOULDERS -> Sequence: [H1, L1, H2, L2, H3]
+    # D. HEAD AND SHOULDERS (Slanted Neckline)
     # ---------------------------------------------------------
     for i in range(len(pivots) - 4):
         p1, p2, p3, p4, p5 = pivots[i], pivots[i+1], pivots[i+2], pivots[i+3], pivots[i+4]
+        
+        if (current_bar_idx - p5['idx']) > 20:
+            continue
+            
         if [p['type'] for p in [p1, p2, p3, p4, p5]] == ['H', 'L', 'H', 'L', 'H']:
             h1, l1, h2, l2, h3 = p1['val'], p2['val'], p3['val'], p4['val'], p5['val']
             
-            # الشروط الهندسية الصارمة:
             is_head_higher = (h2 > h1) and (h2 > h3)
-            shoulder_symmetry = abs(h1 - h3) / max(h1, h3) <= 0.02
-            head_prominence = (h2 - max(h1, h3)) >= (max(h1, h3) - min(l1, l2)) * 0.3
+            shoulder_symmetry = abs(h1 - h3) / max(h1, h3) <= 0.04
+            head_prominence = (h2 - max(h1, h3)) >= (max(h1, h3) - min(l1, l2)) * 0.25
             
             if is_head_higher and shoulder_symmetry and head_prominence:
-                neckline = min(l1, l2)
-                height = h2 - neckline
+                idx1, val1 = p2['idx'], l1
+                idx2, val2 = p4['idx'], l2
+                if idx2 != idx1:
+                    slope = (val2 - val1) / (idx2 - idx1)
+                    neckline_at_current = val2 + slope * (current_bar_idx - idx2)
+                else:
+                    neckline_at_current = min(l1, l2)
+                    
+                height = h2 - neckline_at_current
                 candidates.append({
                     "name": "Head and Shoulders", "bias": "Bearish", "match": 98.0,
                     "nodes": [(p1['idx'], h1), (p2['idx'], l1), (p3['idx'], h2), (p4['idx'], l2), (p5['idx'], h3)],
-                    "entry_trigger": neckline, 
-                    "neckline_start_idx": p2['idx'], # يبدأ من القاع الأول الفاصل L1
-                    "sl": h3 * 1.001, "tp": neckline - height
+                    "entry_trigger": round(neckline_at_current, 4), 
+                    "neckline_start_idx": p2['idx'],
+                    "sl": h3 * 1.001, "tp": round(neckline_at_current - height, 4)
                 })
 
     if not candidates:
         return {"name": "NO PATTERN DETECTED", "bias": "Neutral", "match": 0}
 
-    # اختيار النمط الأحدث والأكثر تطابقاً
-    best_pattern = candidates[-1]
-    return best_pattern
+    return candidates[-1]
 
 # ==========================================================
-# 4. FULL ANALYSIS
+# 4. FULL ANALYSIS (Closed-Bar Validation & Fixed Syntax)
 # ==========================================================
 def run_full_analysis(df):
     df = calculate_indicators(df)
@@ -193,27 +218,28 @@ def run_full_analysis(df):
     p_data = scan_and_calculate_logic(df)
     
     if p_data["name"] == "NO PATTERN DETECTED":
-        return {"df": df, "pattern": "NO PATTERN DETECTED", "signal": "WAITING", "reason": "No valid ideal pattern.", "entry": 0, "sl": 0, "tp": 0, "nodes": []}
+        return {"df": df, "pattern": "NO PATTERN DETECTED", "signal": "WAITING", "reason": "No active recent pattern found.", "entry": 0, "sl": 0, "tp": 0, "nodes": []}
 
-    latest = df.iloc[-1]
-    close, ema50, ema200, rsi = latest['Close'], latest['EMA50'], latest['EMA200'], latest['RSI']
+    # Validation on latest CLOSED bar (df.iloc[-2]) to prevent repainting
+    latest_closed = df.iloc[-2]
+    close, ema50, ema200, rsi, macd_hist = latest_closed['Close'], latest_closed['EMA50'], latest_closed['EMA200'], latest_closed['RSI'], latest_closed['MACD_Hist']
     bias, trigger, sl, tp = p_data["bias"], p_data["entry_trigger"], p_data["sl"], p_data["tp"]
 
-    c_rsi = (30 <= rsi <= 75)
+    c_rsi = (25 <= rsi <= 82)
     final_signal = "WAITING"
     reasons = []
 
     if bias == "Bullish":
-        if close > trigger and close > ema200 and c_rsi:
+        if close > trigger and close > ema200 and c_rsi and macd_hist > 0:
             final_signal = "STRONG BUY"
         else:
-            reasons.append(f"Waiting for close > {trigger:.4f} & EMA bull trend.")
+            reasons.append(f"Waiting for closed bar > {trigger:.4f} & Bullish MACD Hist.")
             
     elif bias == "Bearish":
-        if close < trigger and close < ema200 and c_rsi:
-            final_signal = "STRONG SELL"
+        if close < trigger and close < ema200 and c_rsi and macd_hist < 0:
+            final_signal = "STRONG SELL" # Fixed syntax error
         else:
-            reasons.append(f"Waiting for close < {trigger:.4f} & EMA bear trend.")
+            reasons.append(f"Waiting for closed bar < {trigger:.4f} & Bearish MACD Hist.")
 
     return {
         "df": df, "pattern": p_data["name"], "bias": bias, "match_pct": round(p_data["match"], 2),
@@ -221,5 +247,5 @@ def run_full_analysis(df):
         "entry": round(close, 4), "sl": round(sl, 4), "tp": round(tp, 4),
         "trigger": round(trigger, 4), "nodes": p_data["nodes"],
         "neckline_start_idx": p_data.get("neckline_start_idx", p_data["nodes"][0][0])
-    }
-    
+        }
+            
