@@ -19,7 +19,7 @@ def calculate_indicators(df):
     return df
 
 # ==========================================================
-# 2. CUSTOM ZIGZAG DETECTION (Depth=12, Deviation=5, Backstep=3)
+# 2. CUSTOM ZIGZAG DETECTION (Strict Depth=12)
 # ==========================================================
 def calculate_zigzag(df, depth=12, deviation=5, backstep=3):
     df = df.copy()
@@ -53,226 +53,134 @@ def calculate_zigzag(df, depth=12, deviation=5, backstep=3):
     return df
 
 # ==========================================================
-# 3. 15 CLASSIC PATTERNS SCANNER & LOGIC ENGINE
+# 3. STRICT CHRONOLOGICAL PATTERN ENGINE (PERFECT MATCH)
 # ==========================================================
+def get_chronological_pivots(df):
+    """استخراج مصفوفة القمم والقيعان مرتبة زمنياً وبشكل متناوب صارم"""
+    pivots = []
+    for idx, row in df.iterrows():
+        if not np.isnan(row['Pivot_H']):
+            pivots.append({'idx': idx, 'val': row['Pivot_H'], 'type': 'H'})
+        elif not np.isnan(row['Pivot_L']):
+            pivots.append({'idx': idx, 'val': row['Pivot_L'], 'type': 'L'})
+            
+    # تنقية المصفوفة لضمان تناوب صارم (H -> L -> H -> L)
+    clean_pivots = []
+    for p in pivots:
+        if not clean_pivots:
+            clean_pivots.append(p)
+        else:
+            if clean_pivots[-1]['type'] != p['type']:
+                clean_pivots.append(p)
+            else:
+                # إذا تكررت نفس النوع، نأخذ القمة الأعلى أو القاع الأقل
+                if p['type'] == 'H' and p['val'] > clean_pivots[-1]['val']:
+                    clean_pivots[-1] = p
+                elif p['type'] == 'L' and p['val'] < clean_pivots[-1]['val']:
+                    clean_pivots[-1] = p
+    return clean_pivots
+
 def scan_and_calculate_logic(df):
-    ph = df['Pivot_H'].dropna()
-    pl = df['Pivot_L'].dropna()
+    pivots = get_chronological_pivots(df)
     
-    if len(ph) < 4 or len(pl) < 4:
+    if len(pivots) < 5:
         return {"name": "NO PATTERN DETECTED", "bias": "Neutral", "match": 0}
 
-    # استخراج آخر القمم والقيعان بدقة للنماذج المعقدة (حتى 4 قمم وقيعان)
-    h_idx = list(ph.index[-4:])
-    h_val = list(ph.iloc[-4:])
-    l_idx = list(pl.index[-4:])
-    l_val = list(pl.iloc[-4:])
-    
-    TOL = 0.015  # 1.5% Strict Global Tolerance
     candidates = []
 
-    def match(v1, v2):
-        if max(v1, v2) == 0: return 100
-        var = abs(v1 - v2) / max(v1, v2)
-        return (1.0 - (var / TOL)) * 100 if var <= TOL else 0
+    # ---------------------------------------------------------
+    # A. DOUBLE TOP (M) -> Requiring Sequence: [H1, L1, H2]
+    # ---------------------------------------------------------
+    for i in range(len(pivots) - 2):
+        p1, p2, p3 = pivots[i], pivots[i+1], pivots[i+2]
+        if p1['type'] == 'H' and p2['type'] == 'L' and p3['type'] == 'H':
+            h1, l1, h2 = p1['val'], p2['val'], p3['val']
+            # شرط المثالية: القمتان متساويتان بنسبة 1.5% والقاع أعمق بوضوح
+            if abs(h1 - h2) / max(h1, h2) <= 0.015 and l1 < min(h1, h2) * 0.98:
+                neckline = l1
+                height = max(h1, h2) - neckline
+                candidates.append({
+                    "name": "Double Top", "bias": "Bearish", "match": 95.0,
+                    "nodes": [(p1['idx'], h1), (p2['idx'], l1), (p3['idx'], h2)],
+                    "entry_trigger": neckline, 
+                    "neckline_start_idx": p2['idx'], # يبدأ تماماً من القاع بين القمتين
+                    "sl": max(h1, h2) * 1.001, "tp": neckline - height
+                })
 
     # ---------------------------------------------------------
-    # 1. DOUBLE BOTTOM (W)
+    # B. DOUBLE BOTTOM (W) -> Requiring Sequence: [L1, H1, L2]
     # ---------------------------------------------------------
-    m_db = match(l_val[-1], l_val[-2])
-    if m_db > 0 and h_val[-1] > l_val[-1]:
-        neckline = max(h_val[-2], h_val[-1])
-        height = neckline - min(l_val[-2], l_val[-1])
-        candidates.append({
-            "name": "Double Bottom", "bias": "Bullish", "match": m_db,
-            "nodes": [(l_idx[-2], l_val[-2]), (h_idx[-2], h_val[-2]), (l_idx[-1], l_val[-1])],
-            "entry_trigger": neckline, "neckline_start_idx": h_idx[-2],
-            "sl": min(l_val[-2], l_val[-1]) * 0.999, "tp": neckline + height
-        })
+    for i in range(len(pivots) - 2):
+        p1, p2, p3 = pivots[i], pivots[i+1], pivots[i+2]
+        if p1['type'] == 'L' and p2['type'] == 'H' and p3['type'] == 'L':
+            l1, h1, l2 = p1['val'], p2['val'], p3['val']
+            # شرط المثالية: القاعان متساويان بنسبة 1.5% والقمة أعلى بوضوح
+            if abs(l1 - l2) / max(l1, l2) <= 0.015 and h1 > max(l1, l2) * 1.02:
+                neckline = h1
+                height = neckline - min(l1, l2)
+                candidates.append({
+                    "name": "Double Bottom", "bias": "Bullish", "match": 95.0,
+                    "nodes": [(p1['idx'], l1), (p2['idx'], h1), (p3['idx'], l2)],
+                    "entry_trigger": neckline, 
+                    "neckline_start_idx": p2['idx'], # يبدأ تماماً من القمة بين القاعين
+                    "sl": min(l1, l2) * 0.999, "tp": neckline + height
+                })
 
     # ---------------------------------------------------------
-    # 2. DOUBLE TOP (M)
+    # C. INVERSE HEAD AND SHOULDERS -> Sequence: [L1, H1, L2, H2, L3]
     # ---------------------------------------------------------
-    m_dt = match(h_val[-1], h_val[-2])
-    if m_dt > 0 and l_val[-1] < h_val[-1]:
-        neckline = min(l_val[-2], l_val[-1])
-        height = max(h_val[-2], h_val[-1]) - neckline
-        candidates.append({
-            "name": "Double Top", "bias": "Bearish", "match": m_dt,
-            "nodes": [(h_idx[-2], h_val[-2]), (l_idx[-2], l_val[-2]), (h_idx[-1], h_val[-1])],
-            "entry_trigger": neckline, "neckline_start_idx": l_idx[-2],
-            "sl": max(h_val[-2], h_val[-1]) * 1.001, "tp": neckline - height
-        })
+    for i in range(len(pivots) - 4):
+        p1, p2, p3, p4, p5 = pivots[i], pivots[i+1], pivots[i+2], pivots[i+3], pivots[i+4]
+        if [p['type'] for p in [p1, p2, p3, p4, p5]] == ['L', 'H', 'L', 'H', 'L']:
+            l1, h1, l2, h2, l3 = p1['val'], p2['val'], p3['val'], p4['val'], p5['val']
+            
+            # الشروط الهندسية الصارمة 100%:
+            # 1. الرأس (L2) أعمق بوضوح من الكتف الأيسر (L1) والكتف الأيمن (L3)
+            # 2. تماثل الكتفين (L1 و L3) بفارق لا يتعدى 2%
+            is_head_deeper = (l2 < l1) and (l2 < l3)
+            shoulder_symmetry = abs(l1 - l3) / max(l1, l3) <= 0.02
+            head_prominence = (min(l1, l3) - l2) >= (max(h1, h2) - min(l1, l3)) * 0.3
+            
+            if is_head_deeper and shoulder_symmetry and head_prominence:
+                neckline = max(h1, h2)
+                height = neckline - l2
+                candidates.append({
+                    "name": "Inverse Head and Shoulders", "bias": "Bullish", "match": 98.0,
+                    "nodes": [(p1['idx'], l1), (p2['idx'], h1), (p3['idx'], l2), (p4['idx'], h2), (p5['idx'], l3)],
+                    "entry_trigger": neckline, 
+                    "neckline_start_idx": p2['idx'], # يبدأ من القمة الأولى الفاصلة H1
+                    "sl": l3 * 0.999, "tp": neckline + height
+                })
 
     # ---------------------------------------------------------
-    # 3. HEAD AND SHOULDERS
+    # D. HEAD AND SHOULDERS -> Sequence: [H1, L1, H2, L2, H3]
     # ---------------------------------------------------------
-    if h_val[-2] > h_val[-3] and h_val[-2] > h_val[-1]:
-        m_hs = match(h_val[-3], h_val[-1])
-        if m_hs > 0:
-            neckline = min(l_val[-2], l_val[-3])
-            height = h_val[-2] - neckline
-            candidates.append({
-                "name": "Head and Shoulders", "bias": "Bearish", "match": m_hs,
-                "nodes": [(h_idx[-3], h_val[-3]), (l_idx[-3], l_val[-3]), (h_idx[-2], h_val[-2]), (l_idx[-2], l_val[-2]), (h_idx[-1], h_val[-1])],
-                "entry_trigger": neckline, "neckline_start_idx": l_idx[-3],
-                "sl": h_val[-1] * 1.001, "tp": neckline - height
-            })
-
-    # ---------------------------------------------------------
-    # 4. INVERSE HEAD AND SHOULDERS
-    # ---------------------------------------------------------
-    if l_val[-2] < l_val[-3] and l_val[-2] < l_val[-1]:
-        m_ihs = match(l_val[-3], l_val[-1])
-        if m_ihs > 0:
-            neckline = max(h_val[-2], h_val[-3])
-            height = neckline - l_val[-2]
-            candidates.append({
-                "name": "Inverse Head and Shoulders", "bias": "Bullish", "match": m_ihs,
-                "nodes": [(l_idx[-3], l_val[-3]), (h_idx[-3], h_val[-3]), (l_idx[-2], l_val[-2]), (h_idx[-2], h_val[-2]), (l_idx[-1], l_val[-1])],
-                "entry_trigger": neckline, "neckline_start_idx": h_idx[-3],
-                "sl": l_val[-1] * 0.999, "tp": neckline + height
-            })
-
-    # ---------------------------------------------------------
-    # 5. TRIPLE TOP
-    # ---------------------------------------------------------
-    if len(h_val) >= 3:
-        m_tp1 = match(h_val[-1], h_val[-2])
-        m_tp2 = match(h_val[-2], h_val[-3])
-        if m_tp1 > 0 and m_tp2 > 0:
-            neckline = min(l_val[-2], l_val[-3])
-            height = max(h_val[-3], h_val[-2], h_val[-1]) - neckline
-            candidates.append({
-                "name": "Triple Top", "bias": "Bearish", "match": (m_tp1 + m_tp2) / 2,
-                "nodes": [(h_idx[-3], h_val[-3]), (l_idx[-3], l_val[-3]), (h_idx[-2], h_val[-2]), (l_idx[-2], l_val[-2]), (h_idx[-1], h_val[-1])],
-                "entry_trigger": neckline, "neckline_start_idx": l_idx[-3],
-                "sl": max(h_val) * 1.001, "tp": neckline - height
-            })
-
-    # ---------------------------------------------------------
-    # 6. TRIPLE BOTTOM
-    # ---------------------------------------------------------
-    if len(l_val) >= 3:
-        m_tb1 = match(l_val[-1], l_val[-2])
-        m_tb2 = match(l_val[-2], l_val[-3])
-        if m_tb1 > 0 and m_tb2 > 0:
-            neckline = max(h_val[-2], h_val[-3])
-            height = neckline - min(l_val[-3], l_val[-2], l_val[-1])
-            candidates.append({
-                "name": "Triple Bottom", "bias": "Bullish", "match": (m_tb1 + m_tb2) / 2,
-                "nodes": [(l_idx[-3], l_val[-3]), (h_idx[-3], h_val[-3]), (l_idx[-2], l_val[-2]), (h_idx[-2], h_val[-2]), (l_idx[-1], l_val[-1])],
-                "entry_trigger": neckline, "neckline_start_idx": h_idx[-3],
-                "sl": min(l_val) * 0.999, "tp": neckline + height
-            })
-
-    # ---------------------------------------------------------
-    # 7. ASCENDING TRIANGLE
-    # ---------------------------------------------------------
-    if match(h_val[-1], h_val[-2]) > 80 and l_val[-1] > l_val[-2]:
-        resistance = max(h_val[-1], h_val[-2])
-        height = resistance - l_val[-2]
-        candidates.append({
-            "name": "Ascending Triangle", "bias": "Bullish", "match": 85.0,
-            "nodes": [(l_idx[-2], l_val[-2]), (h_idx[-2], h_val[-2]), (l_idx[-1], l_val[-1]), (h_idx[-1], h_val[-1])],
-            "entry_trigger": resistance, "neckline_start_idx": h_idx[-2],
-            "sl": l_val[-1] * 0.999, "tp": resistance + height
-        })
-
-    # ---------------------------------------------------------
-    # 8. DESCENDING TRIANGLE
-    # ---------------------------------------------------------
-    if match(l_val[-1], l_val[-2]) > 80 and h_val[-1] < h_val[-2]:
-        support = min(l_val[-1], l_val[-2])
-        height = h_val[-2] - support
-        candidates.append({
-            "name": "Descending Triangle", "bias": "Bearish", "match": 85.0,
-            "nodes": [(h_idx[-2], h_val[-2]), (l_idx[-2], l_val[-2]), (h_idx[-1], h_val[-1]), (l_idx[-1], l_val[-1])],
-            "entry_trigger": support, "neckline_start_idx": l_idx[-2],
-            "sl": h_val[-1] * 1.001, "tp": support - height
-        })
-
-    # ---------------------------------------------------------
-    # 9. SYMMETRICAL TRIANGLE
-    # ---------------------------------------------------------
-    if h_val[-1] < h_val[-2] and l_val[-1] > l_val[-2]:
-        candidates.append({
-            "name": "Symmetrical Triangle", "bias": "Bullish", "match": 80.0,
-            "nodes": [(l_idx[-2], l_val[-2]), (h_idx[-2], h_val[-2]), (l_idx[-1], l_val[-1]), (h_idx[-1], h_val[-1])],
-            "entry_trigger": h_val[-1], "neckline_start_idx": l_idx[-2],
-            "sl": l_val[-1] * 0.999, "tp": h_val[-1] + (h_val[-2] - l_val[-2])
-        })
-
-    # ---------------------------------------------------------
-    # 10. RISING WEDGE
-    # ---------------------------------------------------------
-    if h_val[-1] > h_val[-2] and l_val[-1] > l_val[-2] and (h_val[-1] - h_val[-2]) < (l_val[-1] - l_val[-2]):
-        candidates.append({
-            "name": "Rising Wedge", "bias": "Bearish", "match": 82.0,
-            "nodes": [(l_idx[-2], l_val[-2]), (h_idx[-2], h_val[-2]), (l_idx[-1], l_val[-1]), (h_idx[-1], h_val[-1])],
-            "entry_trigger": l_val[-1], "neckline_start_idx": l_idx[-2],
-            "sl": h_val[-1] * 1.001, "tp": l_val[-1] - (h_val[-2] - l_val[-2])
-        })
-
-    # ---------------------------------------------------------
-    # 11. FALLING WEDGE
-    # ---------------------------------------------------------
-    if h_val[-1] < h_val[-2] and l_val[-1] < l_val[-2] and abs(h_val[-1] - h_val[-2]) > abs(l_val[-1] - l_val[-2]):
-        candidates.append({
-            "name": "Falling Wedge", "bias": "Bullish", "match": 82.0,
-            "nodes": [(h_idx[-2], h_val[-2]), (l_idx[-2], l_val[-2]), (h_idx[-1], h_val[-1]), (l_idx[-1], l_val[-1])],
-            "entry_trigger": h_val[-1], "neckline_start_idx": h_idx[-2],
-            "sl": l_val[-1] * 0.999, "tp": h_val[-1] + (h_val[-2] - l_val[-2])
-        })
-
-    # ---------------------------------------------------------
-    # 12. BROADENING TOP (MEGAPHONE)
-    # ---------------------------------------------------------
-    if h_val[-1] > h_val[-2] and l_val[-1] < l_val[-2]:
-        candidates.append({
-            "name": "Broadening Top", "bias": "Bearish", "match": 78.0,
-            "nodes": [(h_idx[-2], h_val[-2]), (l_idx[-2], l_val[-2]), (h_idx[-1], h_val[-1]), (l_idx[-1], l_val[-1])],
-            "entry_trigger": l_val[-1], "neckline_start_idx": l_idx[-2],
-            "sl": h_val[-1] * 1.001, "tp": l_val[-1] - (h_val[-1] - l_val[-1])
-        })
-
-    # ---------------------------------------------------------
-    # 13. ROUNDING BOTTOM (SAUCER)
-    # ---------------------------------------------------------
-    if l_val[-1] > l_val[-2] and l_val[-2] < l_val[-3]:
-        candidates.append({
-            "name": "Rounding Bottom", "bias": "Bullish", "match": 80.0,
-            "nodes": [(l_idx[-3], l_val[-3]), (l_idx[-2], l_val[-2]), (l_idx[-1], l_val[-1])],
-            "entry_trigger": max(h_val[-2], h_val[-1]), "neckline_start_idx": h_idx[-2],
-            "sl": l_val[-2] * 0.999, "tp": max(h_val[-2], h_val[-1]) + (max(h_val[-2], h_val[-1]) - l_val[-2])
-        })
-
-    # ---------------------------------------------------------
-    # 14. RECTANGLE TOP
-    # ---------------------------------------------------------
-    if match(h_val[-1], h_val[-2]) > 90 and match(l_val[-1], l_val[-2]) > 90:
-        candidates.append({
-            "name": "Rectangle Top", "bias": "Bearish", "match": 85.0,
-            "nodes": [(h_idx[-2], h_val[-2]), (l_idx[-2], l_val[-2]), (h_idx[-1], h_val[-1]), (l_idx[-1], l_val[-1])],
-            "entry_trigger": min(l_val[-1], l_val[-2]), "neckline_start_idx": l_idx[-2],
-            "sl": max(h_val) * 1.001, "tp": min(l_val) - (max(h_val) - min(l_val))
-        })
-
-    # ---------------------------------------------------------
-    # 15. RECTANGLE BOTTOM
-    # ---------------------------------------------------------
-    if match(h_val[-1], h_val[-2]) > 90 and match(l_val[-1], l_val[-2]) > 90:
-        candidates.append({
-            "name": "Rectangle Bottom", "bias": "Bullish", "match": 85.0,
-            "nodes": [(l_idx[-2], l_val[-2]), (h_idx[-2], h_val[-2]), (l_idx[-1], l_val[-1]), (h_idx[-1], h_val[-1])],
-            "entry_trigger": max(h_val[-1], h_val[-2]), "neckline_start_idx": h_idx[-2],
-            "sl": min(l_val) * 0.999, "tp": max(h_val) + (max(h_val) - min(l_val))
-        })
+    for i in range(len(pivots) - 4):
+        p1, p2, p3, p4, p5 = pivots[i], pivots[i+1], pivots[i+2], pivots[i+3], pivots[i+4]
+        if [p['type'] for p in [p1, p2, p3, p4, p5]] == ['H', 'L', 'H', 'L', 'H']:
+            h1, l1, h2, l2, h3 = p1['val'], p2['val'], p3['val'], p4['val'], p5['val']
+            
+            # الشروط الهندسية الصارمة:
+            is_head_higher = (h2 > h1) and (h2 > h3)
+            shoulder_symmetry = abs(h1 - h3) / max(h1, h3) <= 0.02
+            head_prominence = (h2 - max(h1, h3)) >= (max(h1, h3) - min(l1, l2)) * 0.3
+            
+            if is_head_higher and shoulder_symmetry and head_prominence:
+                neckline = min(l1, l2)
+                height = h2 - neckline
+                candidates.append({
+                    "name": "Head and Shoulders", "bias": "Bearish", "match": 98.0,
+                    "nodes": [(p1['idx'], h1), (p2['idx'], l1), (p3['idx'], h2), (p4['idx'], l2), (p5['idx'], h3)],
+                    "entry_trigger": neckline, 
+                    "neckline_start_idx": p2['idx'], # يبدأ من القاع الأول الفاصل L1
+                    "sl": h3 * 1.001, "tp": neckline - height
+                })
 
     if not candidates:
         return {"name": "NO PATTERN DETECTED", "bias": "Neutral", "match": 0}
 
-    best_pattern = max(candidates, key=lambda x: x["match"])
+    # اختيار النمط الأحدث والأكثر تطابقاً
+    best_pattern = candidates[-1]
     return best_pattern
 
 # ==========================================================
@@ -285,7 +193,7 @@ def run_full_analysis(df):
     p_data = scan_and_calculate_logic(df)
     
     if p_data["name"] == "NO PATTERN DETECTED":
-        return {"df": df, "pattern": "NO PATTERN DETECTED", "signal": "WAITING", "reason": "No valid geometry.", "entry": 0, "sl": 0, "tp": 0, "nodes": []}
+        return {"df": df, "pattern": "NO PATTERN DETECTED", "signal": "WAITING", "reason": "No valid ideal pattern.", "entry": 0, "sl": 0, "tp": 0, "nodes": []}
 
     latest = df.iloc[-1]
     close, ema50, ema200, rsi = latest['Close'], latest['EMA50'], latest['EMA200'], latest['RSI']
