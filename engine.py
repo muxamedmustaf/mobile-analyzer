@@ -237,7 +237,7 @@ def run_full_analysis(df):
             
     elif bias == "Bearish":
         if close < trigger and close < ema200 and c_rsi and macd_hist < 0:
-            final_signal = "STRONG SELL" # Fixed syntax error
+            final_signal = "STRONG SELL"
         else:
             reasons.append(f"Waiting for closed bar < {trigger:.4f} & Bearish MACD Hist.")
 
@@ -247,5 +247,5 @@ def run_full_analysis(df):
         "entry": round(close, 4), "sl": round(sl, 4), "tp": round(tp, 4),
         "trigger": round(trigger, 4), "nodes": p_data["nodes"],
         "neckline_start_idx": p_data.get("neckline_start_idx", p_data["nodes"][0][0])
-        }
-            
+                    }
+    
