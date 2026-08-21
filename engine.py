@@ -2,15 +2,14 @@ import pandas as pd
 import numpy as np
 
 # ==========================================================
-# PATTERN ENGINE - STRICT CATALOG MATCHING
+# CONFIGURATION & STRICT TOLERANCES
 # ==========================================================
 
 MAX_PATTERN_AGE = 25
-MAX_VARIATION = 0.008  # تقليص نسبة التباين لزيادة الصرامة هندسياً
-MIN_CORRECTION = 0.25
+MAX_VARIATION = 0.008  # سماحية 0.8% للتأكد من أفقية الدعوم (L) والمقاومات (H)
 
 # ==========================================================
-# 1. INDICATORS
+# 1. INDICATORS & ZIGZAG
 # ==========================================================
 
 def calculate_indicators(df):
@@ -26,10 +25,6 @@ def calculate_indicators(df):
     df["RSI"] = 100 - (100 / (1 + rs))
     df["RSI"] = df["RSI"].fillna(50.0)
     return df
-
-# ==========================================================
-# 2. ZIGZAG & PIVOTS
-# ==========================================================
 
 def calculate_zigzag(df, depth=12, deviation=5, backstep=3):
     df = df.copy()
@@ -84,58 +79,68 @@ def get_chronological_pivots(df):
     return clean
 
 # ==========================================================
-# 3. HELPERS
+# 2. HELPERS
 # ==========================================================
 
 def variation(a, b):
     return abs(a - b) / max(abs(a), abs(b), 1e-9)
 
-def equal_within_1_percent(a, b):
-    return variation(a, b) <= MAX_VARIATION
+def equal_tolerance(a, b, tol=MAX_VARIATION):
+    return variation(a, b) <= tol
 
 def recent_pattern(points, current_pos):
-    if not points:
-        return False
-    return (current_pos - points[-1]["pos"] <= MAX_PATTERN_AGE)
+    return (current_pos - points[-1]["pos"] <= MAX_PATTERN_AGE) if points else False
 
-def make_result(name, bias, points, trigger, sl, tp, score, trigger_type="neckline"):
+def make_result(name, bias, points, entry, sl, tp, score=100):
     return {
         "name": name,
         "bias": bias,
         "match": float(score),
         "nodes": [(p["idx"], p["val"]) for p in points],
-        "entry_trigger": float(trigger),
-        "trigger_type": trigger_type,
+        "entry_trigger": float(entry),
         "sl": float(sl),
         "tp": float(tp),
         "neckline_start_idx": points[1]["idx"] if len(points) > 1 else points[0]["idx"]
     }
 
+def build_top_banner_text(pattern_name, bias, signal, reason, match_pct, current_price, trigger, rsi_val):
+    if pattern_name == "NO PATTERN DETECTED":
+        line1 = "النمط السعري: لا يوجد نمط هندسي مكتمل حالياً | الحركة العامة: نطاق عرضي تذبذبي."
+    else:
+        line1 = f"النمط السعري: تشكّل {pattern_name} بنسبة تطابق {match_pct:.0f}% | الاتجاه المتوقع: {bias}."
+
+    if signal in ["STRONG BUY", "STRONG SELL"]:
+        line2 = f"الحالة الراهنة: السعر الحالي المغلق ({current_price:.4f}) أكد الاختراق للمستوى ({trigger:.4f}) | RSI: {rsi_val:.1f}."
+    else:
+        line2 = f"الحالة الراهنة: الزوج في وضع الانتظار بناءً على الشمعة المغلقة ({current_price:.4f}) | السبب: {reason}."
+
+    return f"SIGNAL: {signal}\n{line1}\n{line2}"
+
 # ==========================================================
-# SECTION A: REVERSAL PATTERNS
+# 3. PATTERN DETECTORS (STRICT MATCHING)
 # ==========================================================
 
-def detect_double_top(pivots, current_pos):
-    if len(pivots) < 3: return None
-    p = pivots[-3:]
-    if [x["type"] for x in p] != ["H", "L", "H"]: return None
-    h1, l1, h2 = [x["val"] for x in p]
+def detect_descending_triangle(pivots, current_pos):
+    if len(pivots) < 5: return None
+    p = pivots[-5:]
+    if [x["type"] for x in p] != ["H", "L", "H", "L", "H"]: return None
     if not recent_pattern(p, current_pos): return None
-    if not equal_within_1_percent(h1, h2): return None
-    correction = h1 - l1
-    if correction <= 0: return None
-    return make_result("Double Top", "Bearish", p, l1, max(h1, h2) * 1.001, l1 - correction, 100)
+    h1, l1, h2, l2, h3 = [x["val"] for x in p]
+    if not equal_tolerance(l1, l2): return None
+    if not (h2 < h1 and h3 < h2): return None
+    support = min(l1, l2)
+    return make_result("Descending Triangle", "Bearish", p, support, h3 * 1.001, support - (h1 - support))
 
-def detect_double_bottom(pivots, current_pos):
-    if len(pivots) < 3: return None
-    p = pivots[-3:]
-    if [x["type"] for x in p] != ["L", "H", "L"]: return None
-    l1, h1, l2 = [x["val"] for x in p]
+def detect_ascending_triangle(pivots, current_pos):
+    if len(pivots) < 5: return None
+    p = pivots[-5:]
+    if [x["type"] for x in p] != ["L", "H", "L", "H", "L"]: return None
     if not recent_pattern(p, current_pos): return None
-    if not equal_within_1_percent(l1, l2): return None
-    correction = h1 - l1
-    if correction <= 0: return None
-    return make_result("Double Bottom", "Bullish", p, h1, min(l1, l2) * 0.999, h1 + correction, 100)
+    l1, h1, l2, h2, l3 = [x["val"] for x in p]
+    if not equal_tolerance(h1, h2): return None
+    if not (l2 > l1 and l3 > l2): return None
+    resistance = max(h1, h2)
+    return make_result("Ascending Triangle", "Bullish", p, resistance, l3 * 0.999, resistance + (resistance - l1))
 
 def detect_head_shoulders(pivots, current_pos):
     if len(pivots) < 5: return None
@@ -144,133 +149,40 @@ def detect_head_shoulders(pivots, current_pos):
     if not recent_pattern(p, current_pos): return None
     h1, l1, h2, l2, h3 = [x["val"] for x in p]
     if not (h2 > h1 and h2 > h3): return None
-    if not equal_within_1_percent(h1, h3): return None
+    if not equal_tolerance(h1, h3, tol=0.012): return None
     neckline = min(l1, l2)
-    height = h2 - neckline
-    if height <= 0: return None
-    return make_result("Head and Shoulders", "Bearish", p, neckline, h2 * 1.001, neckline - height, 100)
+    return make_result("Head & Shoulders", "Bearish", p, neckline, h3 * 1.001, neckline - (h2 - neckline))
 
-def detect_inverse_head_shoulders(pivots, current_pos):
+def detect_inverted_head_shoulders(pivots, current_pos):
     if len(pivots) < 5: return None
     p = pivots[-5:]
     if [x["type"] for x in p] != ["L", "H", "L", "H", "L"]: return None
     if not recent_pattern(p, current_pos): return None
     l1, h1, l2, h2, l3 = [x["val"] for x in p]
     if not (l2 < l1 and l2 < l3): return None
-    if not equal_within_1_percent(l1, l3): return None
+    if not equal_tolerance(l1, l3, tol=0.012): return None
     neckline = max(h1, h2)
-    height = neckline - l2
-    if height <= 0: return None
-    return make_result("Inverse Head and Shoulders", "Bullish", p, neckline, l2 * 0.999, neckline + height, 100)
+    return make_result("Inverted H&S", "Bullish", p, neckline, l3 * 0.999, neckline + (neckline - l2))
 
-# ==========================================================
-# SECTION B: CONTINUATION PATTERNS
-# ==========================================================
-
-def detect_rectangle(pivots, current_pos):
-    if len(pivots) < 6: return None
-    p = pivots[-6:]
-    highs = [x["val"] for x in p if x["type"] == "H"]
-    lows = [x["val"] for x in p if x["type"] == "L"]
-    if len(highs) < 2 or len(lows) < 2: return None
-    if not recent_pattern(p, current_pos): return None
-    
-    # مطابقة صارمة للمستطيل: قمم أفقية تماماً وقيعان أفقية تماماً دون ميل
-    if not (equal_within_1_percent(highs[0], highs[-1]) and equal_within_1_percent(lows[0], lows[-1])):
-        return None
-        
-    resistance = max(highs)
-    support = min(lows)
-    height = resistance - support
-    bias = "Bullish" if highs[-1] >= highs[0] else "Bearish"
-    
-    return make_result("Rectangle", bias, p, resistance if bias=="Bullish" else support, support*0.999 if bias=="Bullish" else resistance*1.001, resistance+height if bias=="Bullish" else support-height, 100)
-
-def detect_bull_flag(pivots, current_pos):
-    if len(pivots) < 5: return None
-    p = pivots[-5:]
-    if [x["type"] for x in p] != ["L", "H", "L", "H", "L"]: return None
-    if not recent_pattern(p, current_pos): return None
-    l1, h1, l2, h2, l3 = [x["val"] for x in p]
-    pole = h1 - l1
-    if pole <= 0: return None
-    if not (h2 < h1 and l3 < l2): return None
-    return make_result("Bull Flag", "Bullish", p, h2, l3 * 0.999, h2 + pole, 100)
-
-def detect_bear_flag(pivots, current_pos):
+def detect_bearish_flag(pivots, current_pos):
     if len(pivots) < 5: return None
     p = pivots[-5:]
     if [x["type"] for x in p] != ["H", "L", "H", "L", "H"]: return None
     if not recent_pattern(p, current_pos): return None
     h1, l1, h2, l2, h3 = [x["val"] for x in p]
     pole = h1 - l1
-    if pole <= 0: return None
-    if not (l2 > l1 and h3 > h2): return None
-    return make_result("Bear Flag", "Bearish", p, l2, h3 * 1.001, l2 - pole, 100)
+    if pole <= 0 or not (l2 > l1 and h2 > h1 and h3 > h2): return None
+    return make_result("Bearish Flag", "Bearish", p, l2, h3 * 1.001, l2 - pole)
 
-def detect_pennant(pivots, current_pos):
-    if len(pivots) < 5: return None
-    p = pivots[-5:]
-    if not recent_pattern(p, current_pos): return None
-    
-    if [x["type"] for x in p] == ["L", "H", "L", "H", "L"]:
-        l1, h1, l2, h2, l3 = [x["val"] for x in p]
-        pole = h1 - l1
-        if pole > 0 and h2 < h1 and l2 > l1 and l3 > l2:
-            return make_result("Pennant", "Bullish", p, h2, l3 * 0.999, h2 + pole, 100)
-            
-    if [x["type"] for x in p] == ["H", "L", "H", "L", "H"]:
-        h1, l1, h2, l2, h3 = [x["val"] for x in p]
-        pole = h1 - l1
-        if pole > 0 and l2 > l1 and h2 < h1 and h3 < h2:
-            return make_result("Pennant", "Bearish", p, l2, h3 * 1.001, l2 - pole, 100)
-    return None
-
-# ==========================================================
-# SECTION C: BILATERAL / WEDGES PATTERNS
-# ==========================================================
-
-def detect_ascending_triangle(pivots, current_pos):
+def detect_bullish_flag(pivots, current_pos):
     if len(pivots) < 5: return None
     p = pivots[-5:]
     if [x["type"] for x in p] != ["L", "H", "L", "H", "L"]: return None
     if not recent_pattern(p, current_pos): return None
     l1, h1, l2, h2, l3 = [x["val"] for x in p]
-    
-    # شرط صارم: مقاومة أفقية ثابتة + قيعان صاعدة حصراً
-    if not equal_within_1_percent(h1, h2): return None
-    if not (l2 > l1 and l3 > l2): return None
-    
-    resistance = max(h1, h2)
-    support_min = min(l1, l2, l3)
-    height = resistance - support_min
-    return make_result("Ascending Triangle", "Bullish", p, resistance, support_min * 0.999, resistance + height, 100)
-
-def detect_descending_triangle(pivots, current_pos):
-    if len(pivots) < 5: return None
-    p = pivots[-5:]
-    if [x["type"] for x in p] != ["H", "L", "H", "L", "H"]: return None
-    if not recent_pattern(p, current_pos): return None
-    h1, l1, h2, l2, h3 = [x["val"] for x in p]
-    
-    # شرط صارم: دعم أفقية ثابتة + قمم هابطة حصراً
-    if not equal_within_1_percent(l1, l2): return None
-    if not (h2 < h1 and h3 < h2): return None
-    
-    support = min(l1, l2)
-    resistance_max = max(h1, h2, h3)
-    height = resistance_max - support
-    return make_result("Descending Triangle", "Bearish", p, support, resistance_max * 1.001, support - height, 100)
-
-def detect_symmetrical_triangle(pivots, current_pos):
-    if len(pivots) < 5: return None
-    p = pivots[-5:]
-    if [x["type"] for x in p] != ["H", "L", "H", "L", "H"]: return None
-    if not recent_pattern(p, current_pos): return None
-    h1, l1, h2, l2, h3 = [x["val"] for x in p]
-    
-    if not (h2 < h1 and h3 < h2 and l2 > l1): return None
-    return make_result("Symmetrical Triangle", "Neutral", p, h3, h1 * 1.001, l1, 100)
+    pole = h1 - l1
+    if pole <= 0 or not (h2 < h1 and l2 < l1 and l3 < l2): return None
+    return make_result("Bullish Flag", "Bullish", p, h2, l3 * 0.999, h2 + pole)
 
 def detect_rising_wedge(pivots, current_pos):
     if len(pivots) < 5: return None
@@ -279,13 +191,10 @@ def detect_rising_wedge(pivots, current_pos):
     if not recent_pattern(p, current_pos): return None
     l1, h1, l2, h2, l3 = [x["val"] for x in p]
     if not (l2 > l1 and l3 > l2 and h2 > h1): return None
-    
     upper_slope = (h2 - h1) / max(p[3]["pos"] - p[1]["pos"], 1)
     lower_slope = (l3 - l1) / max(p[4]["pos"] - p[0]["pos"], 1)
     if lower_slope <= upper_slope: return None
-    
-    pattern_height = max(h1, h2) - min(l1, l2, l3)
-    return make_result("Rising Wedge", "Bearish", p, l3, max(h1, h2) * 1.001, l3 - pattern_height, 100)
+    return make_result("Rising Wedge", "Bearish", p, l3, max(h1, h2) * 1.001, l3 - (max(h1, h2) - min(l1, l2, l3)))
 
 def detect_falling_wedge(pivots, current_pos):
     if len(pivots) < 5: return None
@@ -294,12 +203,67 @@ def detect_falling_wedge(pivots, current_pos):
     if not recent_pattern(p, current_pos): return None
     h1, l1, h2, l2, h3 = [x["val"] for x in p]
     if not (h2 < h1 and h3 < h2 and l2 < l1): return None
-    
-    pattern_height = max(h1, h2, h3) - min(l1, l2)
-    return make_result("Falling Wedge", "Bullish", p, h3, min(l1, l2) * 0.999, h3 + pattern_height, 100)
+    upper_slope = abs(h3 - h1) / max(p[4]["pos"] - p[0]["pos"], 1)
+    lower_slope = abs(l2 - l1) / max(p[3]["pos"] - p[1]["pos"], 1)
+    if upper_slope <= lower_slope: return None
+    return make_result("Falling Wedge", "Bullish", p, h3, min(l1, l2) * 0.999, h3 + (max(h1, h2) - min(l1, l2)))
+
+def detect_double_top(pivots, current_pos):
+    if len(pivots) < 3: return None
+    p = pivots[-3:]
+    if [x["type"] for x in p] != ["H", "L", "H"]: return None
+    if not recent_pattern(p, current_pos): return None
+    h1, l1, h2 = [x["val"] for x in p]
+    if not equal_tolerance(h1, h2): return None
+    return make_result("Double Top", "Bearish", p, l1, max(h1, h2) * 1.001, l1 - (h1 - l1))
+
+def detect_double_bottom(pivots, current_pos):
+    if len(pivots) < 3: return None
+    p = pivots[-3:]
+    if [x["type"] for x in p] != ["L", "H", "L"]: return None
+    if not recent_pattern(p, current_pos): return None
+    l1, h1, l2 = [x["val"] for x in p]
+    if not equal_tolerance(l1, l2): return None
+    return make_result("Double Bottom", "Bullish", p, h1, min(l1, l2) * 0.999, h1 + (h1 - l1))
+
+def detect_triple_top(pivots, current_pos):
+    if len(pivots) < 5: return None
+    p = pivots[-5:]
+    if [x["type"] for x in p] != ["H", "L", "H", "L", "H"]: return None
+    if not recent_pattern(p, current_pos): return None
+    h1, l1, h2, l2, h3 = [x["val"] for x in p]
+    if not (equal_tolerance(h1, h2) and equal_tolerance(h2, h3)): return None
+    if not equal_tolerance(l1, l2): return None
+    neckline = min(l1, l2)
+    return make_result("Triple Top", "Bearish", p, neckline, max(h1, h2, h3) * 1.001, neckline - (max(h1, h2, h3) - neckline))
+
+def detect_triple_bottom(pivots, current_pos):
+    if len(pivots) < 5: return None
+    p = pivots[-5:]
+    if [x["type"] for x in p] != ["L", "H", "L", "H", "L"]: return None
+    if not recent_pattern(p, current_pos): return None
+    l1, h1, l2, h2, l3 = [x["val"] for x in p]
+    if not (equal_tolerance(l1, l2) and equal_tolerance(l2, l3)): return None
+    if not equal_tolerance(h1, h2): return None
+    neckline = max(h1, h2)
+    return make_result("Triple Bottom", "Bullish", p, neckline, min(l1, l2, l3) * 0.999, neckline + (neckline - min(l1, l2, l3)))
+
+def detect_symmetrical_triangle(pivots, current_pos):
+    if len(pivots) < 5: return None
+    p = pivots[-5:]
+    if not recent_pattern(p, current_pos): return None
+    if [x["type"] for x in p] == ["H", "L", "H", "L", "H"]:
+        h1, l1, h2, l2, h3 = [x["val"] for x in p]
+        if (h2 < h1 and h3 < h2) and (l2 > l1):
+            return make_result("Symmetrical Triangle", "Bearish", p, l2, h3 * 1.001, l2 - (h1 - l1))
+    if [x["type"] for x in p] == ["L", "H", "L", "H", "L"]:
+        l1, h1, l2, h2, l3 = [x["val"] for x in p]
+        if (l2 > l1 and l3 > l2) and (h2 < h1):
+            return make_result("Symmetrical Triangle", "Bullish", p, h2, l3 * 0.999, h2 + (h1 - l1))
+    return None
 
 # ==========================================================
-# 4. MASTER SCANNER & CONFIRMATION
+# 4. MASTER SCANNER & SIGNAL GENERATION
 # ==========================================================
 
 def scan_and_calculate_logic(df):
@@ -309,12 +273,13 @@ def scan_and_calculate_logic(df):
 
     current_pos = len(df) - 1
     detectors = [
-        detect_head_shoulders, detect_inverse_head_shoulders,
+        detect_descending_triangle, detect_ascending_triangle,
+        detect_head_shoulders, detect_inverted_head_shoulders,
+        detect_bearish_flag, detect_bullish_flag,
+        detect_rising_wedge, detect_falling_wedge,
         detect_double_top, detect_double_bottom,
-        detect_ascending_triangle, detect_descending_triangle,
-        detect_symmetrical_triangle, detect_rising_wedge,
-        detect_falling_wedge, detect_rectangle,
-        detect_bull_flag, detect_bear_flag, detect_pennant
+        detect_triple_top, detect_triple_bottom,
+        detect_symmetrical_triangle
     ]
 
     candidates = []
@@ -333,41 +298,39 @@ def scan_and_calculate_logic(df):
     return candidates[-1]
 
 def confirm_pattern(df, p_data):
+    # الاعتماد على الشمعة السابقة المغلقة كلياً لتفادي إعادة رسم الإشارة
     latest_closed = df.iloc[-2]
     close = float(latest_closed["Close"])
     ema50 = float(latest_closed["EMA50"])
     ema200 = float(latest_closed["EMA200"])
     rsi = float(latest_closed["RSI"])
+    
     bias = p_data["bias"]
     trigger = p_data["entry_trigger"]
     reasons = []
 
     if bias == "Neutral":
-        return ("WAITING", "Waiting for directional breakout.", close)
+        return ("WAITING", "بانتظار اختراق واضح للاتجاه.", close, rsi)
 
     if bias == "Bullish":
-        if close <= trigger: reasons.append("Waiting for bullish breakout")
-        if close <= ema50: reasons.append("Price below EMA50")
-        if close <= ema200: reasons.append("Price below EMA200")
-        if not (30 <= rsi <= 75): reasons.append("RSI out of 30-75 range")
+        if close <= trigger: reasons.append("السعر لم يخترق المقاومة بعد")
+        if close <= ema50: reasons.append("السعر أدنى من EMA50")
+        if close <= ema200: reasons.append("السعر أدنى من EMA200")
+        if not (30 <= rsi <= 75): reasons.append("RSI خارج النطاق المقبول")
+        
         if not reasons:
-            return ("STRONG BUY", "Bullish pattern confirmed with indicators.", close)
+            return ("STRONG BUY", "تأكيد النمط الصاعد مع المؤشرات", close, rsi)
 
     if bias == "Bearish":
-        if close >= trigger: reasons.append("Waiting for bearish breakout")
-        if close >= ema50: reasons.append("Price above EMA50")
-        if close >= ema200: reasons.append("Price above EMA200")
-        if not (30 <= rsi <= 75): reasons.append("RSI out of 30-75 range")
+        if close >= trigger: reasons.append("السعر لم يكسر الدعم بعد")
+        if close >= ema50: reasons.append("السعر أعلى من EMA50")
+        if close >= ema200: reasons.append("السعر أعلى من EMA200")
+        if not (30 <= rsi <= 75): reasons.append("RSI خارج النطاق المقبول")
+        
         if not reasons:
-            return ("STRONG SELL", "Bearish pattern confirmed with indicators.", close)
+            return ("STRONG SELL", "تأكيد النمط الهابط مع المؤشرات", close, rsi)
 
-    return ("WAITING", " | ".join(reasons), close)
-
-def build_analysis_text(pattern, bias, signal, reason, match_pct):
-    if pattern == "NO PATTERN DETECTED":
-        return "Pattern Analysis: No active pattern detected. Decision: WAIT."
-    decision = "BUY" if signal == "STRONG BUY" else "SELL" if signal == "STRONG SELL" else "WAIT"
-    return f"Pattern Analysis: {pattern} ({match_pct:.0f}% match). Bias: {bias}. Decision: {decision}. Reason: {reason}."
+    return ("WAITING", " | ".join(reasons), close, rsi)
 
 def run_full_analysis(df):
     df = calculate_indicators(df)
@@ -375,15 +338,28 @@ def run_full_analysis(df):
     p_data = scan_and_calculate_logic(df)
 
     if p_data["name"] == "NO PATTERN DETECTED":
+        latest_closed = df.iloc[-2]
+        close = float(latest_closed["Close"])
+        rsi = float(latest_closed["RSI"])
+        banner = build_top_banner_text("NO PATTERN DETECTED", "Neutral", "WAITING", "لا توجد حركة هندسية حديثة", 0, close, 0, rsi)
         return {
             "df": df, "pattern": "NO PATTERN DETECTED", "bias": "Neutral", "match_pct": 0,
-            "signal": "WAITING", "reason": "No active recent pattern found.",
-            "analysis_text": build_analysis_text("NO PATTERN DETECTED", "Neutral", "WAITING", "No pattern", 0),
+            "signal": "WAITING", "top_banner_text": banner,
             "entry": 0, "sl": 0, "tp": 0, "trigger": 0, "nodes": []
         }
 
-    signal, reason, close = confirm_pattern(df, p_data)
-    analysis_text = build_analysis_text(p_data["name"], p_data["bias"], signal, reason, p_data["match"])
+    signal, reason, close_price, rsi_val = confirm_pattern(df, p_data)
+    
+    banner = build_top_banner_text(
+        pattern_name=p_data["name"],
+        bias=p_data["bias"],
+        signal=signal,
+        reason=reason,
+        match_pct=p_data["match"],
+        current_price=close_price,
+        trigger=p_data["entry_trigger"],
+        rsi_val=rsi_val
+    )
 
     return {
         "df": df,
@@ -391,9 +367,8 @@ def run_full_analysis(df):
         "bias": p_data["bias"],
         "match_pct": round(p_data["match"], 2),
         "signal": signal,
-        "reason": reason,
-        "analysis_text": analysis_text,
-        "entry": round(close, 4),
+        "top_banner_text": banner,
+        "entry": round(close_price, 4),
         "sl": round(p_data["sl"], 4),
         "tp": round(p_data["tp"], 4),
         "trigger": round(p_data["entry_trigger"], 4),
