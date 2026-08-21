@@ -3,10 +3,14 @@ import yfinance as yf
 import plotly.graph_objects as go
 import pandas as pd
 
+# استيراد آمن يدعم ملف pp.py وأي اسم بديل دون أي تعارض
 try:
-    from pattern_engine import run_full_analysis
+    from pp import run_full_analysis
 except ImportError:
-    from engine import run_full_analysis
+    try:
+        from pattern_engine import run_full_analysis
+    except ImportError:
+        from engine import run_full_analysis
 
 st.set_page_config(page_title="Smart Market Analyzer", page_icon="📈", layout="wide", initial_sidebar_state="collapsed")
 
@@ -32,7 +36,6 @@ st.markdown(
     }
     .live-badge { border-radius: 30px; }
     
-    /* شريط أزرار تحكم الشارت العلوي */
     .chart-toolbar {
         display: flex;
         justify-content: space-between;
@@ -156,7 +159,6 @@ if run_scan:
         latest_rsi = df_res['RSI'].iloc[-1] if 'RSI' in df_res.columns else 0.0
         latest_close = df_res['Close'].iloc[-1]
 
-        # الترويسة العلوية للسعر و RSI
         st.markdown(f"""
         <div style="margin-top: 14px; margin-bottom: 15px;">
             <div style="font-size: 52px; font-weight: 500; color: #0B57D0; line-height: 1;">{latest_close:.4f}</div>
@@ -181,9 +183,6 @@ if run_scan:
             e2.metric("🛑 Struct SL", f"{result.get('sl', 'N/A')}")
             e3.metric("🏆 Proj. TP", f"{result.get('tp', 'N/A')}")
 
-        # ==========================================
-        # شريط أزرار التحكم العلوي فوق الشارت
-        # ==========================================
         st.markdown(f"""
         <div class="chart-toolbar">
             <div class="chart-toolbar-title">📈 Chart &bull; {symbol} &bull; {selected_tf}</div>
@@ -196,7 +195,6 @@ if run_scan:
         </div>
         """, unsafe_allow_html=True)
 
-        # بناء الرسم البياني
         fig = go.Figure()
         
         fig.add_trace(go.Candlestick(
@@ -206,22 +204,18 @@ if run_scan:
         
         nodes = result.get("nodes", [])
         if nodes:
-            # 1. ترتيب العقد زمنياً من اليسار لليمين لمنع أي تقاطع أو تداخل خطوط
             sorted_nodes = sorted(nodes, key=lambda item: pd.to_datetime(item[0]))
             x_nodes = [n[0] for n in sorted_nodes]
             y_nodes = [n[1] for n in sorted_nodes]
             
-            fill_color = "rgba(19, 115, 51, 0.08)" if result["bias"] == "Bullish" else "rgba(197, 34, 31, 0.08)"
             line_color = "#137333" if result["bias"] == "Bullish" else "#C5221F"
 
-            # رسم خط النمط الهندسي بترتيبه الصحيح
             fig.add_trace(go.Scatter(
                 x=x_nodes, y=y_nodes,
                 mode="lines+markers", line=dict(color=line_color, width=2),
                 marker=dict(size=6, color="#0B57D0"), name=f"{pattern}"
             ))
             
-            # 2. تصحيح خط العنق (Neckline): يبدأ أفقياً من بداية النمط ويمتد حتى نهاية الشارت
             trigger = result.get("trigger")
             if trigger and len(x_nodes) >= 2:
                 x_neckline_start = x_nodes[0]
