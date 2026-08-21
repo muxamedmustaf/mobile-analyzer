@@ -91,7 +91,7 @@ def scan_and_calculate_logic(df):
         return {"name": "NO PATTERN DETECTED", "bias": "Neutral", "match": 0}
 
     candidates = []
-    current_pos = len(df) - 1
+    current_bar_idx = len(df) - 1
 
     # ---------------------------------------------------------
     # A. DOUBLE TOP (M)
@@ -100,7 +100,7 @@ def scan_and_calculate_logic(df):
         p1, p2, p3 = pivots[i], pivots[i+1], pivots[i+2]
         if p1['type'] == 'H' and p2['type'] == 'L' and p3['type'] == 'H':
             p3_pos = df.index.get_loc(p3['idx'])
-            if (current_pos - p3_pos) > 20:
+            if (current_bar_idx - p3_pos) > 20:
                 continue
                 
             h1, l1, h2 = p1['val'], p2['val'], p3['val']
@@ -122,7 +122,7 @@ def scan_and_calculate_logic(df):
         p1, p2, p3 = pivots[i], pivots[i+1], pivots[i+2]
         if p1['type'] == 'L' and p2['type'] == 'H' and p3['type'] == 'L':
             p3_pos = df.index.get_loc(p3['idx'])
-            if (current_pos - p3_pos) > 20:
+            if (current_bar_idx - p3_pos) > 20:
                 continue
                 
             l1, h1, l2 = p1['val'], p2['val'], p3['val']
@@ -144,7 +144,7 @@ def scan_and_calculate_logic(df):
         p1, p2, p3, p4, p5 = pivots[i], pivots[i+1], pivots[i+2], pivots[i+3], pivots[i+4]
         
         p5_pos = df.index.get_loc(p5['idx'])
-        if (current_pos - p5_pos) > 20:
+        if (current_bar_idx - p5_pos) > 20:
             continue
             
         if [p['type'] for p in [p1, p2, p3, p4, p5]] == ['L', 'H', 'L', 'H', 'L']:
@@ -161,7 +161,7 @@ def scan_and_calculate_logic(df):
                 pos2 = df.index.get_loc(idx2)
                 if pos2 != pos1:
                     slope = (val2 - val1) / (pos2 - pos1)
-                    neckline_at_current = val2 + slope * (current_pos - pos2)
+                    neckline_at_current = val2 + slope * (current_bar_idx - pos2)
                 else:
                     neckline_at_current = max(h1, h2)
                     
@@ -181,7 +181,7 @@ def scan_and_calculate_logic(df):
         p1, p2, p3, p4, p5 = pivots[i], pivots[i+1], pivots[i+2], pivots[i+3], pivots[i+4]
         
         p5_pos = df.index.get_loc(p5['idx'])
-        if (current_pos - p5_pos) > 20:
+        if (current_bar_idx - p5_pos) > 20:
             continue
             
         if [p['type'] for p in [p1, p2, p3, p4, p5]] == ['H', 'L', 'H', 'L', 'H']:
@@ -198,7 +198,7 @@ def scan_and_calculate_logic(df):
                 pos2 = df.index.get_loc(idx2)
                 if pos2 != pos1:
                     slope = (val2 - val1) / (pos2 - pos1)
-                    neckline_at_current = val2 + slope * (current_pos - pos2)
+                    neckline_at_current = val2 + slope * (current_bar_idx - pos2)
                 else:
                     neckline_at_current = min(l1, l2)
                     
@@ -255,4 +255,4 @@ def run_full_analysis(df):
         "trigger": round(trigger, 4), "nodes": p_data["nodes"],
         "neckline_start_idx": p_data.get("neckline_start_idx", p_data["nodes"][0][0])
                 }
-                
+        
