@@ -99,6 +99,86 @@ def equal_tolerance(a, b, tol=MAX_VARIATION):
 def recent_pattern(points, current_pos):
     return (current_pos - points[-1]["pos"] <= MAX_PATTERN_AGE) if points else False
 
+# ==========================================================
+# 2. GEOMETRY HELPERS (UPDATED FOR ADVANCED PATTERNS)
+# ==========================================================
+
+def calculate_slope(y2, y1, x2, x1):
+    """حساب ميل الخط الهندسي بين نقطتين."""
+    dx = x2 - x1
+    if dx == 0:
+        return 0.0
+    return (y2 - y1) / float(dx)
+
+def variation(a, b):
+    return abs(a - b) / max(abs(a), abs(b), 1e-9)
+
+def equal_tolerance(a, b, rel_tol=0.001, abs_tol=0.0005):
+    """
+    تحقق من التطابق باستخدام التفاوت النسبي أو المطلق.
+    abs_tol بقيمة 0.0005 تمثل نطاق 5 نقاط (Pips) تقريباً لأزواج الدولار.
+    """
+    is_rel_close = variation(a, b) <= rel_tol
+    is_abs_close = abs(a - b) <= abs_tol
+    return is_rel_close or is_abs_close
+
+def get_line_equation(p1, p2):
+    """
+    استخراج معادلة الخط (y = mx + b).
+    يعيد الميل (m) ونقطة التقاطع مع محور الصادات (b).
+    """
+    m = calculate_slope(p1["val"], p2["val"], p1["idx"], p2["idx"])
+    b = p1["val"] - (m * p1["idx"])
+    return m, b
+
+def check_parallel(m1, m2, tol=0.0001):
+    """التحقق مما إذا كان الخطان متوازيين (لالتقاط الأعلام والقنوات)."""
+    return abs(m1 - m2) <= tol
+
+def find_intersection(m1, b1, m2, b2):
+    """
+    إيجاد نقطة التقاء خط المقاومة (H) وخط الدعم (L).
+    يعيد (x, y) لقمة المثلث أو الوتد (Apex).
+    """
+    if check_parallel(m1, m2):
+        return None, None # خطوط متوازية لا تتقاطع
+    
+    x = (b2 - b1) / (m1 - m2)
+    y = m1 * x + b1
+    return x, y
+
+def classify_pattern_shape(m_H, m_L, flat_tol=0.0002):
+    """
+    تصنيف الشكل الهندسي بناءً على ميل خط المقاومة (m_H) وميل خط الدعم (m_L).
+    """
+    # 1. النماذج الأفقية (Double/Triple Tops & Bottoms, Rectangles)
+    if abs(m_H) <= flat_tol and abs(m_L) <= flat_tol:
+        return "Horizontal_Channel"
+        
+    # 2. الأعلام (Bullish/Bearish Flags)
+    if check_parallel(m_H, m_L):
+        return "Flag_or_Channel"
+        
+    # 3. الأوتاد (Rising/Falling Wedges)
+    # الوتد الصاعد: كلا الميلين موجب، لكن دعم القيعان أصعد من المقاومة أو العكس
+    if m_H > flat_tol and m_L > flat_tol:
+        return "Rising_Wedge"
+    if m_H < -flat_tol and m_L < -flat_tol:
+        return "Falling_Wedge"
+        
+    # 4. المثلثات (Triangles)
+    if abs(m_H) <= flat_tol and m_L > flat_tol:
+        return "Ascending_Triangle"
+    if abs(m_L) <= flat_tol and m_H < -flat_tol:
+        return "Descending_Triangle"
+    if m_H < -flat_tol and m_L > flat_tol:
+        return "Symmetrical_Triangle"
+        
+    return "Unknown_Geometry"
+
+def recent_pattern(points, current_pos, max_age):
+    return (current_pos - points[-1]["idx"] <= max_age) if points else False
+
 def make_result(name, bias, points, entry, sl, tp, score=100):
     return {
         "name": name,
