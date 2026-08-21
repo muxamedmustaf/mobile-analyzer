@@ -206,7 +206,7 @@ if run_scan:
         
         nodes = result.get("nodes", [])
         if nodes:
-            # 1. ترتيب العقد زمنياً حسب التاريخ لمنع أي تقاطع أو "اضراب" في الرسم
+            # 1. ترتيب العقد زمنياً من اليسار لليمين لمنع أي تقاطع أو تداخل خطوط
             sorted_nodes = sorted(nodes, key=lambda item: pd.to_datetime(item[0]))
             x_nodes = [n[0] for n in sorted_nodes]
             y_nodes = [n[1] for n in sorted_nodes]
@@ -214,18 +214,17 @@ if run_scan:
             fill_color = "rgba(19, 115, 51, 0.08)" if result["bias"] == "Bullish" else "rgba(197, 34, 31, 0.08)"
             line_color = "#137333" if result["bias"] == "Bullish" else "#C5221F"
 
-            # رسم خط النمط بترتيبه الصحيح (بدون ربط النهاية بالبداية بشكل عشوائي)
+            # رسم خط النمط الهندسي بترتيبه الصحيح
             fig.add_trace(go.Scatter(
                 x=x_nodes, y=y_nodes,
                 mode="lines+markers", line=dict(color=line_color, width=2),
                 marker=dict(size=6, color="#0B57D0"), name=f"{pattern}"
             ))
             
-            # 2. تصحيح خط العنق (Neckline): يبدأ من القاع بين القمتين (العقدة الوسطى) ويمتد إلى نهاية الشارت
+            # 2. تصحيح خط العنق (Neckline): يبدأ أفقياً من بداية النمط ويمتد حتى نهاية الشارت
             trigger = result.get("trigger")
             if trigger and len(x_nodes) >= 2:
-                # العنق يبدأ من النقطة الوسطى للنمط (القاع/القمة الفاصلة) حتى نهاية الشارت المعروض
-                x_neckline_start = x_nodes[len(x_nodes) // 2] if len(x_nodes) >= 3 else x_nodes[0]
+                x_neckline_start = x_nodes[0]
                 x_neckline_end = df_res.index[-1]
                 
                 fig.add_trace(go.Scatter(
