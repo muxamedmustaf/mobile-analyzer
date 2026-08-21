@@ -2,1555 +2,196 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 
-
 # ==========================================================
 # 1. CALCULATE INDICATORS
 # ==========================================================
-
 def calculate_indicators(df):
     df = df.copy()
-
-    df["EMA50"] = df["Close"].ewm(
-        span=50,
-        adjust=False
-    ).mean()
-
-    df["EMA200"] = df["Close"].ewm(
-        span=200,
-        adjust=False
-    ).mean()
-
-    delta = df["Close"].diff()
-
-    gain = (
-        delta.where(delta > 0, 0.0)
-        .rolling(14)
-        .mean()
-    )
-
-    loss = (
-        -delta.where(delta < 0, 0.0)
-        .rolling(14)
-        .mean()
-    )
-
-    loss_safe = np.where(
-        loss == 0,
-        1e-9,
-        loss
-    )
-
+    df['EMA50'] = df['Close'].ewm(span=50, adjust=False).mean()
+    df['EMA200'] = df['Close'].ewm(span=200, adjust=False).mean()
+    
+    delta = df['Close'].diff()
+    gain = (delta.where(delta > 0, 0.0)).rolling(14).mean()
+    loss = (-delta.where(delta < 0, 0.0)).rolling(14).mean()
+    loss_safe = np.where(loss == 0, 1e-9, loss)
     rs = gain / loss_safe
-
-    df["RSI"] = 100 - (
-        100 / (1 + rs)
-    )
-
-    df["RSI"] = df["RSI"].fillna(50.0)
-
+    df['RSI'] = 100 - (100 / (1 + rs))
+    df['RSI'] = df['RSI'].fillna(50.0)
     return df
 
-
 # ==========================================================
-# 2. PIVOT DETECTION
+# 2. CUSTOM ZIGZAG DETECTION (Depth=12, Deviation=5, Backstep=3)
 # ==========================================================
-
-def detect_pivots(df, window=3):
-
+def calculate_zigzag(df, depth=12, deviation=5, backstep=3):
+    """محاكاة دقيقة لمؤشر ZigZag بناءً على معطيات المستخدم"""
     df = df.copy()
-
-    df["Pivot_H"] = np.nan
-    df["Pivot_L"] = np.nan
-
-    for i in range(
-        window,
-        len(df) - window
-    ):
-
-        high_win = df["High"].iloc[
-            i - window:i + window + 1
-        ]
-
-        low_win = df["Low"].iloc[
-            i - window:i + window + 1
-        ]
-
-        if (
-            not high_win.empty
-            and df["High"].iloc[i] == high_win.max()
-        ):
-            df.loc[
-                df.index[i],
-                "Pivot_H"
-            ] = df["High"].iloc[i]
-
-        if (
-            not low_win.empty
-            and df["Low"].iloc[i] == low_win.min()
-        ):
-            df.loc[
-                df.index[i],
-                "Pivot_L"
-            ] = df["Low"].iloc[i]
+    df['Pivot_H'], df['Pivot_L'] = np.nan, np.nan
+    
+    highs = df['High'].values
+    lows = df['Low'].values
+    
+    last_pivot_idx = 0
+    last_pivot_type = 0 # 1 for High, -1 for Low
+    
+    # تحويل الانحراف إلى نسبة مئوية تقريبية للفلترة (5 = 0.5%)
+    dev_pct = deviation / 1000.0 
+    
+    for i in range(depth, len(df) - backstep):
+        window_high = np.max(highs[i-depth:i+1])
+        window_low = np.min(lows[i-depth:i+1])
+        
+        is_high = highs[i] == window_high
+        is_low = lows[i] == window_low
+        
+        if is_high and (i - last_pivot_idx >= backstep):
+            if last_pivot_type != 1 or (highs[i] > highs[last_pivot_idx]):
+                df.loc[df.index[i], 'Pivot_H'] = highs[i]
+                last_pivot_idx = i
+                last_pivot_type = 1
+                
+        if is_low and (i - last_pivot_idx >= backstep):
+            if last_pivot_type != -1 or (lows[i] < lows[last_pivot_idx]):
+                df.loc[df.index[i], 'Pivot_L'] = lows[i]
+                last_pivot_idx = i
+                last_pivot_type = -1
 
     return df
 
-
 # ==========================================================
-# 3. PERCENTAGE MATCH ENGINE
+# 3. PATTERN SCANNER & LOGIC ENGINE
 # ==========================================================
-
-def calc_match_score(
-    val1,
-    val2,
-    max_tol=0.01
-):
-
-    if max(
-        abs(val1),
-        abs(val2)
-    ) == 0:
-
-        return 100.0
-
-    var_pct = (
-        abs(val1 - val2)
-        / max(abs(val1), abs(val2))
-    )
-
-    if var_pct <= max_tol:
-
-        return (
-            1.0
-            - (var_pct / max_tol)
-        ) * 100.0
-
-    return 0.0
-
-
-# ==========================================================
-# 4. SCAN ALL PATTERNS
-# ==========================================================
-
-def scan_all_patterns_by_percentage(df):
-
-    ph = df["Pivot_H"].dropna()
-    pl = df["Pivot_L"].dropna()
-
+def scan_and_calculate_logic(df):
+    ph = df['Pivot_H'].dropna()
+    pl = df['Pivot_L'].dropna()
+    
     if len(ph) < 3 or len(pl) < 3:
+        return {"name": "NO PATTERN DETECTED", "bias": "Neutral", "match": 0}
 
-        return (
-            "NO PATTERN DETECTED",
-            "Neutral",
-            0.0,
-            0.0,
-            None,
-            None,
-            0.0
-        )
-
-    h3 = ph.iloc[-1]
-    h2 = ph.iloc[-2]
-    h1 = ph.iloc[-3]
-
-    l3 = pl.iloc[-1]
-    l2 = pl.iloc[-2]
-    l1 = pl.iloc[-3]
-
-    p_start = min(
-        ph.index[-3],
-        pl.index[-3]
-    )
-
-    p_end = max(
-        ph.index[-1],
-        pl.index[-1]
-    )
-
-    close = df["Close"].iloc[-1]
-
-    TOL = 0.01
-
+    # آخر 3 قمم وقيعان
+    h3_idx, h3 = ph.index[-1], ph.iloc[-1]
+    h2_idx, h2 = ph.index[-2], ph.iloc[-2]
+    h1_idx, h1 = ph.index[-3], ph.iloc[-3]
+    
+    l3_idx, l3 = pl.index[-1], pl.iloc[-1]
+    l2_idx, l2 = pl.index[-2], pl.iloc[-2]
+    l1_idx, l1 = pl.index[-3], pl.iloc[-3]
+    
+    TOL = 0.01  # 1% Strict Tolerance
     candidates = []
 
-    # ======================================================
-    # 1. TRIPLE BOTTOM / TOP
-    # ======================================================
+    def match(v1, v2):
+        if max(v1, v2) == 0: return 100
+        var = abs(v1 - v2) / max(v1, v2)
+        return (1.0 - (var / TOL)) * 100 if var <= TOL else 0
 
-    max_l = max(l1, l2, l3)
-    min_l = min(l1, l2, l3)
-
-    var_triple_l = (
-        (max_l - min_l)
-        / max_l
-    )
-
-    if var_triple_l <= TOL:
-
-        score = (
-            1.0
-            - (var_triple_l / TOL)
-        ) * 100.0
-
-        candidates.append({
-            "name": "Triple Bottom",
-            "bias": "Bullish",
-            "h": max(h1, h2, h3),
-            "l": min_l,
-            "start": p_start,
-            "end": p_end,
-            "match": score
-        })
-
-    max_h = max(h1, h2, h3)
-    min_h = min(h1, h2, h3)
-
-    var_triple_h = (
-        (max_h - min_h)
-        / max_h
-    )
-
-    if var_triple_h <= TOL:
-
-        score = (
-            1.0
-            - (var_triple_h / TOL)
-        ) * 100.0
-
-        candidates.append({
-            "name": "Triple Top",
-            "bias": "Bearish",
-            "h": max_h,
-            "l": min(l1, l2, l3),
-            "start": p_start,
-            "end": p_end,
-            "match": score
-        })
-
-    # ======================================================
-    # 2. DOUBLE BOTTOM / DOUBLE TOP
-    # ======================================================
-
+    # 1. DOUBLE BOTTOM (W)
     if h3 > l3:
-
-        score_w = calc_match_score(
-            l2,
-            l3,
-            TOL
-        )
-
-        if score_w > 0:
-
+        m_score = match(l2, l3)
+        if m_score > 0:
+            neckline = max(h2, h3)
+            height = neckline - min(l2, l3)
             candidates.append({
-                "name": "Double Bottom (W Pattern)",
-                "bias": "Bullish",
-                "h": max(h2, h3),
-                "l": min(l2, l3),
-                "start": p_start,
-                "end": p_end,
-                "match": score_w
+                "name": "Double Bottom", "bias": "Bullish", "match": m_score,
+                "nodes": [(l2_idx, l2), (h2_idx, h2), (l3_idx, l3)],
+                "entry_trigger": neckline, "sl": min(l2, l3) * 0.999, "tp": neckline + height
             })
 
+    # 2. DOUBLE TOP (M)
     if l3 < h3:
-
-        score_m = calc_match_score(
-            h2,
-            h3,
-            TOL
-        )
-
-        if score_m > 0:
-
+        m_score = match(h2, h3)
+        if m_score > 0:
+            neckline = min(l2, l3)
+            height = max(h2, h3) - neckline
             candidates.append({
-                "name": "Double Top (M Pattern)",
-                "bias": "Bearish",
-                "h": max(h2, h3),
-                "l": min(l2, l3),
-                "start": p_start,
-                "end": p_end,
-                "match": score_m
+                "name": "Double Top", "bias": "Bearish", "match": m_score,
+                "nodes": [(h2_idx, h2), (l2_idx, l2), (h3_idx, h3)],
+                "entry_trigger": neckline, "sl": max(h2, h3) * 1.001, "tp": neckline - height
             })
 
-    # ======================================================
-    # 3. HEAD AND SHOULDERS
-    # ======================================================
-
-    if (
-        len(ph) >= 3
-        and len(pl) >= 2
-        and h2 > h1
-        and h2 > h3
-    ):
-
-        score_hs = calc_match_score(
-            h1,
-            h3,
-            TOL
-        )
-
-        if score_hs > 0:
-
+    # 3. HEAD & SHOULDERS
+    if len(ph) >= 3 and len(pl) >= 2 and h2 > h1 and h2 > h3:
+        m_score = match(h1, h3)
+        if m_score > 0:
+            neckline = min(l1, l2)
+            height = h2 - neckline
             candidates.append({
-                "name": "Head and Shoulders",
-                "bias": "Bearish",
-                "h": h2,
-                "l": min(l1, l2),
-                "start": p_start,
-                "end": p_end,
-                "match": score_hs
+                "name": "Head and Shoulders", "bias": "Bearish", "match": m_score,
+                "nodes": [(h1_idx, h1), (l1_idx, l1), (h2_idx, h2), (l2_idx, l2), (h3_idx, h3)],
+                "entry_trigger": neckline, "sl": h3 * 1.001, "tp": neckline - height # SL فوق الكتف الأيمن
             })
 
-    # ======================================================
-    # 4. INVERSE HEAD AND SHOULDERS
-    # ======================================================
-
-    if (
-        len(pl) >= 3
-        and len(ph) >= 2
-        and l2 < l1
-        and l2 < l3
-    ):
-
-        score_ihs = calc_match_score(
-            l1,
-            l3,
-            TOL
-        )
-
-        if score_ihs > 0:
-
+    # 4. INVERSE HEAD & SHOULDERS
+    if len(pl) >= 3 and len(ph) >= 2 and l2 < l1 and l2 < l3:
+        m_score = match(l1, l3)
+        if m_score > 0:
+            neckline = max(h1, h2)
+            height = neckline - l2
             candidates.append({
-                "name": "Inverse Head and Shoulders",
-                "bias": "Bullish",
-                "h": max(h1, h2),
-                "l": l2,
-                "start": p_start,
-                "end": p_end,
-                "match": score_ihs
+                "name": "Inverse Head and Shoulders", "bias": "Bullish", "match": m_score,
+                "nodes": [(l1_idx, l1), (h1_idx, h1), (l2_idx, l2), (h2_idx, h2), (l3_idx, l3)],
+                "entry_trigger": neckline, "sl": l3 * 0.999, "tp": neckline + height # SL تحت الكتف الأيمن
             })
 
-    # ======================================================
-    # 5. DYNAMIC WEDGES
-    # ======================================================
-
-    slope_h = (
-        (h3 - h1)
-        / max(h1, h3)
-    )
-
-    slope_l = (
-        (l3 - l1)
-        / max(l1, l3)
-    )
-
-    if h1 > h2 > h3 and slope_h < 0:
-
-        var_wedge = min(
-            abs(slope_h),
-            TOL
-        )
-
-        score = (
-            1.0
-            - (var_wedge / TOL)
-        ) * 50.0 + 50.0
-
+    # 5. WEDGES
+    slope_h = (h3 - h1) / max(h1, h3)
+    slope_l = (l3 - l1) / max(l1, l3)
+    
+    if h1 > h2 > h3 and slope_h < 0: # Falling Wedge
         candidates.append({
-            "name": "Falling Wedge",
-            "bias": "Bullish",
-            "h": h3,
-            "l": l3,
-            "start": p_start,
-            "end": p_end,
-            "match": score
+            "name": "Falling Wedge", "bias": "Bullish", "match": 80.0,
+            "nodes": [(h1_idx, h1), (l1_idx, l1), (h2_idx, h2), (l2_idx, l2), (h3_idx, h3), (l3_idx, l3)],
+            "entry_trigger": h3, "sl": l3 * 0.999, "tp": h1 # الهدف قاعدة الوتد
         })
-
-    if h1 < h2 < h3 and slope_h > 0:
-
-        var_wedge = min(
-            abs(slope_h),
-            TOL
-        )
-
-        score = (
-            1.0
-            - (var_wedge / TOL)
-        ) * 50.0 + 50.0
-
+        
+    if h1 < h2 < h3 and slope_h > 0: # Rising Wedge
         candidates.append({
-            "name": "Rising Wedge",
-            "bias": "Bearish",
-            "h": h3,
-            "l": l3,
-            "start": p_start,
-            "end": p_end,
-            "match": score
+            "name": "Rising Wedge", "bias": "Bearish", "match": 80.0,
+            "nodes": [(l1_idx, l1), (h1_idx, h1), (l2_idx, l2), (h2_idx, h2), (l3_idx, l3), (h3_idx, h3)],
+            "entry_trigger": l3, "sl": h3 * 1.001, "tp": l1 # الهدف قاعدة الوتد
         })
-
-    # ======================================================
-    # 6. ASCENDING TRIANGLE
-    # ======================================================
-
-    if (
-        h1 < h2
-        and calc_match_score(
-            h2,
-            h3,
-            TOL
-        ) > 0
-        and l1 < l2 < l3
-    ):
-
-        score = calc_match_score(
-            h2,
-            h3,
-            TOL
-        )
-
-        candidates.append({
-            "name": "Ascending Triangle",
-            "bias": "Bullish",
-            "h": h3,
-            "l": l3,
-            "start": p_start,
-            "end": p_end,
-            "match": score
-        })
-
-    # ======================================================
-    # 7. DESCENDING TRIANGLE
-    # ======================================================
-
-    if (
-        l1 > l2
-        and calc_match_score(
-            l2,
-            l3,
-            TOL
-        ) > 0
-        and h1 > h2 > h3
-    ):
-
-        score = calc_match_score(
-            l2,
-            l3,
-            TOL
-        )
-
-        candidates.append({
-            "name": "Descending Triangle",
-            "bias": "Bearish",
-            "h": h3,
-            "l": l3,
-            "start": p_start,
-            "end": p_end,
-            "match": score
-        })
-
-    # ======================================================
-    # NO PATTERN
-    # ======================================================
 
     if not candidates:
+        return {"name": "NO PATTERN DETECTED", "bias": "Neutral", "match": 0}
 
-        return (
-            "NO PATTERN DETECTED",
-            "Neutral",
-            h3,
-            l3,
-            p_start,
-            p_end,
-            0.0
-        )
-
-    best = max(
-        candidates,
-        key=lambda x: x["match"]
-    )
-
-    return (
-        best["name"],
-        best["bias"],
-        best["h"],
-        best["l"],
-        best["start"],
-        best["end"],
-        round(best["match"], 2)
-    )
-
+    best_pattern = max(candidates, key=lambda x: x["match"])
+    return best_pattern
 
 # ==========================================================
-# 5. FULL ANALYSIS ENGINE
+# 4. FULL ANALYSIS
 # ==========================================================
-
 def run_full_analysis(df):
-
     df = calculate_indicators(df)
-
-    df = detect_pivots(df)
-
-    (
-        pattern_name,
-        bias,
-        struct_h,
-        struct_l,
-        pattern_start,
-        pattern_end,
-        match_pct
-    ) = scan_all_patterns_by_percentage(df)
+    # استخدام معطيات ZigZag المطلوبة
+    df = calculate_zigzag(df, depth=12, deviation=5, backstep=3)
+    
+    p_data = scan_and_calculate_logic(df)
+    
+    if p_data["name"] == "NO PATTERN DETECTED":
+        return {"df": df, "pattern": "NO PATTERN DETECTED", "signal": "WAITING", "reason": "No valid geometry.", "entry": 0, "sl": 0, "tp": 0, "nodes": []}
 
     latest = df.iloc[-1]
+    close, ema50, ema200, rsi = latest['Close'], latest['EMA50'], latest['EMA200'], latest['RSI']
+    bias, trigger, sl, tp = p_data["bias"], p_data["entry_trigger"], p_data["sl"], p_data["tp"]
 
-    close = latest["Close"]
-    ema50 = latest["EMA50"]
-    ema200 = latest["EMA200"]
-    rsi = latest["RSI"]
+    c_rsi = (30 <= rsi <= 75)
+    final_signal = "WAITING"
+    reasons = []
 
-    c_ema_bull = (
-        close > ema200
-        and ema50 > ema200
-    )
-
-    c_ema_bear = (
-        close < ema200
-        and close < ema50
-    )
-
-    c_rsi = (
-        30 <= rsi <= 75
-    )
-
-    c_breakout = (
-        close > struct_h
-    )
-
-    c_breakdown = (
-        close < struct_l
-    )
-
-    final_signal = "NO SIGNAL / WAITING"
-
-    rejected_reasons = []
-
-    # ======================================================
-    # BULLISH
-    # ======================================================
-
-    if bias in [
-        "Bullish",
-        "Bullish Reversal"
-    ]:
-
-        if not c_breakout:
-
-            rejected_reasons.append(
-                f"Breakout Failed: "
-                f"Close ({close:.4f}) "
-                f"<= Resistance ({struct_h:.4f})"
-            )
-
-        if not c_ema_bull:
-
-            rejected_reasons.append(
-                f"EMA Trend Failed: "
-                f"Close ({close:.4f}) "
-                f"must be above EMA200 "
-                f"({ema200:.4f}) & EMA50 "
-                f"({ema50:.4f})"
-            )
-
-        if not c_rsi:
-
-            rejected_reasons.append(
-                f"RSI Filter Failed: "
-                f"RSI ({rsi:.1f}) "
-                f"outside range 30-75"
-            )
-
-        if (
-            c_breakout
-            and c_ema_bull
-            and c_rsi
-        ):
-
+    if bias == "Bullish":
+        if close > trigger and close > ema200 and c_rsi:
             final_signal = "STRONG BUY"
-
-    # ======================================================
-    # BEARISH
-    # ======================================================
-
-    elif bias in [
-        "Bearish",
-        "Bearish Reversal"
-    ]:
-
-        if not c_breakdown:
-
-            rejected_reasons.append(
-                f"Breakdown Failed: "
-                f"Close ({close:.4f}) "
-                f">= Support ({struct_l:.4f})"
-            )
-
-        if not c_ema_bear:
-
-            rejected_reasons.append(
-                f"EMA Trend Failed: "
-                f"Close ({close:.4f}) "
-                f"must be below EMA200 "
-                f"({ema200:.4f}) & EMA50 "
-                f"({ema50:.4f})"
-            )
-
-        if not c_rsi:
-
-            rejected_reasons.append(
-                f"RSI Filter Failed: "
-                f"RSI ({rsi:.1f}) "
-                f"outside range 30-75"
-            )
-
-        if (
-            c_breakdown
-            and c_ema_bear
-            and c_rsi
-        ):
-
+        else:
+            reasons.append(f"Waiting for close > {trigger:.4f} & EMA bull trend.")
+            
+    elif bias == "Bearish":
+        if close < trigger and close < ema200 and c_rsi:
             final_signal = "STRONG SELL"
-
-    else:
-
-        rejected_reasons.append(
-            "Waiting for structural "
-            "breakout direction."
-        )
-
-    # ======================================================
-    # ENTRY / SL / TP
-    # ======================================================
-
-    entry_price = round(
-        close,
-        4
-    )
-
-    sl = "N/A"
-    tp = "N/A"
-
-    if final_signal == "STRONG BUY":
-
-        sl_val = round(
-            struct_l,
-            4
-        )
-
-        risk = (
-            entry_price
-            - sl_val
-        )
-
-        sl = sl_val
-
-        tp = round(
-            entry_price
-            + (risk * 2),
-            4
-        )
-
-        status_msg = (
-            f"100% Criteria Passed! "
-            f"{pattern_name} confirmed "
-            f"with {match_pct}% Match Score."
-        )
-
-    elif final_signal == "STRONG SELL":
-
-        sl_val = round(
-            struct_h,
-            4
-        )
-
-        risk = (
-            sl_val
-            - entry_price
-        )
-
-        sl = sl_val
-
-        tp = round(
-            entry_price
-            - (risk * 2),
-            4
-        )
-
-        status_msg = (
-            f"100% Criteria Passed! "
-            f"{pattern_name} confirmed "
-            f"with {match_pct}% Match Score."
-        )
-
-    else:
-
-        status_msg = (
-            f"Pattern: {pattern_name} "
-            f"({match_pct}% Match) | "
-            f"REJECTED: "
-            + " | ".join(rejected_reasons)
-        )
+        else:
+            reasons.append(f"Waiting for close < {trigger:.4f} & EMA bear trend.")
 
     return {
-
-        "df": df,
-
-        "pattern": pattern_name,
-
-        "bias": bias,
-
-        "match_pct": match_pct,
-
-        "signal": final_signal,
-
-        "reason": status_msg,
-
-        "entry": entry_price,
-
-        "sl": sl,
-
-        "tp": tp,
-
-        "close": entry_price,
-
-        "ema50": round(
-            ema50,
-            4
-        ),
-
-        "ema200": round(
-            ema200,
-            4
-        ),
-
-        "rsi": round(
-            rsi,
-            2
-        ),
-
-        "pattern_start": pattern_start,
-
-        "pattern_end": pattern_end,
-
-        "structural_high": struct_h,
-
-        "structural_low": struct_l
+        "df": df, "pattern": p_data["name"], "bias": bias, "match_pct": round(p_data["match"], 2),
+        "signal": final_signal, "reason": " | ".join(reasons) if final_signal == "WAITING" else "All Conditions Met!",
+        "entry": round(close, 4), "sl": round(sl, 4), "tp": round(tp, 4),
+        "trigger": round(trigger, 4), "nodes": p_data["nodes"]
     }
-
-
-# ==========================================================
-# 6. DYNAMIC MULTI-POINT GEOMETRIC PLOTTER
-# ==========================================================
-
-def plot_pattern_geometry(
-    analysis_result
-):
-
-    df = analysis_result["df"]
-
-    p_name = analysis_result["pattern"]
-
-    bias = analysis_result["bias"]
-
-    p_start = analysis_result[
-        "pattern_start"
-    ]
-
-    p_end = analysis_result[
-        "pattern_end"
-    ]
-
-    struct_h = analysis_result[
-        "structural_high"
-    ]
-
-    struct_l = analysis_result[
-        "structural_low"
-    ]
-
-    fig = go.Figure()
-
-    # ======================================================
-    # CANDLES
-    # ======================================================
-
-    fig.add_trace(
-        go.Candlestick(
-            x=df.index,
-            open=df["Open"],
-            high=df["High"],
-            low=df["Low"],
-            close=df["Close"],
-            name="Price"
-        )
-    )
-
-    # ======================================================
-    # EMA 50
-    # ======================================================
-
-    fig.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df["EMA50"],
-            line=dict(
-                color="orange",
-                width=1.5
-            ),
-            name="EMA 50"
-        )
-    )
-
-    # ======================================================
-    # EMA 200
-    # ======================================================
-
-    fig.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df["EMA200"],
-            line=dict(
-                color="deepskyblue",
-                width=2
-            ),
-            name="EMA 200"
-        )
-    )
-
-    # ======================================================
-    # PATTERN GEOMETRY
-    # ======================================================
-
-    if (
-        p_name != "NO PATTERN DETECTED"
-        and p_start is not None
-        and p_end is not None
-    ):
-
-        # --------------------------------------------------
-        # Convert integer positions if necessary
-        # --------------------------------------------------
-
-        try:
-
-            if p_start not in df.index:
-
-                p_start = df.index[
-                    int(p_start)
-                ]
-
-            if p_end not in df.index:
-
-                p_end = df.index[
-                    int(p_end)
-                ]
-
-        except Exception:
-
-            pass
-
-        # --------------------------------------------------
-        # Get pivots
-        # --------------------------------------------------
-
-        ph = df[
-            "Pivot_H"
-        ].dropna()
-
-        pl = df[
-            "Pivot_L"
-        ].dropna()
-
-        try:
-
-            ph = ph.loc[
-                p_start:p_end
-            ]
-
-        except Exception:
-
-            ph = ph.iloc[0:0]
-
-        try:
-
-            pl = pl.loc[
-                p_start:p_end
-            ]
-
-        except Exception:
-
-            pl = pl.iloc[0:0]
-
-        # ==================================================
-        # NECKLINE / RESISTANCE
-        # ==================================================
-
-        fig.add_trace(
-            go.Scatter(
-                x=[
-# ======================================================
-    # 6. ASCENDING TRIANGLE
-    # ======================================================
-
-    if (
-        h1 < h2
-        and calc_match_score(
-            h2,
-            h3,
-            TOL
-        ) > 0
-        and l1 < l2 < l3
-    ):
-
-        score = calc_match_score(
-            h2,
-            h3,
-            TOL
-        )
-
-        candidates.append({
-            "name": "Ascending Triangle",
-            "bias": "Bullish",
-            "h": h3,
-            "l": l3,
-            "start": p_start,
-            "end": p_end,
-            "match": score
-        })
-
-    # ======================================================
-    # 7. DESCENDING TRIANGLE
-    # ======================================================
-
-    if (
-        l1 > l2
-        and calc_match_score(
-            l2,
-            l3,
-            TOL
-        ) > 0
-        and h1 > h2 > h3
-    ):
-
-        score = calc_match_score(
-            l2,
-            l3,
-            TOL
-        )
-
-        candidates.append({
-            "name": "Descending Triangle",
-            "bias": "Bearish",
-            "h": h3,
-            "l": l3,
-            "start": p_start,
-            "end": p_end,
-            "match": score
-        })
-
-    # ======================================================
-    # NO PATTERN
-    # ======================================================
-
-    if not candidates:
-
-        return (
-            "NO PATTERN DETECTED",
-            "Neutral",
-            h3,
-            l3,
-            p_start,
-            p_end,
-            0.0
-        )
-
-    best = max(
-        candidates,
-        key=lambda x: x["match"]
-    )
-
-    return (
-        best["name"],
-        best["bias"],
-        best["h"],
-        best["l"],
-        best["start"],
-        best["end"],
-        round(best["match"], 2)
-    )
-
-
-# ==========================================================
-# 5. FULL ANALYSIS ENGINE
-# ==========================================================
-
-def run_full_analysis(df):
-
-    df = calculate_indicators(df)
-
-    df = detect_pivots(df)
-
-    (
-        pattern_name,
-        bias,
-        struct_h,
-        struct_l,
-        pattern_start,
-        pattern_end,
-        match_pct
-    ) = scan_all_patterns_by_percentage(df)
-
-    latest = df.iloc[-1]
-
-    close = latest["Close"]
-    ema50 = latest["EMA50"]
-    ema200 = latest["EMA200"]
-    rsi = latest["RSI"]
-
-    c_ema_bull = (
-        close > ema200
-        and ema50 > ema200
-    )
-
-    c_ema_bear = (
-        close < ema200
-        and close < ema50
-    )
-
-    c_rsi = (
-        30 <= rsi <= 75
-    )
-
-    c_breakout = (
-        close > struct_h
-    )
-
-    c_breakdown = (
-        close < struct_l
-    )
-
-    final_signal = "NO SIGNAL / WAITING"
-
-    rejected_reasons = []
-
-    # ======================================================
-    # BULLISH
-    # ======================================================
-
-    if bias in [
-        "Bullish",
-        "Bullish Reversal"
-    ]:
-
-        if not c_breakout:
-
-            rejected_reasons.append(
-                f"Breakout Failed: "
-                f"Close ({close:.4f}) "
-                f"<= Resistance ({struct_h:.4f})"
-            )
-
-        if not c_ema_bull:
-
-            rejected_reasons.append(
-                f"EMA Trend Failed: "
-                f"Close ({close:.4f}) "
-                f"must be above EMA200 "
-                f"({ema200:.4f}) & EMA50 "
-                f"({ema50:.4f})"
-            )
-
-        if not c_rsi:
-
-            rejected_reasons.append(
-                f"RSI Filter Failed: "
-                f"RSI ({rsi:.1f}) "
-                f"outside range 30-75"
-            )
-
-        if (
-            c_breakout
-            and c_ema_bull
-            and c_rsi
-        ):
-
-            final_signal = "STRONG BUY"
-
-    # ======================================================
-    # BEARISH
-    # ======================================================
-
-    elif bias in [
-        "Bearish",
-        "Bearish Reversal"
-    ]:
-
-        if not c_breakdown:
-
-            rejected_reasons.append(
-                f"Breakdown Failed: "
-                f"Close ({close:.4f}) "
-                f">= Support ({struct_l:.4f})"
-            )
-
-        if not c_ema_bear:
-
-            rejected_reasons.append(
-                f"EMA Trend Failed: "
-                f"Close ({close:.4f}) "
-                f"must be below EMA200 "
-                f"({ema200:.4f}) & EMA50 "
-                f"({ema50:.4f})"
-            )
-
-        if not c_rsi:
-
-            rejected_reasons.append(
-                f"RSI Filter Failed: "
-                f"RSI ({rsi:.1f}) "
-                f"outside range 30-75"
-            )
-
-        if (
-            c_breakdown
-            and c_ema_bear
-            and c_rsi
-        ):
-
-            final_signal = "STRONG SELL"
-
-    else:
-
-        rejected_reasons.append(
-            "Waiting for structural "
-            "breakout direction."
-        )
-
-    # ======================================================
-    # ENTRY / SL / TP
-    # ======================================================
-
-    entry_price = round(
-        close,
-        4
-    )
-
-    sl = "N/A"
-    tp = "N/A"
-
-    if final_signal == "STRONG BUY":
-
-        sl_val = round(
-            struct_l,
-            4
-        )
-
-        risk = (
-            entry_price
-            - sl_val
-        )
-
-        sl = sl_val
-
-        tp = round(
-            entry_price
-            + (risk * 2),
-            4
-        )
-
-        status_msg = (
-            f"100% Criteria Passed! "
-            f"{pattern_name} confirmed "
-            f"with {match_pct}% Match Score."
-        )
-
-    elif final_signal == "STRONG SELL":
-
-        sl_val = round(
-            struct_h,
-            4
-        )
-
-        risk = (
-            sl_val
-            - entry_price
-        )
-
-        sl = sl_val
-
-        tp = round(
-            entry_price
-            - (risk * 2),
-            4
-        )
-
-        status_msg = (
-            f"100% Criteria Passed! "
-            f"{pattern_name} confirmed "
-            f"with {match_pct}% Match Score."
-        )
-
-    else:
-
-        status_msg = (
-            f"Pattern: {pattern_name} "
-            f"({match_pct}% Match) | "
-            f"REJECTED: "
-            + " | ".join(rejected_reasons)
-        )
-
-    return {
-
-        "df": df,
-
-        "pattern": pattern_name,
-
-        "bias": bias,
-
-        "match_pct": match_pct,
-
-        "signal": final_signal,
-
-        "reason": status_msg,
-
-        "entry": entry_price,
-
-        "sl": sl,
-
-        "tp": tp,
-
-        "close": entry_price,
-
-        "ema50": round(
-            ema50,
-            4
-        ),
-
-        "ema200": round(
-            ema200,
-            4
-        ),
-
-        "rsi": round(
-            rsi,
-            2
-        ),
-
-        "pattern_start": pattern_start,
-
-        "pattern_end": pattern_end,
-
-        "structural_high": struct_h,
-
-        "structural_low": struct_l
-    }
-
-
-# ==========================================================
-# 6. DYNAMIC MULTI-POINT GEOMETRIC PLOTTER
-# ==========================================================
-
-def plot_pattern_geometry(
-    analysis_result
-):
-
-    df = analysis_result["df"]
-
-    p_name = analysis_result["pattern"]
-
-    bias = analysis_result["bias"]
-
-    p_start = analysis_result[
-        "pattern_start"
-    ]
-
-    p_end = analysis_result[
-        "pattern_end"
-    ]
-
-    struct_h = analysis_result[
-        "structural_high"
-    ]
-
-    struct_l = analysis_result[
-        "structural_low"
-    ]
-
-    fig = go.Figure()
-
-    # ======================================================
-    # CANDLES
-    # ======================================================
-
-    fig.add_trace(
-        go.Candlestick(
-            x=df.index,
-            open=df["Open"],
-            high=df["High"],
-            low=df["Low"],
-            close=df["Close"],
-            name="Price"
-        )
-    )
-
-    # ======================================================
-    # EMA 50
-    # ======================================================
-
-    fig.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df["EMA50"],
-            line=dict(
-                color="orange",
-                width=1.5
-            ),
-            name="EMA 50"
-        )
-    )
-
-    # ======================================================
-    # EMA 200
-    # ======================================================
-
-    fig.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df["EMA200"],
-            line=dict(
-                color="deepskyblue",
-                width=2
-            ),
-            name="EMA 200"
-        )
-    )
-
-    # ======================================================
-    # PATTERN GEOMETRY
-    # ======================================================
-
-    if (
-        p_name != "NO PATTERN DETECTED"
-        and p_start is not None
-        and p_end is not None
-    ):
-
-        # --------------------------------------------------
-        # Convert integer positions if necessary
-        # --------------------------------------------------
-
-        try:
-
-            if p_start not in df.index:
-
-                p_start = df.index[
-                    int(p_start)
-                ]
-
-            if p_end not in df.index:
-
-                p_end = df.index[
-                    int(p_end)
-                ]
-
-        except Exception:
-
-            pass
-
-        # --------------------------------------------------
-        # Get pivots
-        # --------------------------------------------------
-
-        ph = df[
-            "Pivot_H"
-        ].dropna()
-
-        pl = df[
-            "Pivot_L"
-        ].dropna()
-
-        try:
-
-            ph = ph.loc[
-                p_start:p_end
-            ]
-
-        except Exception:
-
-            ph = ph.iloc[0:0]
-
-        try:
-
-            pl = pl.loc[
-                p_start:p_end
-            ]
-
-        except Exception:
-
-            pl = pl.iloc[0:0]
-
-        # ==================================================
-        # NECKLINE / RESISTANCE
-        # ==================================================
-
-        fig.add_trace(
-            go.Scatter(
-                x=[
-                    p_start,
-                    df.index[-1]
-                ],
-
-                y=[
-                    struct_h,
-                    struct_h
-                ],
-
-                mode="lines",
-
-                line=dict(
-                    color="gold",
-                    width=2.5,
-                    dash="dash"
-                ),
-
-                name=(
-                    f"Neckline / Resistance "
-                    f"({struct_h:.4f})"
-                )
-            )
-        )
-
-        # ==================================================
-        # SUPPORT
-        # ==================================================
-
-        fig.add_trace(
-            go.Scatter(
-                x=[
-                    p_start,
-                    df.index[-1]
-                ],
-
-                y=[
-                    struct_l,
-                    struct_l
-                ],
-
-                mode="lines",
-
-                line=dict(
-                    color="cyan",
-                    width=2,
-                    dash="dot"
-                ),
-
-                name=(
-                    f"Support Level "
-                    f"({struct_l:.4f})"
-                )
-            )
-        )
-
-        # ==================================================
-        # COMBINE PIVOTS
-        # ==================================================
-
-        pivots = (
-            [
-                (idx, val)
-                for idx, val in ph.items()
-            ]
-            +
-            [
-                (idx, val)
-                for idx, val in pl.items()
-            ]
-        )
-
-        pivots.sort(
-            key=lambda x: x[0]
-        )
-
-        # ==================================================
-        # DRAW DETECTED PATTERN
-        # ==================================================
-
-        if pivots:
-
-            x_skel = [
-                pt[0]
-                for pt in pivots
-            ]
-
-            y_skel = [
-                pt[1]
-                for pt in pivots
-            ]
-
-            line_color = (
-                "#2ecc71"
-                if bias == "Bullish"
-                else "#e74c3c"
-            )
-
-            fig.add_trace(
-                go.Scatter(
-                    x=x_skel,
-                    y=y_skel,
-
-                    mode="lines+markers",
-
-                    line=dict(
-                        color=line_color,
-                        width=3
-                    ),
-
-                    marker=dict(
-                        size=8,
-                        color="yellow",
-                        symbol="circle"
-                    ),
-
-                    name=(
-                        f"{p_name} "
-                        f"Structure"
-                    )
-                )
-            )
-
-    # ======================================================
-    # FINAL CHART SETTINGS
-    # ======================================================
-
-    fig.update_layout(
-
-        title=(
-            f"Chart | Pattern: "
-            f"{p_name} "
-            f"({analysis_result['match_pct']}% Match) | "
-            f"Signal: "
-            f"{analysis_result['signal']}"
-        ),
-
-        template="plotly_dark",
-
-        xaxis_rangeslider_visible=False,
-
-        showlegend=True,
-
-        margin=dict(
-            l=20,
-            r=20,
-            t=55,
-            b=20
-        )
-    )
-
-    return fig
