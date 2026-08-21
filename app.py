@@ -3,15 +3,19 @@ import yfinance as yf
 import plotly.graph_objects as go
 import pandas as pd
 
+# استيراد آمن يدعم ملف pp.py وأي اسم بديل دون أي تعارض[span_1](start_span)[span_1](end_span)
 try:
-    from pattern_engine import run_full_analysis
+    from pp import run_full_analysis
 except ImportError:
-    from engine import run_full_analysis
+    try:
+        from pattern_engine import run_full_analysis
+    except ImportError:
+        from engine import run_full_analysis
 
-st.set_page_config(page_title="Smart Market Analyzer", page_icon="ðŸ“ˆ", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Smart Market Analyzer", page_icon="📈", layout="wide", initial_sidebar_state="collapsed")
 
 # ==========================================================
-# MODERN LIGHT UI / CSS
+# MODERN LIGHT UI / CSS[span_2](start_span)[span_2](end_span)
 # ==========================================================
 st.markdown(
     """
@@ -32,7 +36,6 @@ st.markdown(
     }
     .live-badge { border-radius: 30px; }
     
-    /* Ø´Ø±ÙŠØ· Ø£Ø²Ø±Ø§Ø± ØªØ­ÙƒÙ… Ø§Ù„Ø´Ø§Ø±Øª Ø§Ù„Ø¹Ù„ÙˆÙŠ */
     .chart-toolbar {
         display: flex;
         justify-content: space-between;
@@ -110,21 +113,35 @@ st.markdown(
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="top-row"><div class="brand-badge">ðŸ“ˆ SMART ANALYZER</div><div class="live-badge">âš¡ Live Scan</div></div>', unsafe_allow_html=True)
+# Initialize Session State for Top Row Dynamic Status[span_3](start_span)[span_3](end_span)
+if "current_symbol" not in st.session_state:
+    st.session_state.current_symbol = "NZDCAD=X"
+if "status_summary" not in st.session_state:
+    st.session_state.status_summary = "⚡ Live Scan • Ready"
 
-st.markdown('<div class="modern-card"><div class="card-heading"><div class="icon-circle">ðŸ”</div><div><div class="card-title">Market Asset Symbol</div><div class="card-subtitle">Enter ticker (e.g., NZDCAD=X)</div></div></div></div>', unsafe_allow_html=True)
+# Top Row displaying asset name and brief status summary in English[span_4](start_span)[span_4](end_span)
+st.markdown(f'''
+<div class="top-row">
+    <div class="brand-badge">📈 {st.session_state.current_symbol}</div>
+    <div class="live-badge">{st.session_state.status_summary}</div>
+</div>
+''', unsafe_allow_html=True)
+
+st.markdown('<div class="modern-card"><div class="card-heading"><div class="icon-circle">🔍</div><div><div class="card-title">Market Asset Symbol</div><div class="card-subtitle">Enter ticker (e.g., NZDCAD=X)</div></div></div></div>', unsafe_allow_html=True)
 
 symbol = st.text_input("Market Asset Symbol", value="NZDCAD=X")
-run_scan = st.button("ðŸš€ Run Analysis", use_container_width=True)
+st.session_state.current_symbol = symbol
 
-st.markdown('<div class="modern-card"><div class="card-heading"><div class="icon-circle">â±ï¸</div><div><div class="card-title">Select Timeframe</div><div class="card-subtitle">Choose interval</div></div></div></div>', unsafe_allow_html=True)
+run_scan = st.button("🚀 Run Analysis", use_container_width=True)
+
+st.markdown('<div class="modern-card"><div class="card-heading"><div class="icon-circle">⏱️</div><div><div class="card-title">Select Timeframe</div><div class="card-subtitle">Choose interval</div></div></div></div>', unsafe_allow_html=True)
 tf_options = ["1m", "5m", "15m", "30m", "1h", "4h", "1D", "1W", "1M"]
 selected_tf = st.radio("Select Timeframe", options=tf_options, index=6, horizontal=True, label_visibility="collapsed")
 
-with st.expander("âš™ï¸ Advanced Display Configuration"):
+with st.expander("⚙️ Advanced Display Configuration"):
     c_zoom, c_height = st.columns(2)
-    with c_zoom: visible_candles = st.slider("ðŸ” Default Visible Candles", min_value=20, max_value=300, value=90, step=10)
-    with c_height: chart_height = st.slider("ðŸ“ Chart Height", min_value=350, max_value=900, value=520, step=50)
+    with c_zoom: visible_candles = st.slider("🔍 Default Visible Candles", min_value=20, max_value=300, value=90, step=10)
+    with c_height: chart_height = st.slider("📐 Chart Height", min_value=350, max_value=900, value=520, step=50)
 
 tf_map = {
     "1m": {"interval": "1m", "period": "7d"}, "5m": {"interval": "5m", "period": "60d"},
@@ -148,7 +165,8 @@ if run_scan:
         df = df.resample("4h").agg({"Open": "first", "High": "max", "Low": "min", "Close": "last"}).dropna()
 
     if df.empty or len(df) < 20:
-        st.error(f"âš ï¸ Data unavailable or network issue for ticker: {symbol}")
+        st.error(f"⚠️ Data unavailable or network issue for ticker: {symbol}")
+        st.session_state.status_summary = "⚡ Status: Data Error"
     else:
         result = run_full_analysis(df)
         df_res = result["df"]
@@ -156,7 +174,9 @@ if run_scan:
         latest_rsi = df_res['RSI'].iloc[-1] if 'RSI' in df_res.columns else 0.0
         latest_close = df_res['Close'].iloc[-1]
 
-        # Ø§Ù„ØªØ±ÙˆÙŠØ³Ø© Ø§Ù„Ø¹Ù„ÙˆÙŠØ© Ù„Ù„Ø³Ø¹Ø± Ùˆ RSI
+        # Update brief English status summary for the top row badge
+        st.session_state.status_summary = f"⚡ {symbol} | {signal} ({pattern}) | RSI: {latest_rsi:.1f}"
+
         st.markdown(f"""
         <div style="margin-top: 14px; margin-bottom: 15px;">
             <div style="font-size: 52px; font-weight: 500; color: #0B57D0; line-height: 1;">{latest_close:.4f}</div>
@@ -166,37 +186,33 @@ if run_scan:
         """, unsafe_allow_html=True)
 
         status_class = "status-buy" if signal == "STRONG BUY" else "status-sell" if signal == "STRONG SELL" else "status-wait"
-        status_icon = "ðŸŸ¢" if signal == "STRONG BUY" else "ðŸ”´" if signal == "STRONG SELL" else "ðŸŸ¡"
+        status_icon = "🟢" if signal == "STRONG BUY" else "🔴" if signal == "STRONG SELL" else "🟡"
 
         st.markdown(f'<div class="status-card {status_class}"><div class="small-muted">Signal Status</div><div class="status-main">{status_icon} {signal}</div><div style="margin-top:4px;"><b>{pattern}</b></div></div>', unsafe_allow_html=True)
         
         st.markdown('<div class="section-title">Execution Levels</div>', unsafe_allow_html=True)
         e1, e2, e3 = st.columns(3)
         if signal != "WAITING" and pattern != "NO PATTERN DETECTED":
-            e1.metric("ðŸŽ¯ Entry", f"{result['entry']}")
-            e2.metric("ðŸ›‘ Stop Loss", f"{result['sl']}")
-            e3.metric("ðŸ† Target", f"{result['tp']}")
+            e1.metric("🎯 Entry", f"{result['entry']}")
+            e2.metric("🛑 Stop Loss", f"{result['sl']}")
+            e3.metric("🏆 Target", f"{result['tp']}")
         else:
-            e1.metric("ðŸŽ¯ Trigger", f"{result.get('trigger', 'N/A')}")
-            e2.metric("ðŸ›‘ Struct SL", f"{result.get('sl', 'N/A')}")
-            e3.metric("ðŸ† Proj. TP", f"{result.get('tp', 'N/A')}")
+            e1.metric("🎯 Trigger", f"{result.get('trigger', 'N/A')}")
+            e2.metric("🛑 Struct SL", f"{result.get('sl', 'N/A')}")
+            e3.metric("🏆 Proj. TP", f"{result.get('tp', 'N/A')}")
 
-        # ==========================================
-        # Ø´Ø±ÙŠØ· Ø£Ø²Ø±Ø§Ø± Ø§Ù„ØªØ­ÙƒÙ… Ø§Ù„Ø¹Ù„ÙˆÙŠ ÙÙˆÙ‚ Ø§Ù„Ø´Ø§Ø±Øª
-        # ==========================================
         st.markdown(f"""
         <div class="chart-toolbar">
-            <div class="chart-toolbar-title">ðŸ“ˆ Chart &bull; {symbol} &bull; {selected_tf}</div>
+            <div class="chart-toolbar-title">📈 Chart &bull; {symbol} &bull; {selected_tf}</div>
             <div class="chart-actions">
-                <span>ðŸ”—</span>
-                <span>â­</span>
-                <span>âœï¸</span>
-                <span>â›¶</span>
+                <span>🔗</span>
+                <span>⭐</span>
+                <span>✏️</span>
+                <span>⛶</span>
             </div>
         </div>
         """, unsafe_allow_html=True)
 
-        # Ø¨Ù†Ø§Ø¡ Ø§Ù„Ø±Ø³Ù… Ø§Ù„Ø¨ÙŠØ§Ù†ÙŠ
         fig = go.Figure()
         
         fig.add_trace(go.Candlestick(
@@ -206,22 +222,18 @@ if run_scan:
         
         nodes = result.get("nodes", [])
         if nodes:
-            # 1. ØªØ±ØªÙŠØ¨ Ø§Ù„Ø¹Ù‚Ø¯ Ø²Ù…Ù†ÙŠØ§Ù‹ Ù…Ù† Ø§Ù„ÙŠØ³Ø§Ø± Ù„Ù„ÙŠÙ…ÙŠÙ† Ù„Ù…Ù†Ø¹ Ø£ÙŠ ØªÙ‚Ø§Ø·Ø¹ Ø£Ùˆ ØªØ¯Ø§Ø®Ù„ Ø®Ø·ÙˆØ·
             sorted_nodes = sorted(nodes, key=lambda item: pd.to_datetime(item[0]))
             x_nodes = [n[0] for n in sorted_nodes]
             y_nodes = [n[1] for n in sorted_nodes]
             
-            fill_color = "rgba(19, 115, 51, 0.08)" if result["bias"] == "Bullish" else "rgba(197, 34, 31, 0.08)"
             line_color = "#137333" if result["bias"] == "Bullish" else "#C5221F"
 
-            # Ø±Ø³Ù… Ø®Ø· Ø§Ù„Ù†Ù…Ø· Ø§Ù„Ù‡Ù†Ø¯Ø³ÙŠ Ø¨ØªØ±ØªÙŠØ¨Ù‡ Ø§Ù„ØµØ­ÙŠØ­
             fig.add_trace(go.Scatter(
                 x=x_nodes, y=y_nodes,
                 mode="lines+markers", line=dict(color=line_color, width=2),
                 marker=dict(size=6, color="#0B57D0"), name=f"{pattern}"
             ))
             
-            # 2. ØªØµØ­ÙŠØ­ Ø®Ø· Ø§Ù„Ø¹Ù†Ù‚ (Neckline): ÙŠØ¨Ø¯Ø£ Ø£ÙÙ‚ÙŠØ§Ù‹ Ù…Ù† Ø¨Ø¯Ø§ÙŠØ© Ø§Ù„Ù†Ù…Ø· ÙˆÙŠÙ…ØªØ¯ Ø­ØªÙ‰ Ù†Ù‡Ø§ÙŠØ© Ø§Ù„Ø´Ø§Ø±Øª
             trigger = result.get("trigger")
             if trigger and len(x_nodes) >= 2:
                 x_neckline_start = x_nodes[0]
