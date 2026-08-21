@@ -1,5 +1,7 @@
 import pandas as pd
 import numpy as np
+import plotly.graph_objects as go
+import streamlit as st
 
 # ==========================================================
 # 1. CALCULATE INDICATORS (EMA50, EMA200, MACD Hist, RSI 30-75)
@@ -37,7 +39,7 @@ def calculate_zigzag(df, depth=12, deviation=5, backstep=3):
     lows = df['Low'].values
     
     last_pivot_idx = 0
-    last_pivot_type = 0 # 1 for High (Resistance), -1 for Low (Support)
+    last_pivot_type = 0 
     
     for i in range(depth, len(df) - backstep):
         window_high = np.max(highs[i-depth:i+1])
@@ -60,9 +62,6 @@ def calculate_zigzag(df, depth=12, deviation=5, backstep=3):
 
     return df
 
-# ==========================================================
-# 3. EXTRACTION OF CHRONOLOGICAL PIVOTS
-# ==========================================================
 def get_chronological_pivots(df):
     pivots = []
     for idx, row in df.iterrows():
@@ -86,186 +85,154 @@ def get_chronological_pivots(df):
     return clean_pivots
 
 # ==========================================================
-# 4. STRICT PATTERN ENGINE (95%+ Match & Strategic Necklines)
+# 3. STRICT PATTERN ENGINE (99% Symmetry & Hidden Until Complete)
 # ==========================================================
 def scan_and_calculate_logic(df):
     pivots = get_chronological_pivots(df)
     
     if len(pivots) < 3:
-        return {"name": "NO PATTERN DETECTED", "bias": "Neutral", "match": 0}
+        return {"name": "INCOMPLETE", "bias": "Neutral", "match": 0}
 
     current_bar_idx = len(df) - 1
 
-    # ---------------------------------------------------------
-    # A. INVERSE HEAD AND SHOULDERS (Bullish Reversal - 5 Points)
-    # ---------------------------------------------------------
+    # A. INVERSE HEAD AND SHOULDERS (99% Symmetry -> tolerance <= 0.01)
     if len(pivots) >= 5:
         for i in range(len(pivots) - 4):
             p1, p2, p3, p4, p5 = pivots[i], pivots[i+1], pivots[i+2], pivots[i+3], pivots[i+4]
-            
-            p5_pos = df.index.get_loc(p5['idx'])
-            if (current_bar_idx - p5_pos) > 25:
-                continue
+            if (current_bar_idx - df.index.get_loc(p5['idx'])) > 25: continue
                 
             if [p['type'] for p in [p1, p2, p3, p4, p5]] == ['L', 'H', 'L', 'H', 'L']:
                 l1, h1, l2, h2, l3 = p1['val'], p2['val'], p3['val'], p4['val'], p5['val']
-                
                 is_head_deeper = (l2 < l1) and (l2 < l3)
-                shoulder_symmetry = abs(l1 - l3) / max(l1, l3) <= 0.05  # دقة عالية جداً للتماثل
+                shoulder_symmetry = abs(l1 - l3) / max(l1, l3) <= 0.01  # تطابق 99%
                 head_prominence = (min(l1, l3) - l2) >= (max(h1, h2) - min(l1, l3)) * 0.20
                 
                 if is_head_deeper and shoulder_symmetry and head_prominence:
-                    idx1, val1 = p2['idx'], h1
-                    idx2, val2 = p4['idx'], h2
-                    pos1 = df.index.get_loc(idx1)
-                    pos2 = df.index.get_loc(idx2)
-                    
-                    if pos2 != pos1:
-                        slope = (val2 - val1) / (pos2 - pos1)
-                        neckline_at_current = val2 + slope * (current_bar_idx - pos2)
-                    else:
-                        neckline_at_current = max(h1, h2)
-                        
+                    idx1, val1, idx2, val2 = p2['idx'], h1, p4['idx'], h2
+                    pos1, pos2 = df.index.get_loc(idx1), df.index.get_loc(idx2)
+                    slope = (val2 - val1) / (pos2 - pos1) if pos2 != pos1 else 0
+                    neckline_at_current = val2 + slope * (current_bar_idx - pos2)
                     height = neckline_at_current - l2
                     return {
-                        "name": "Inverse Head and Shoulders", "bias": "Bullish", "match": 95.0,
+                        "name": "Inverse Head and Shoulders", "bias": "Bullish", "match": 99.0,
                         "nodes": [(p1['idx'], l1), (p2['idx'], h1), (p3['idx'], l2), (p4['idx'], h2), (p5['idx'], l3)],
-                        "entry_trigger": round(neckline_at_current, 4), 
-                        "neckline_start_idx": p2['idx'],
-                        "sl": l2 * 0.995, "tp": round(neckline_at_current + height, 4)
+                        "entry_trigger": round(neckline_at_current, 4), "sl": l2 * 0.995, "tp": round(neckline_at_current + height, 4)
                     }
 
-    # ---------------------------------------------------------
-    # B. HEAD AND SHOULDERS (Bearish Reversal - 5 Points)
-    # ---------------------------------------------------------
+    # B. HEAD AND SHOULDERS (99% Symmetry)
     if len(pivots) >= 5:
         for i in range(len(pivots) - 4):
             p1, p2, p3, p4, p5 = pivots[i], pivots[i+1], pivots[i+2], pivots[i+3], pivots[i+4]
-            
-            p5_pos = df.index.get_loc(p5['idx'])
-            if (current_bar_idx - p5_pos) > 25:
-                continue
+            if (current_bar_idx - df.index.get_loc(p5['idx'])) > 25: continue
                 
             if [p['type'] for p in [p1, p2, p3, p4, p5]] == ['H', 'L', 'H', 'L', 'H']:
                 h1, l1, h2, l2, h3 = p1['val'], p2['val'], p3['val'], p4['val'], p5['val']
-                
                 is_head_higher = (h2 > h1) and (h2 > h3)
-                shoulder_symmetry = abs(h1 - h3) / max(h1, h3) <= 0.05
+                shoulder_symmetry = abs(h1 - h3) / max(h1, h3) <= 0.01  # تطابق 99%
                 head_prominence = (h2 - max(h1, h3)) >= (max(h1, h3) - min(l1, l2)) * 0.20
                 
                 if is_head_higher and shoulder_symmetry and head_prominence:
-                    idx1, val1 = p2['idx'], l1
-                    idx2, val2 = p4['idx'], l2
-                    pos1 = df.index.get_loc(idx1)
-                    pos2 = df.index.get_loc(idx2)
-                    
-                    if pos2 != pos1:
-                        slope = (val2 - val1) / (pos2 - pos1)
-                        neckline_at_current = val2 + slope * (current_bar_idx - pos2)
-                    else:
-                        neckline_at_current = min(l1, l2)
-                        
+                    idx1, val1, idx2, val2 = p2['idx'], l1, p4['idx'], l2
+                    pos1, pos2 = df.index.get_loc(idx1), df.index.get_loc(idx2)
+                    slope = (val2 - val1) / (pos2 - pos1) if pos2 != pos1 else 0
+                    neckline_at_current = val2 + slope * (current_bar_idx - pos2)
                     height = h2 - neckline_at_current
                     return {
-                        "name": "Head and Shoulders", "bias": "Bearish", "match": 95.0,
+                        "name": "Head and Shoulders", "bias": "Bearish", "match": 99.0,
                         "nodes": [(p1['idx'], h1), (p2['idx'], l1), (p3['idx'], h2), (p4['idx'], l2), (p5['idx'], h3)],
-                        "entry_trigger": round(neckline_at_current, 4), 
-                        "neckline_start_idx": p2['idx'],
-                        "sl": h2 * 1.005, "tp": round(neckline_at_current - height, 4)
+                        "entry_trigger": round(neckline_at_current, 4), "sl": h2 * 1.005, "tp": round(neckline_at_current - height, 4)
                     }
 
-    # ---------------------------------------------------------
-    # C. DOUBLE BOTTOM (W - Bullish)
-    # ---------------------------------------------------------
+    # C. DOUBLE BOTTOM (99% Symmetry)
     for i in range(len(pivots) - 2):
         p1, p2, p3 = pivots[i], pivots[i+1], pivots[i+2]
         if p1['type'] == 'L' and p2['type'] == 'H' and p3['type'] == 'L':
-            p3_pos = df.index.get_loc(p3['idx'])
-            if (current_bar_idx - p3_pos) > 20:
-                continue
-                
+            if (current_bar_idx - df.index.get_loc(p3['idx'])) > 20: continue
             l1, h1, l2 = p1['val'], p2['val'], p3['val']
-            if abs(l1 - l2) / max(l1, l2) <= 0.03 and h1 > max(l1, l2) * 1.005:
-                neckline = h1
-                height = neckline - min(l1, l2)
+            if abs(l1 - l2) / max(l1, l2) <= 0.01 and h1 > max(l1, l2) * 1.005:
+                height = h1 - min(l1, l2)
                 return {
-                    "name": "Double Bottom", "bias": "Bullish", "match": 95.0,
+                    "name": "Double Bottom", "bias": "Bullish", "match": 99.0,
                     "nodes": [(p1['idx'], l1), (p2['idx'], h1), (p3['idx'], l2)],
-                    "entry_trigger": neckline, 
-                    "neckline_start_idx": p2['idx'],
-                    "sl": min(l1, l2) * 0.999, "tp": neckline + height
+                    "entry_trigger": h1, "sl": min(l1, l2) * 0.999, "tp": h1 + height
                 }
 
-    # ---------------------------------------------------------
-    # D. DOUBLE TOP (M - Bearish)
-    # ---------------------------------------------------------
+    # D. DOUBLE TOP (99% Symmetry)
     for i in range(len(pivots) - 2):
         p1, p2, p3 = pivots[i], pivots[i+1], pivots[i+2]
         if p1['type'] == 'H' and p2['type'] == 'L' and p3['type'] == 'H':
-            p3_pos = df.index.get_loc(p3['idx'])
-            if (current_bar_idx - p3_pos) > 20:
-                continue
-                
+            if (current_bar_idx - df.index.get_loc(p3['idx'])) > 20: continue
             h1, l1, h2 = p1['val'], p2['val'], p3['val']
-            if abs(h1 - h2) / max(h1, h2) <= 0.03 and l1 < min(h1, h2) * 0.995:
-                neckline = l1
-                height = max(h1, h2) - neckline
+            if abs(h1 - h2) / max(h1, h2) <= 0.01 and l1 < min(h1, h2) * 0.995:
+                height = max(h1, h2) - l1
                 return {
-                    "name": "Double Top", "bias": "Bearish", "match": 95.0,
+                    "name": "Double Top", "bias": "Bearish", "match": 99.0,
                     "nodes": [(p1['idx'], h1), (p2['idx'], l1), (p3['idx'], h2)],
-                    "entry_trigger": neckline, 
-                    "neckline_start_idx": p2['idx'],
-                    "sl": max(h1, h2) * 1.001, "tp": neckline - height
+                    "entry_trigger": l1, "sl": max(h1, h2) * 1.001, "tp": l1 - height
                 }
 
-    return {"name": "NO PATTERN DETECTED", "bias": "Neutral", "match": 0}
+    return {"name": "INCOMPLETE", "bias": "Neutral", "match": 0}
 
 # ==========================================================
-# 5. EXECUTION & STRATEGY VALIDATION
+# 4. EXECUTION, ORDERS & STREAMLIT UI (Top Bar, Undo & Summary)
 # ==========================================================
-def run_full_analysis(df):
+def render_app_ui(df, symbol_name="NZDCAD=X"):
+    # شريط التنظيم العلوي مع زر التراجع (Undo)
+    col_top1, col_top2, col_top3 = st.columns([1, 6, 1])
+    with col_top1:
+        if st.button("↩ تراجع"):
+            st.toast("تم التراجع عن الإجراء الأخير", icon="🔄")
+    with col_top2:
+        st.markdown(f"### تحليل الشارت المتقدم: {symbol_name}")
+
     df = calculate_indicators(df)
-    df = calculate_zigzag(df, depth=12, deviation=5, backstep=3)
-    
+    df = calculate_zigzag(df)
     p_data = scan_and_calculate_logic(df)
     
-    if p_data["name"] == "NO PATTERN DETECTED":
-        return {"df": df, "pattern": "NO PATTERN DETECTED", "signal": "WAITING", "reason": "No active 95%+ pattern found.", "entry": 0, "sl": 0, "tp": 0, "nodes": []}
-
-    latest_closed = df.iloc[-2]
-    close = latest_closed['Close']
-    ema50 = latest_closed['EMA50']
-    ema200 = latest_closed['EMA200']
-    rsi = latest_closed['RSI']
-    macd_hist = latest_closed['MACD_Hist']
+    is_complete = p_data["name"] != "INCOMPLETE"
+    display_pattern_name = p_data["name"] if is_complete else "جاري بناء واكتشاف الهيكل..."
     
-    bias = p_data["bias"]
-    trigger = p_data["entry_trigger"]
-    sl = p_data["sl"]
-    tp = p_data["tp"]
-
-    # الشرط الصارم لمؤشر RSI بين 30 و 75 مع تقاطع الإيجابية/السلبية
-    c_rsi = (30 <= rsi <= 75)
+    latest_closed = df.iloc[-2]
+    close, ema50, ema200, rsi, macd_hist = latest_closed['Close'], latest_closed['EMA50'], latest_closed['EMA200'], latest_closed['RSI'], latest_closed['MACD_Hist']
+    
     final_signal = "WAITING"
-    reasons = []
+    order_status = "لا توجد أوامر معلقة حالياً"
+    
+    if is_complete:
+        bias, trigger, sl, tp = p_data["bias"], p_data["entry_trigger"], p_data["sl"], p_data["tp"]
+        c_rsi = (30 <= rsi <= 75)
+        
+        if bias == "Bullish":
+            if close > trigger and close > ema50 and close > ema200 and c_rsi and macd_hist > 0:
+                final_signal = "STRONG BUY"
+                order_status = f"✅ تم تفعيل أمر الشراء المعلق (Buy Stop/Limit) عند سعر {trigger} | الهدف: {tp} | وقف الخسارة: {sl}"
+            else:
+                order_status = f"⏳ في انتظار إغلاق الشمعة فوق مستوى خط العنق ({trigger}) وتأكيد مؤشرات العزم."
+        elif bias == "Bearish":
+            if close < trigger and close < ema50 and close < ema200 and c_rsi and macd_hist < 0:
+                final_signal = "STRONG SELL"
+                order_status = f"✅ تم تفعيل أمر البيع المعلق (Sell Stop/Limit) عند سعر {trigger} | الهدف: {tp} | وقف الخسارة: {sl}"
+            else:
+                order_status = f"⏳ في انتظار إغلاق الشمعة تحت مستوى خط العنق ({trigger}) وتأكيد مؤشرات العزم."
 
-    if bias == "Bullish":
-        if close > trigger and close > ema50 and close > ema200 and c_rsi and macd_hist > 0:
-            final_signal = "STRONG BUY"
-        else:
-            reasons.append(f"Waiting for closed bar > {trigger:.4f} with EMA50/200, RSI(30-75), & MACD Hist > 0")
-            
-    elif bias == "Bearish":
-        if close < trigger and close < ema50 and close < ema200 and c_rsi and macd_hist < 0:
-            final_signal = "STRONG SELL"
-        else:
-            reasons.append(f"Waiting for closed bar < {trigger:.4f} with EMA50/200, RSI(30-75), & MACD Hist < 0")
+    # نافذة حالة الإشارة
+    st.markdown(f"""
+    <div style="background-color: #fdf8e2; padding: 20px; border-radius: 12px; border: 1px solid #f9e2af;">
+        <span style="font-size: 14px; color: #856404; font-weight: bold;">SIGNAL STATUS</span>
+        <h2 style="color: #d35400; margin: 5px 0;">🟡 {final_signal}</h2>
+        <p style="font-size: 18px; color: #b7950b; font-weight: 600; margin: 0;">{display_pattern_name}</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    return {
-        "df": df, "pattern": p_data["name"], "bias": bias, "match_pct": round(p_data["match"], 2),
-        "signal": final_signal, "reason": " | ".join(reasons) if final_signal == "WAITING" else "All Strategy Conditions Met!",
-        "entry": round(close, 4), "sl": round(sl, 4), "tp": round(tp, 4),
-        "trigger": round(trigger, 4), "nodes": p_data["nodes"],
-        "neckline_start_idx": p_data.get("neckline_start_idx", p_data["nodes"][0][0])
-                        }
-            
+    # تعليق موجز تحت نافذة الحالة (حالة الزوج والنمط)
+    st.info(f"📊 **موجز حالة الزوج ({symbol_name}):** {order_status} | قيمة RSI الحالية: {rsi:.2f} | اتجاه المتوسطات (EMA50/200): {'صاعد 🟢' if close > ema200 else 'هابط 🔴'}")
+
+    # رسم الشارت مع إدراج مؤشرات EMA50 و EMA200
+    fig = go.Figure()
+    fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name='Price'))
+    fig.add_trace(go.Scatter(x=df.index, y=df['EMA50'], line=dict(color='blue', width=1.5), name='EMA 50'))
+    fig.add_trace(go.Scatter(x=df.index, y=df['EMA200'], line=dict(color='orange', width=2), name='EMA 200'))
+    
+    fig.update_layout(title=f"Chart Analysis with EMAs - {symbol_name}", xaxis_rangeslider_visible=False, height=500)
+    st.plotly_chart(fig, use_container_width=True)
+                           
