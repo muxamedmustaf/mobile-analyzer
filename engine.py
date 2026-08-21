@@ -1,7 +1,5 @@
 import pandas as pd
 import numpy as np
-import plotly.graph_objects as go
-import streamlit as st
 
 # ==========================================================
 # 1. CALCULATE INDICATORS (EMA50, EMA200, MACD Hist, RSI 30-75)
@@ -91,7 +89,7 @@ def scan_and_calculate_logic(df):
     pivots = get_chronological_pivots(df)
     
     if len(pivots) < 3:
-        return {"name": "INCOMPLETE", "bias": "Neutral", "match": 0}
+        return {"name": "INCOMPLETE", "bias": "Neutral", "match": 0, "nodes": []}
 
     current_bar_idx = len(df) - 1
 
@@ -171,68 +169,55 @@ def scan_and_calculate_logic(df):
                     "entry_trigger": l1, "sl": max(h1, h2) * 1.001, "tp": l1 - height
                 }
 
-    return {"name": "INCOMPLETE", "bias": "Neutral", "match": 0}
+    return {"name": "INCOMPLETE", "bias": "Neutral", "match": 0, "nodes": []}
 
 # ==========================================================
-# 4. EXECUTION, ORDERS & STREAMLIT UI (Top Bar, Undo & Summary)
+# 4. FULL ANALYSIS PIPELINE
 # ==========================================================
-def render_app_ui(df, symbol_name="NZDCAD=X"):
-    # شريط التنظيم العلوي مع زر التراجع (Undo)
-    col_top1, col_top2, col_top3 = st.columns([1, 6, 1])
-    with col_top1:
-        if st.button("↩ تراجع"):
-            st.toast("تم التراجع عن الإجراء الأخير", icon="🔄")
-    with col_top2:
-        st.markdown(f"### تحليل الشارت المتقدم: {symbol_name}")
-
+def run_full_analysis(df):
     df = calculate_indicators(df)
-    df = calculate_zigzag(df)
+    df = calculate_zigzag(df, depth=12, deviation=5, backstep=3)
+    
     p_data = scan_and_calculate_logic(df)
     
-    is_complete = p_data["name"] != "INCOMPLETE"
-    display_pattern_name = p_data["name"] if is_complete else "جاري بناء واكتشاف الهيكل..."
-    
+    if p_data["name"] == "INCOMPLETE":
+        return {
+            "df": df, "pattern": "INCOMPLETE", "bias": "Neutral", "match_pct": 0,
+            "signal": "WAITING", "reason": "Structure is forming; pattern name hidden until complete.",
+            "entry": 0, "sl": 0, "tp": 0, "trigger": 0, "nodes": []
+        }
+
     latest_closed = df.iloc[-2]
-    close, ema50, ema200, rsi, macd_hist = latest_closed['Close'], latest_closed['EMA50'], latest_closed['EMA200'], latest_closed['RSI'], latest_closed['MACD_Hist']
+    close = latest_closed['Close']
+    ema50 = latest_closed['EMA50']
+    ema200 = latest_closed['EMA200']
+    rsi = latest_closed['RSI']
+    macd_hist = latest_closed['MACD_Hist']
     
+    bias = p_data["bias"]
+    trigger = p_data["entry_trigger"]
+    sl = p_data["sl"]
+    tp = p_data["tp"]
+
+    c_rsi = (30 <= rsi <= 75)
     final_signal = "WAITING"
-    order_status = "لا توجد أوامر معلقة حالياً"
-    
-    if is_complete:
-        bias, trigger, sl, tp = p_data["bias"], p_data["entry_trigger"], p_data["sl"], p_data["tp"]
-        c_rsi = (30 <= rsi <= 75)
-        
-        if bias == "Bullish":
-            if close > trigger and close > ema50 and close > ema200 and c_rsi and macd_hist > 0:
-                final_signal = "STRONG BUY"
-                order_status = f"✅ تم تفعيل أمر الشراء المعلق (Buy Stop/Limit) عند سعر {trigger} | الهدف: {tp} | وقف الخسارة: {sl}"
-            else:
-                order_status = f"⏳ في انتظار إغلاق الشمعة فوق مستوى خط العنق ({trigger}) وتأكيد مؤشرات العزم."
-        elif bias == "Bearish":
-            if close < trigger and close < ema50 and close < ema200 and c_rsi and macd_hist < 0:
-                final_signal = "STRONG SELL"
-                order_status = f"✅ تم تفعيل أمر البيع المعلق (Sell Stop/Limit) عند سعر {trigger} | الهدف: {tp} | وقف الخسارة: {sl}"
-            else:
-                order_status = f"⏳ في انتظار إغلاق الشمعة تحت مستوى خط العنق ({trigger}) وتأكيد مؤشرات العزم."
+    reasons = []
 
-    # نافذة حالة الإشارة
-    st.markdown(f"""
-    <div style="background-color: #fdf8e2; padding: 20px; border-radius: 12px; border: 1px solid #f9e2af;">
-        <span style="font-size: 14px; color: #856404; font-weight: bold;">SIGNAL STATUS</span>
-        <h2 style="color: #d35400; margin: 5px 0;">🟡 {final_signal}</h2>
-        <p style="font-size: 18px; color: #b7950b; font-weight: 600; margin: 0;">{display_pattern_name}</p>
-    </div>
-    """, unsafe_allow_html=True)
+    if bias == "Bullish":
+        if close > trigger and close > ema50 and close > ema200 and c_rsi and macd_hist > 0:
+            final_signal = "STRONG BUY"
+        else:
+            reasons.append(f"Waiting for closed bar > {trigger:.4f} with EMA50/200, RSI(30-75), & MACD Hist > 0")
+            
+    elif bias == "Bearish":
+        if close < trigger and close < ema50 and close < ema200 and c_rsi and macd_hist < 0:
+            final_signal = "STRONG SELL"
+        else:
+            reasons.append(f"Waiting for closed bar < {trigger:.4f} with EMA50/200, RSI(30-75), & MACD Hist < 0")
 
-    # تعليق موجز تحت نافذة الحالة (حالة الزوج والنمط)
-    st.info(f"📊 **موجز حالة الزوج ({symbol_name}):** {order_status} | قيمة RSI الحالية: {rsi:.2f} | اتجاه المتوسطات (EMA50/200): {'صاعد 🟢' if close > ema200 else 'هابط 🔴'}")
-
-    # رسم الشارت مع إدراج مؤشرات EMA50 و EMA200
-    fig = go.Figure()
-    fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name='Price'))
-    fig.add_trace(go.Scatter(x=df.index, y=df['EMA50'], line=dict(color='blue', width=1.5), name='EMA 50'))
-    fig.add_trace(go.Scatter(x=df.index, y=df['EMA200'], line=dict(color='orange', width=2), name='EMA 200'))
-    
-    fig.update_layout(title=f"Chart Analysis with EMAs - {symbol_name}", xaxis_rangeslider_visible=False, height=500)
-    st.plotly_chart(fig, use_container_width=True)
-                           
+    return {
+        "df": df, "pattern": p_data["name"], "bias": bias, "match_pct": round(p_data["match"], 2),
+        "signal": final_signal, "reason": " | ".join(reasons) if final_signal == "WAITING" else "All Strategy Conditions Met!",
+        "entry": round(close, 4), "sl": round(sl, 4), "tp": round(tp, 4),
+        "trigger": round(trigger, 4), "nodes": p_data["nodes"]
+    }
