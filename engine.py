@@ -14,6 +14,7 @@ MIN_CORRECTION = 0.20
 
 # ==========================================================
 # 1. INDICATORS
+# ONLY EMA50 / EMA200 / RSI
 # ==========================================================
 
 def calculate_indicators(df):
@@ -29,28 +30,6 @@ def calculate_indicators(df):
         span=200,
         adjust=False
     ).mean()
-
-    ema12 = df["Close"].ewm(
-        span=12,
-        adjust=False
-    ).mean()
-
-    ema26 = df["Close"].ewm(
-        span=26,
-        adjust=False
-    ).mean()
-
-    df["MACD"] = ema12 - ema26
-
-    df["MACD_Signal"] = df["MACD"].ewm(
-        span=9,
-        adjust=False
-    ).mean()
-
-    df["MACD_Hist"] = (
-        df["MACD"] -
-        df["MACD_Signal"]
-    )
 
     delta = df["Close"].diff()
 
@@ -338,8 +317,6 @@ def make_result(
 
 # ==========================================================
 # 5. HEAD & SHOULDERS
-#
-# YOUR SPECIFIC STRATEGY
 # ==========================================================
 
 def detect_head_shoulders(
@@ -360,7 +337,6 @@ def detect_head_shoulders(
 
         p = pivots[i:i+5]
 
-        # H L H L H
         if [x["type"] for x in p] != [
             "H",
             "L",
@@ -382,18 +358,10 @@ def detect_head_shoulders(
         l2 = p[3]["val"]
         h3 = p[4]["val"]
 
-        # --------------------------------------------------
-        # 1. PREVIOUS TREND MUST BE BULLISH
-        # --------------------------------------------------
-
         if not (
             h1 > l1
         ):
             continue
-
-        # --------------------------------------------------
-        # 2. LEFT SHOULDER WAVE
-        # --------------------------------------------------
 
         left_wave = wave_length(
             l1,
@@ -403,10 +371,6 @@ def detect_head_shoulders(
         if left_wave <= 0:
             continue
 
-        # --------------------------------------------------
-        # 3. LEFT CORRECTION >= 20%
-        # --------------------------------------------------
-
         if not valid_correction(
             l1,
             h1,
@@ -414,21 +378,11 @@ def detect_head_shoulders(
         ):
             continue
 
-        # --------------------------------------------------
-        # 4. HEAD BREAKS LEFT SHOULDER
-        # --------------------------------------------------
-
         if h2 <= h1:
             continue
 
-        # Clear breakout
         if h2 <= h1 * 1.001:
             continue
-
-        # --------------------------------------------------
-        # 5. SECOND CORRECTION
-        # MUST REACH / APPROACH FIRST SUPPORT
-        # --------------------------------------------------
 
         support_distance = (
             abs(l2 - l1)
@@ -438,7 +392,6 @@ def detect_head_shoulders(
         if support_distance > 0.01:
             continue
 
-        # Second correction must be meaningful
         if not valid_correction(
             h1,
             h2,
@@ -446,24 +399,14 @@ def detect_head_shoulders(
         ):
             continue
 
-        # --------------------------------------------------
-        # 6. RIGHT SHOULDER
-        # --------------------------------------------------
-
         if h3 >= h2:
             continue
 
-        # Right shoulder must be near
-        # left shoulder
         if not equal_within_1_percent(
             h1,
             h3
         ):
             continue
-
-        # --------------------------------------------------
-        # 7. COMPARE CORRESPONDING MOVES
-        # --------------------------------------------------
 
         right_wave = wave_length(
             l2,
@@ -475,10 +418,6 @@ def detect_head_shoulders(
             right_wave
         ):
             continue
-
-        # --------------------------------------------------
-        # 8. COMPARE CORRECTIONS
-        # --------------------------------------------------
 
         left_correction = (
             h1 - l1
@@ -493,10 +432,6 @@ def detect_head_shoulders(
             right_correction
         ):
             continue
-
-        # --------------------------------------------------
-        # 9. NECKLINE
-        # --------------------------------------------------
 
         x1 = p[1]["pos"]
         x2 = p[3]["pos"]
@@ -521,10 +456,6 @@ def detect_head_shoulders(
                 slope *
                 (current_pos - x2)
             )
-
-        # --------------------------------------------------
-        # 10. TARGET
-        # --------------------------------------------------
 
         pattern_height = (
             h2 - neckline
@@ -553,8 +484,6 @@ def detect_head_shoulders(
 
 # ==========================================================
 # 6. INVERSE HEAD & SHOULDERS
-#
-# MIRROR OF HEAD & SHOULDERS
 # ==========================================================
 
 def detect_inverse_head_shoulders(
@@ -596,7 +525,6 @@ def detect_inverse_head_shoulders(
         h2 = p[3]["val"]
         l3 = p[4]["val"]
 
-        # Head lower than shoulders
         if not (
             l2 < l1
             and l2 < l3
@@ -606,7 +534,6 @@ def detect_inverse_head_shoulders(
         if l2 >= l1 * 0.999:
             continue
 
-        # Shoulders equal within 1%
         if not equal_within_1_percent(
             l1,
             l3
@@ -1375,6 +1302,7 @@ def detect_pennant(
     p = pivots[-5:]
 
     # Bullish pennant
+
     if [x["type"] for x in p] == [
         "L",
         "H",
@@ -1407,6 +1335,7 @@ def detect_pennant(
             )
 
     # Bearish pennant
+
     if [x["type"] for x in p] == [
         "H",
         "L",
@@ -1443,7 +1372,6 @@ def detect_pennant(
 
 # ==========================================================
 # 20. MASTER FUNCTION
-#
 # ONLY COLLECTS INDIVIDUAL PATTERN RESULTS
 # ==========================================================
 
@@ -1509,6 +1437,7 @@ def scan_and_calculate_logic(df):
             )
 
             if result is not None:
+
                 candidates.append(result)
 
         except Exception:
@@ -1526,7 +1455,6 @@ def scan_and_calculate_logic(df):
                 0
         }
 
-    # Most recent pattern wins
     candidates.sort(
         key=lambda x:
         x["nodes"][-1][0]
@@ -1537,6 +1465,7 @@ def scan_and_calculate_logic(df):
 
 # ==========================================================
 # 21. CONFIRMATION
+# EMA50 + EMA200 + RSI 30-75
 # ==========================================================
 
 def confirm_pattern(
@@ -1550,16 +1479,16 @@ def confirm_pattern(
         latest_closed["Close"]
     )
 
+    ema50 = float(
+        latest_closed["EMA50"]
+    )
+
     ema200 = float(
         latest_closed["EMA200"]
     )
 
     rsi = float(
         latest_closed["RSI"]
-    )
-
-    macd_hist = float(
-        latest_closed["MACD_Hist"]
     )
 
     bias = p_data["bias"]
@@ -1578,12 +1507,22 @@ def confirm_pattern(
             close
         )
 
+    # ------------------------------------------------------
+    # BULLISH CONFIRMATION
+    # ------------------------------------------------------
+
     if bias == "Bullish":
 
         if close <= trigger:
 
             reasons.append(
                 "Waiting for bullish breakout"
+            )
+
+        if close <= ema50:
+
+            reasons.append(
+                "Price below EMA50"
             )
 
         if close <= ema200:
@@ -1593,26 +1532,26 @@ def confirm_pattern(
             )
 
         if not (
-            25 <= rsi <= 82
+            30 <= rsi <= 75
         ):
 
             reasons.append(
-                "RSI condition not met"
-            )
-
-        if macd_hist <= 0:
-
-            reasons.append(
-                "Bullish MACD confirmation missing"
+                "RSI must be between 30 and 75"
             )
 
         if not reasons:
 
             return (
                 "STRONG BUY",
-                "All bullish conditions confirmed.",
+                "Bullish pattern confirmed: "
+                "price above EMA50 and EMA200, "
+                "RSI within 30-75, and breakout confirmed.",
                 close
             )
+
+    # ------------------------------------------------------
+    # BEARISH CONFIRMATION
+    # ------------------------------------------------------
 
     if bias == "Bearish":
 
@@ -1622,6 +1561,12 @@ def confirm_pattern(
                 "Waiting for bearish breakout"
             )
 
+        if close >= ema50:
+
+            reasons.append(
+                "Price above EMA50"
+            )
+
         if close >= ema200:
 
             reasons.append(
@@ -1629,24 +1574,20 @@ def confirm_pattern(
             )
 
         if not (
-            25 <= rsi <= 82
+            30 <= rsi <= 75
         ):
 
             reasons.append(
-                "RSI condition not met"
-            )
-
-        if macd_hist >= 0:
-
-            reasons.append(
-                "Bearish MACD confirmation missing"
+                "RSI must be between 30 and 75"
             )
 
         if not reasons:
 
             return (
                 "STRONG SELL",
-                "All bearish conditions confirmed.",
+                "Bearish pattern confirmed: "
+                "price below EMA50 and EMA200, "
+                "RSI within 30-75, and breakout confirmed.",
                 close
             )
 
@@ -1658,8 +1599,57 @@ def confirm_pattern(
 
 
 # ==========================================================
-# 22. FULL ANALYSIS
-#
+# 22. ANALYSIS TEXT
+# ==========================================================
+
+def build_analysis_text(
+    pattern,
+    bias,
+    signal,
+    reason,
+    match_pct
+):
+
+    if pattern == "NO PATTERN DETECTED":
+
+        return (
+            "Pattern Analysis: No valid active pattern "
+            "was detected among the 15 strategy patterns. "
+            "Best Decision: WAIT."
+        )
+
+    if signal == "STRONG BUY":
+
+        decision = (
+            "BUY"
+        )
+
+    elif signal == "STRONG SELL":
+
+        decision = (
+            "SELL"
+        )
+
+    else:
+
+        decision = (
+            "WAIT"
+        )
+
+    text = (
+        f"Pattern Analysis: {pattern} detected "
+        f"with {match_pct:.0f}% structural match. "
+        f"Pattern bias: {bias}. "
+        f"Best Decision: {decision}. "
+        f"Status: {signal}. "
+        f"Reason: {reason}."
+    )
+
+    return text
+
+
+# ==========================================================
+# 23. FULL ANALYSIS
 # SAME PUBLIC FUNCTION USED BY app.py
 # ==========================================================
 
@@ -1681,26 +1671,49 @@ def run_full_analysis(df):
         == "NO PATTERN DETECTED"
     ):
 
+        analysis_text = build_analysis_text(
+            "NO PATTERN DETECTED",
+            "Neutral",
+            "WAITING",
+            "No active recent pattern found.",
+            0
+        )
+
         return {
-            "df": df,
+
+            "df":
+                df,
+
             "pattern":
                 "NO PATTERN DETECTED",
+
             "bias":
                 "Neutral",
+
             "match_pct":
                 0,
+
             "signal":
                 "WAITING",
+
             "reason":
                 "No active recent pattern found.",
+
+            "analysis_text":
+                analysis_text,
+
             "entry":
                 0,
+
             "sl":
                 0,
+
             "tp":
                 0,
+
             "trigger":
                 0,
+
             "nodes":
                 []
         }
@@ -1710,6 +1723,14 @@ def run_full_analysis(df):
             df,
             p_data
         )
+    )
+
+    analysis_text = build_analysis_text(
+        p_data["name"],
+        p_data["bias"],
+        signal,
+        reason,
+        p_data["match"]
     )
 
     return {
@@ -1734,6 +1755,9 @@ def run_full_analysis(df):
 
         "reason":
             reason,
+
+        "analysis_text":
+            analysis_text,
 
         "entry":
             round(
@@ -1767,4 +1791,4 @@ def run_full_analysis(df):
                 "neckline_start_idx",
                 p_data["nodes"][0][0]
             )
-    }
+}
