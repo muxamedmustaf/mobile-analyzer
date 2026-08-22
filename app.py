@@ -2,6 +2,8 @@ import streamlit as st
 import yfinance as yf
 import plotly.graph_objects as go
 import pandas as pd
+from ffff import get_symbols_from_sheet
+
 
 # استيراد محرك النماذج بأي اسم متاح لضمان الاستقرار
 try:
