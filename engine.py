@@ -3,7 +3,7 @@ import numpy as np
 import math
 
 MAX_PATTERN_AGE = 50
-MAX_VARIATION = 0.000
+MAX_VARIATION = 0.10
 
 def calculate_indicators(df):
     df = df.copy()
