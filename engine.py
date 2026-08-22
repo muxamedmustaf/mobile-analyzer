@@ -19,7 +19,7 @@ def calculate_indicators(df):
     df["RSI"] = df["RSI"].fillna(50.0)
     return df
 
-def calculate_zigzag(df, depth=12, deviation=5, backstep=3):
+def calculate_zigzag(df, depth=7, deviation=5, backstep=3):
     df = df.copy()
     df["Pivot_H"] = np.nan
     df["Pivot_L"] = np.nan
