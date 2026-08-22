@@ -3,19 +3,25 @@ import yfinance as yf
 import plotly.graph_objects as go
 import pandas as pd
 
-# استيراد آمن يدعم ملف pp.py وأي اسم بديل دون أي تعارض[span_1](start_span)[span_1](end_span)
+# استيراد محرك النماذج بأي اسم متاح لضمان الاستقرار
 try:
-    from pp import run_full_analysis
+    from engine import run_full_analysis
 except ImportError:
     try:
         from pattern_engine import run_full_analysis
     except ImportError:
-        from engine import run_full_analysis
+        from pp import run_full_analysis
+
+# استيراد دالة الربط بالشيت من ffff.py
+try:
+    from ffff import get_symbols_from_sheet
+except ImportError:
+    st.error("⚠️ لم يتم العثور على ملف ffff.py بجانب app.py")
 
 st.set_page_config(page_title="Smart Market Analyzer", page_icon="📈", layout="wide", initial_sidebar_state="collapsed")
 
 # ==========================================================
-# MODERN LIGHT UI / CSS[span_2](start_span)[span_2](end_span)
+# MODERN LIGHT UI / CSS
 # ==========================================================
 st.markdown(
     """
@@ -56,14 +62,7 @@ st.markdown(
         align-items: center;
         gap: 8px;
     }
-    .chart-actions {
-        display: flex;
-        gap: 16px;
-        font-size: 18px;
-        color: #0B57D0;
-        cursor: pointer;
-    }
-
+    
     .modern-card { 
         background: #FFFFFF; border: 1px solid #DADCE0; 
         border-radius: 16px; padding: 24px; margin-top: 18px; 
@@ -78,11 +77,10 @@ st.markdown(
     .card-title { font-size: 18px; font-weight: 700; color: #202124; }
     .card-subtitle { font-size: 14px; color: #5F6368; }
     
-    div[data-testid="stTextInput"] label { display: none; }
     div[data-testid="stTextInput"] input { 
-        height: 60px; border-radius: 12px; background: #F1F3F4 !important; 
+        height: 50px; border-radius: 12px; background: #F1F3F4 !important; 
         color: #0B57D0 !important; border: 1px solid #DADCE0 !important; 
-        font-size: 22px !important; font-weight: 700; padding: 0 20px; 
+        font-size: 18px !important; font-weight: 700; padding: 0 20px; 
     }
     
     div[data-testid="stButton"] > button { 
@@ -91,17 +89,6 @@ st.markdown(
         background: #0B57D0; box-shadow: 0 4px 6px rgba(11, 87, 208, 0.2);
     }
     div[data-testid="stButton"] > button:hover { background: #0842A0; }
-    
-    div[role="radiogroup"] { gap: 8px !important; flex-wrap: wrap !important; }
-    div[role="radiogroup"] > label { 
-        min-width: 75px; min-height: 44px; justify-content: center; 
-        border: 1px solid #DADCE0 !important; border-radius: 22px !important; 
-        background: #FFFFFF !important; padding: 0 14px !important; color: #5F6368 !important;
-    }
-    div[role="radiogroup"] > label:has(input:checked) { 
-        border-color: #0B57D0 !important; background: #E8F0FE !important; 
-        color: #0B57D0 !important; font-weight: 600;
-    }
     
     .status-card { border-radius: 16px; padding: 20px; margin: 18px 0; border: 1px solid #DADCE0; }
     .status-buy { background: #E6F4EA; border-color: #CEEAD6; color: #137333; }
@@ -113,13 +100,12 @@ st.markdown(
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize Session State for Top Row Dynamic Status[span_3](start_span)[span_3](end_span)
+# التهيئة الأولية للحالة
 if "current_symbol" not in st.session_state:
     st.session_state.current_symbol = "NZDCAD=X"
 if "status_summary" not in st.session_state:
     st.session_state.status_summary = "⚡ Live Scan • Ready"
 
-# Top Row displaying asset name and brief status summary in English[span_4](start_span)[span_4](end_span)
 st.markdown(f'''
 <div class="top-row">
     <div class="brand-badge">📈 {st.session_state.current_symbol}</div>
@@ -127,21 +113,35 @@ st.markdown(f'''
 </div>
 ''', unsafe_allow_html=True)
 
-st.markdown('<div class="modern-card"><div class="card-heading"><div class="icon-circle">🔍</div><div><div class="card-title">Market Asset Symbol</div><div class="card-subtitle">Enter ticker (e.g., NZDCAD=X)</div></div></div></div>', unsafe_allow_html=True)
+# اختيار طريقة الفحص
+scan_mode = st.radio("طريقة العمل والمسح:", ["زوج فردي", "Google Sheet (مسح القائمة للفرص المكتملة)"], horizontal=True)
 
-symbol = st.text_input("Market Asset Symbol", value="NZDCAD=X")
-st.session_state.current_symbol = symbol
+symbols_to_scan = []
 
-run_scan = st.button("🚀 Run Analysis", use_container_width=True)
+if scan_mode == "زوج فردي":
+    symbol = st.text_input("Market Asset Symbol", value="NZDCAD=X")
+    st.session_state.current_symbol = symbol
+    symbols_to_scan = [symbol]
+else:
+    st.markdown('<div class="modern-card"><div class="card-heading"><div class="icon-circle">📂</div><div><div class="card-title">Google Sheet Connection</div><div class="card-subtitle">يتم الجلب تلقائياً عبر الملف المربوط ffff.py</div></div></div></div>', unsafe_allow_html=True)
+    c1, c2, c3 = st.columns([2, 1, 1])
+    with c1:
+        sheet_id = st.text_input("Spreadsheet ID", value="1TXvF6RhSgfJ631UpnWB38Ww1OMvZVx7VonDB_y1pO3s")
+    with c2:
+        sheet_name = st.text_input("Sheet Name", value="Sheet1")
+    with c3:
+        col_name = st.text_input("Column Name", value="Ticker")
 
-st.markdown('<div class="modern-card"><div class="card-heading"><div class="icon-circle">⏱️</div><div><div class="card-title">Select Timeframe</div><div class="card-subtitle">Choose interval</div></div></div></div>', unsafe_allow_html=True)
+    fetched_symbols, err = get_symbols_from_sheet(sheet_id, sheet_name, col_name)
+    if err:
+        st.error(err)
+    else:
+        symbols_to_scan = fetched_symbols
+        st.success(f"تم تحميل {len(symbols_to_scan)} زوج عملات من Google Sheet!")
+
+st.markdown('<div class="modern-card"><div class="card-heading"><div class="icon-circle">⏱️</div><div><div class="card-title">Select Timeframe</div><div class="card-subtitle">اختر الإطار الزمني للتحليل</div></div></div></div>', unsafe_allow_html=True)
 tf_options = ["1m", "5m", "15m", "30m", "1h", "4h", "1D", "1W", "1M"]
 selected_tf = st.radio("Select Timeframe", options=tf_options, index=6, horizontal=True, label_visibility="collapsed")
-
-with st.expander("⚙️ Advanced Display Configuration"):
-    c_zoom, c_height = st.columns(2)
-    with c_zoom: visible_candles = st.slider("🔍 Default Visible Candles", min_value=20, max_value=300, value=90, step=10)
-    with c_height: chart_height = st.slider("📐 Chart Height", min_value=350, max_value=900, value=520, step=50)
 
 tf_map = {
     "1m": {"interval": "1m", "period": "7d"}, "5m": {"interval": "5m", "period": "60d"},
@@ -152,30 +152,74 @@ tf_map = {
 }
 current_setting = tf_map[selected_tf]
 
-if run_scan:
-    with st.spinner(f"Loading market data for {symbol}..."):
+run_scan = st.button("🚀 بدء المسح والتحليل", use_container_width=True)
+
+if run_scan and symbols_to_scan:
+    valid_signals = []
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for idx, sym in enumerate(symbols_to_scan):
+        status_text.text(f"جاري فحص الزوج ({idx+1}/{len(symbols_to_scan)}): {sym}...")
+        progress_bar.progress((idx + 1) / len(symbols_to_scan))
+        
         try:
-            df = yf.download(symbol, period=current_setting["period"], interval=current_setting["interval"], progress=False, auto_adjust=False)
+            df = yf.download(sym, period=current_setting["period"], interval=current_setting["interval"], progress=False, auto_adjust=False)
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+            if selected_tf == "4h" and not df.empty:
+                df = df.resample("4h").agg({"Open": "first", "High": "max", "Low": "min", "Close": "last"}).dropna()
+                
+            if not df.empty and len(df) >= 20:
+                result = run_full_analysis(df)
+                signal = result["signal"]
+                pattern = result["pattern"]
+                
+                # تصفية الأزواج: إبقاء أزواج الشراء والبيع فقط وتجاهل الانتظار
+                if signal in ["STRONG BUY", "STRONG SELL"] or scan_mode == "زوج فردي":
+                    valid_signals.append({
+                        "symbol": sym,
+                        "signal": signal,
+                        "pattern": pattern,
+                        "result": result
+                    })
         except Exception:
-            df = pd.DataFrame()
-
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-    if selected_tf == "4h" and not df.empty:
-        df = df.resample("4h").agg({"Open": "first", "High": "max", "Low": "min", "Close": "last"}).dropna()
-
-    if df.empty or len(df) < 20:
-        st.error(f"⚠️ Data unavailable or network issue for ticker: {symbol}")
-        st.session_state.status_summary = "⚡ Status: Data Error"
+            continue
+            
+    status_text.empty()
+    progress_bar.empty()
+    
+    if scan_mode == "Google Sheet (مسح القائمة للفرص المكتملة)":
+        if valid_signals:
+            st.balloons()
+            st.success(f"🎯 عثر البوت على {len(valid_signals)} فرصة شراء/بيع جاهزة من أصل {len(symbols_to_scan)} زوج!")
+            
+            # القائمة المنسدلة للفرص الناتجة فقط
+            options = [f"{item['symbol']} | {item['signal']} ({item['pattern']})" for item in valid_signals]
+            selected_option = st.selectbox("👇 اختر العملة لعرض التحليل ومستويات الأهداف والشارت:", options)
+            
+            selected_index = options.index(selected_option)
+            selected_data = valid_signals[selected_index]
+            
+            active_result = selected_data["result"]
+            active_symbol = selected_data["symbol"]
+        else:
+            st.warning("⚠️ تمت عملية الفحص بنجاح، ولم يتم العثور على أزواج في مرحلة الشراء أو البيع المكتملة حالياً (جميعها في حالة انتظار WAITING).")
+            active_result = None
     else:
-        result = run_full_analysis(df)
-        df_res = result["df"]
-        signal, pattern = result["signal"], result["pattern"]
+        active_result = valid_signals[0]["result"] if valid_signals else None
+        active_symbol = symbols_to_scan[0]
+
+    # عرض النتيجة المحددة على اللوحة والشارت
+    if active_result:
+        st.session_state.current_symbol = active_symbol
+        df_res = active_result["df"]
+        signal, pattern = active_result["signal"], active_result["pattern"]
         latest_rsi = df_res['RSI'].iloc[-1] if 'RSI' in df_res.columns else 0.0
         latest_close = df_res['Close'].iloc[-1]
 
-        # Update brief English status summary for the top row badge
-        st.session_state.status_summary = f"⚡ {symbol} | {signal} ({pattern}) | RSI: {latest_rsi:.1f}"
+        st.session_state.status_summary = f"⚡ {active_symbol} | {signal} ({pattern}) | RSI: {latest_rsi:.1f}"
 
         st.markdown(f"""
         <div style="margin-top: 14px; margin-bottom: 15px;">
@@ -193,89 +237,43 @@ if run_scan:
         st.markdown('<div class="section-title">Execution Levels</div>', unsafe_allow_html=True)
         e1, e2, e3 = st.columns(3)
         if signal != "WAITING" and pattern != "NO PATTERN DETECTED":
-            e1.metric("🎯 Entry", f"{result['entry']}")
-            e2.metric("🛑 Stop Loss", f"{result['sl']}")
-            e3.metric("🏆 Target", f"{result['tp']}")
+            e1.metric("🎯 Entry", f"{active_result['entry']}")
+            e2.metric("🛑 Stop Loss", f"{active_result['sl']}")
+            e3.metric("🏆 Target", f"{active_result['tp']}")
         else:
-            e1.metric("🎯 Trigger", f"{result.get('trigger', 'N/A')}")
-            e2.metric("🛑 Struct SL", f"{result.get('sl', 'N/A')}")
-            e3.metric("🏆 Proj. TP", f"{result.get('tp', 'N/A')}")
+            e1.metric("🎯 Trigger", f"{active_result.get('trigger', 'N/A')}")
+            e2.metric("🛑 Struct SL", f"{active_result.get('sl', 'N/A')}")
+            e3.metric("🏆 Proj. TP", f"{active_result.get('tp', 'N/A')}")
 
-        st.markdown(f"""
-        <div class="chart-toolbar">
-            <div class="chart-toolbar-title">📈 Chart &bull; {symbol} &bull; {selected_tf}</div>
-            <div class="chart-actions">
-                <span>🔗</span>
-                <span>⭐</span>
-                <span>✏️</span>
-                <span>⛶</span>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
+        # رسم البياني لمخطط الشموع والنمط
         fig = go.Figure()
-        
         fig.add_trace(go.Candlestick(
             x=df_res.index, open=df_res["Open"], high=df_res["High"], low=df_res["Low"], close=df_res["Close"], 
             name="Price", increasing_line_color="#137333", decreasing_line_color="#C5221F"
         ))
         
-        nodes = result.get("nodes", [])
+        nodes = active_result.get("nodes", [])
         if nodes:
             sorted_nodes = sorted(nodes, key=lambda item: pd.to_datetime(item[0]))
             x_nodes = [n[0] for n in sorted_nodes]
             y_nodes = [n[1] for n in sorted_nodes]
-            
-            line_color = "#137333" if result["bias"] == "Bullish" else "#C5221F"
+            line_color = "#137333" if active_result["bias"] == "Bullish" else "#C5221F"
 
             fig.add_trace(go.Scatter(
                 x=x_nodes, y=y_nodes,
                 mode="lines+markers", line=dict(color=line_color, width=2),
                 marker=dict(size=6, color="#0B57D0"), name=f"{pattern}"
             ))
-            
-            trigger = result.get("trigger")
-            if trigger and len(x_nodes) >= 2:
-                x_neckline_start = x_nodes[0]
-                x_neckline_end = df_res.index[-1]
-                
-                fig.add_trace(go.Scatter(
-                    x=[x_neckline_start, x_neckline_end], y=[trigger, trigger],
-                    mode="lines", line=dict(color="#E37400", width=1.5, dash="dash"), name="Neckline"
-                ))
 
-        x_min = df_res.index[-visible_candles] if len(df_res) > visible_candles else df_res.index[0]
-        
         fig.update_layout(
             template="plotly_white", 
-            height=chart_height, 
+            height=520, 
             xaxis_rangeslider_visible=False,
             margin=dict(l=10, r=40, t=10, b=30),
-            xaxis=dict(
-                range=[x_min, df_res.index[-1]], 
-                showgrid=True, 
-                gridcolor="#F1F3F4", 
-                tickfont=dict(color="#5F6368"),
-                fixedrange=False
-            ),
-            yaxis=dict(
-                side="right", 
-                showgrid=True, 
-                gridcolor="#F1F3F4", 
-                tickfont=dict(color="#5F6368"),
-                fixedrange=False
-            ), 
             plot_bgcolor="#FFFFFF", 
             paper_bgcolor="#FFFFFF", 
             showlegend=False
         )
 
-        config_options = {
-            'scrollZoom': True,
-            'displayModeBar': False,
-            'doubleClick': 'reset',
-            'responsive': True
-        }
-
-        st.plotly_chart(fig, use_container_width=True, config=config_options)
+        st.plotly_chart(fig, use_container_width=True)
         
