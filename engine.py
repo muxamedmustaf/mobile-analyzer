@@ -20,32 +20,29 @@ def calculate_indicators(df):
     return df
 
 def calculate_zigzag(df, depth=7, deviation=5, backstep=3):
+def calculate_zigzag(df, depth=7, deviation=5, backstep=3):
     df = df.copy()
     df["Pivot_H"] = np.nan
     df["Pivot_L"] = np.nan
     highs = df["High"].values
     lows = df["Low"].values
-    last_pos = -backstep
-    last_type = 0
 
+    # تقليص نطاق الحلقة لضمان وجود شموع كافية يميناً ويساراً للمقارنة
     for i in range(depth, len(df) - backstep):
-        window_high = np.max(highs[i-depth:i+1])
-        window_low = np.min(lows[i-depth:i+1])
-        is_high = (highs[i] == window_high)
-        is_low = (lows[i] == window_low)
+        # النقطة يجب أن تكون الأعلى/الأدنى مقارنة بالشموع السابقة (depth) واللاحقة (backstep)
+        window_high = np.max(highs[i - depth : i + backstep + 1])
+        window_low = np.min(lows[i - depth : i + backstep + 1])
 
-        if is_high and i - last_pos >= backstep:
-            if last_type != 1 or highs[i] > highs[last_pos]:
-                df.iloc[i, df.columns.get_loc("Pivot_H")] = highs[i]
-                last_pos = i
-                last_type = 1
+        # تعيين القمة الصارمة
+        if highs[i] == window_high:
+            df.iloc[i, df.columns.get_loc("Pivot_H")] = highs[i]
 
-        if is_low and i - last_pos >= backstep:
-            if last_type != -1 or lows[i] < lows[last_pos]:
-                df.iloc[i, df.columns.get_loc("Pivot_L")] = lows[i]
-                last_pos = i
-                last_type = -1
+        # تعيين القاع الصارم
+        if lows[i] == window_low:
+            df.iloc[i, df.columns.get_loc("Pivot_L")] = lows[i]
+
     return df
+
 
 def get_chronological_pivots(df):
     pivots = []
