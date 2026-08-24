@@ -282,143 +282,1191 @@ def detect_descending_triangle(pivots, current_pos):
     
     if not equal_tolerance(l1, l2, tol=0.0025): return None
     if not (h1 > h2 > h3): return None
-    
-    height = h1 - l1
-    return make_result("Descending Triangle", "Bearish", p, l2, h3 * 1.001, l2 - height)
+    # ==========================================================
+# 5. PATTERN DETECTION ENGINE
+# 15 PATTERNS - INDIVIDUAL STRUCTURAL RULES
+# ==========================================================
 
-def detect_ascending_triangle(pivots, current_pos):
-    if len(pivots) < 5: return None
-    p = pivots[-5:]
-    if [x["type"] for x in p] != ["L", "H", "L", "H", "L"]: return None
-    if not recent_pattern(p, current_pos): return None
-    l1, h1, l2, h2, l3 = [x["val"] for x in p]
-    
-    if not equal_tolerance(h1, h2, tol=0.0025): return None
-    if not (l2 > l1 and l3 > l2): return None
-    
-    height = h2 - l1
-    return make_result("Ascending Triangle", "Bullish", p, h2, l3 * 0.999, h2 + height)
 
-def detect_symmetrical_triangle(pivots, current_pos):
-    if len(pivots) < 5: return None
-    p = pivots[-5:]
-    if not recent_pattern(p, current_pos): return None
-    if [x["type"] for x in p] == ["H", "L", "H", "L", "H"]:
-        h1, l1, h2, l2, h3 = [x["val"] for x in p]
-        if (h2 < h1 and h3 < h2) and (l2 > l1):
-            return make_result("Symmetrical Triangle", "Bearish", p, l2, h3 * 1.001, l2 - (h1 - l1))
-    if [x["type"] for x in p] == ["L", "H", "L", "H", "L"]:
-        l1, h1, l2, h2, l3 = [x["val"] for x in p]
-        if (l2 > l1 and l3 > l2) and (h2 < h1):
-            return make_result("Symmetrical Triangle", "Bullish", p, h2, l3 * 0.999, h2 + (h1 - l1))
-    return None
+# ==========================================================
+# COMMON PATTERN GEOMETRY HELPERS
+# ==========================================================
 
-def scan_and_calculate_logic(df):
-    pivots = get_chronological_pivots(df)
-    if len(pivots) < 3:
-        return {"name": "NO PATTERN DETECTED", "bias": "Neutral", "match": 0}
+def _same(a, b, tolerance=MAX_VARIATION):
+    return variation(a, b) <= tolerance
 
-    current_pos = len(df) - 1
-    detectors = [
-        detect_descending_triangle, detect_ascending_triangle,
-        detect_head_shoulders, detect_inverted_head_shoulders,
-        detect_bearish_flag, detect_bullish_flag,
-        detect_rising_wedge, detect_falling_wedge,
-        detect_double_top, detect_double_bottom,
-        detect_triple_top, detect_triple_bottom,
-        detect_symmetrical_triangle
-    ]
 
-    candidates = []
-    for detector in detectors:
-        try:
-            res = detector(pivots, current_pos)
-            if res is not None:
-                candidates.append(res)
-        except Exception:
-            continue
+def _slope(p1, p2):
+    dx = p2["pos"] - p1["pos"]
+    if dx == 0:
+        return 0.0
+    return (p2["val"] - p1["val"]) / dx
 
-    if not candidates:
-        return {"name": "NO PATTERN DETECTED", "bias": "Neutral", "match": 0}
 
-    candidates.sort(key=lambda x: x["nodes"][-1][0])
-    return candidates[-1]
+def _range_height(high, low):
+    return abs(high - low)
 
-def confirm_pattern(df, p_data):
-    latest_closed = df.iloc[-2]
-    close = float(latest_closed["Close"])
-    ema50 = float(latest_closed["EMA50"])
-    ema200 = float(latest_closed["EMA200"])
-    rsi = float(latest_closed["RSI"])
-    
-    bias = p_data["bias"]
-    trigger = p_data["entry_trigger"]
-    reasons = []
 
-    if bias == "Neutral":
-        return ("WAITING", "بانتظار اختراق واضح للاتجاه.", close, rsi)
-
-    if bias == "Bullish":
-        if close <= trigger: reasons.append("السعر لم يخترق المقاومة بعد")
-        if close <= ema50: reasons.append("السعر أدنى من EMA50")
-        if close <= ema200: reasons.append("السعر أدنى من EMA200")
-        if not (30 <= rsi <= 75): reasons.append("RSI خارج النطاق المقبول")
-        
-        if not reasons:
-            return ("STRONG BUY", "تأكيد النمط الصاعد مع المؤشرات", close, rsi)
-
-    if bias == "Bearish":
-        if close >= trigger: reasons.append("السعر لم يكسر الدعم بعد")
-        if close >= ema50: reasons.append("السعر أعلى من EMA50")
-        if close >= ema200: reasons.append("السعر أعلى من EMA200")
-        if not (30 <= rsi <= 75): reasons.append("RSI خارج النطاق المقبول")
-        
-        if not reasons:
-            return ("STRONG SELL", "تأكيد النمط الهابط مع المؤشرات", close, rsi)
-
-    return ("WAITING", " | ".join(reasons), close, rsi)
-
-def run_full_analysis(df):
-    df = calculate_indicators(df)
-    df = calculate_zigzag(df, depth=12, deviation=5, backstep=3)
-    p_data = scan_and_calculate_logic(df)
-
-    if p_data["name"] == "NO PATTERN DETECTED":
-        latest_closed = df.iloc[-2]
-        close = float(latest_closed["Close"])
-        rsi = float(latest_closed["RSI"])
-        banner = build_top_banner_text("NO PATTERN DETECTED", "Neutral", "WAITING", "لا توجد حركة هندسية حديثة", 0, close, 0, rsi)
-        return {
-            "df": df, "pattern": "NO PATTERN DETECTED", "bias": "Neutral", "match_pct": 0,
-            "signal": "WAITING", "top_banner_text": banner,
-            "entry": 0, "sl": 0, "tp": 0, "trigger": 0, "nodes": []
-        }
-
-    signal, reason, close_price, rsi_val = confirm_pattern(df, p_data)
-    
-    banner = build_top_banner_text(
-        pattern_name=p_data["name"],
-        bias=p_data["bias"],
-        signal=signal,
-        reason=reason,
-        match_pct=p_data["match"],
-        current_price=close_price,
-        trigger=p_data["entry_trigger"],
-        rsi_val=rsi_val
+def _valid_depth(start, extreme, correction):
+    return valid_correction(
+        start,
+        extreme,
+        correction
     )
 
-    return {
-        "df": df,
-        "pattern": p_data["name"],
-        "bias": p_data["bias"],
-        "match_pct": round(p_data["match"], 2),
-        "signal": signal,
-        "top_banner_text": banner,
-        "entry": round(close_price, 4),
-        "sl": round(p_data["sl"], 4),
-        "tp": round(p_data["tp"], 4),
-        "trigger": round(p_data["entry_trigger"], 4),
-        "nodes": p_data["nodes"],
-        "neckline_start_idx": p_data.get("neckline_start_idx", p_data["nodes"][0][0])
-        }
-            
+
+def _converging(p):
+    upper_1 = p[1]["val"]
+    upper_2 = p[3]["val"]
+
+    lower_1 = p[0]["val"]
+    lower_2 = p[2]["val"]
+
+    first_range = abs(
+        upper_1 - lower_1
+    )
+
+    second_range = abs(
+        upper_2 - lower_2
+    )
+
+    return (
+        first_range > 0
+        and second_range > 0
+        and second_range < first_range
+    )
+
+
+def _recent(p, current_pos):
+    return recent_pattern(
+        p,
+        current_pos
+    )
+
+
+def _support_close(a, b):
+    return variation(a, b) <= MAX_VARIATION
+
+
+def _previous_bullish_structure(
+    pivots,
+    start_index
+):
+    if start_index < 1:
+        return True
+
+    prev = pivots[
+        max(0, start_index - 2):
+        start_index
+    ]
+
+    if len(prev) < 2:
+        return True
+
+    return prev[-1]["val"] > prev[0]["val"]
+
+
+def _previous_bearish_structure(
+    pivots,
+    start_index
+):
+    if start_index < 1:
+        return True
+
+    prev = pivots[
+        max(0, start_index - 2):
+        start_index
+    ]
+
+    if len(prev) < 2:
+        return True
+
+    return prev[-1]["val"] < prev[0]["val"]
+
+
+# ==========================================================
+# 6. HEAD AND SHOULDERS
+# ==========================================================
+
+def detect_head_shoulders(
+    pivots,
+    current_pos
+):
+
+    if len(pivots) < 5:
+        return None
+
+    for i in range(
+        max(0, len(pivots) - 7),
+        len(pivots) - 4
+    ):
+
+        p = pivots[i:i + 5]
+
+        if [x["type"] for x in p] != [
+            "H", "L", "H", "L", "H"
+        ]:
+            continue
+
+        if not _recent(
+            p,
+            current_pos
+        ):
+            continue
+
+        h1, l1, h2, l2, h3 = [
+            x["val"] for x in p
+        ]
+
+        # Previous trend must be bullish
+        if not _previous_bullish_structure(
+            pivots,
+            i
+        ):
+            continue
+
+        # Left shoulder wave
+        left_wave = h1 - l1
+
+        if left_wave <= 0:
+            continue
+
+        # Left correction >= 20%
+        if not _valid_depth(
+            l1,
+            h1,
+            l1
+        ):
+            continue
+
+        # Head must clearly break left shoulder
+        if h2 <= h1:
+            continue
+
+        if variation(
+            h2,
+            h1
+        ) <= 0:
+            continue
+
+        # Second correction must return
+        # to first support within 1%
+        if not _support_close(
+            l1,
+            l2
+        ):
+            continue
+
+        # Second correction must be meaningful
+        if not _valid_depth(
+            h1,
+            h2,
+            l2
+        ):
+            continue
+
+        # Right shoulder below head
+        if h3 >= h2:
+            continue
+
+        # Shoulders must match within 1%
+        if not _same(
+            h1,
+            h3
+        ):
+            continue
+
+        # Corresponding shoulder waves
+        right_wave = h3 - l2
+
+        if not _same(
+            left_wave,
+            right_wave
+        ):
+            continue
+
+        # Corresponding corrections
+        left_correction = h1 - l1
+        right_correction = h2 - l2
+
+        if not _same(
+            left_correction,
+            right_correction
+        ):
+            continue
+
+        # Neckline
+        x1 = p[1]["pos"]
+        x2 = p[3]["pos"]
+
+        if x2 == x1:
+            neckline = (
+                l1 + l2
+            ) / 2
+        else:
+            slope = (
+                l2 - l1
+            ) / (
+                x2 - x1
+            )
+
+            neckline = (
+                l2
+                + slope
+                * (
+                    current_pos - x2
+                )
+            )
+
+        height = h2 - neckline
+
+        if height <= 0:
+            continue
+
+        return make_result(
+            "Head and Shoulders",
+            "Bearish",
+            p,
+            neckline,
+            h3 * 1.001,
+            neckline - height,
+            100
+        )
+
+    return None
+
+
+# ==========================================================
+# 7. INVERSE HEAD AND SHOULDERS
+# ==========================================================
+
+def detect_inverse_head_shoulders(
+    pivots,
+    current_pos
+):
+
+    if len(pivots) < 5:
+        return None
+
+    for i in range(
+        max(0, len(pivots) - 7),
+        len(pivots) - 4
+    ):
+
+        p = pivots[i:i + 5]
+
+        if [x["type"] for x in p] != [
+            "L", "H", "L", "H", "L"
+        ]:
+            continue
+
+        if not _recent(
+            p,
+            current_pos
+        ):
+            continue
+
+        l1, h1, l2, h2, l3 = [
+            x["val"] for x in p
+        ]
+
+        # Previous trend bearish
+        if not _previous_bearish_structure(
+            pivots,
+            i
+        ):
+            continue
+
+        # Head must be lower
+        if not (
+            l2 < l1
+            and l2 < l3
+        ):
+            continue
+
+        # Shoulders equal
+        if not _same(
+            l1,
+            l3
+        ):
+            continue
+
+        # Left and right corresponding waves
+        left_wave = h1 - l1
+        right_wave = h2 - l3
+
+        if left_wave <= 0:
+            continue
+
+        if not _same(
+            left_wave,
+            right_wave
+        ):
+            continue
+
+        # Corresponding corrections
+        left_correction = h1 - l1
+        right_correction = h2 - l2
+
+        if not _same(
+            left_correction,
+            right_correction
+        ):
+            continue
+
+        # Neckline
+        x1 = p[1]["pos"]
+        x2 = p[3]["pos"]
+
+        if x2 == x1:
+            neckline = (
+                h1 + h2
+            ) / 2
+        else:
+            slope = (
+                h2 - h1
+            ) / (
+                x2 - x1
+            )
+
+            neckline = (
+                h2
+                + slope
+                * (
+                    current_pos - x2
+                )
+            )
+
+        height = neckline - l2
+
+        if height <= 0:
+            continue
+
+        return make_result(
+            "Inverse Head and Shoulders",
+            "Bullish",
+            p,
+            neckline,
+            l3 * 0.999,
+            neckline + height,
+            100
+        )
+
+    return None
+
+
+# ==========================================================
+# 8. DOUBLE TOP
+# ==========================================================
+
+def detect_double_top(
+    pivots,
+    current_pos
+):
+
+    if len(pivots) < 3:
+        return None
+
+    p = pivots[-3:]
+
+    if [x["type"] for x in p] != [
+        "H", "L", "H"
+    ]:
+        return None
+
+    if not _recent(
+        p,
+        current_pos
+    ):
+        return None
+
+    h1, l1, h2 = [
+        x["val"] for x in p
+    ]
+
+    # Tops must match within 1%
+    if not _same(
+        h1,
+        h2
+    ):
+        return None
+
+    correction = h1 - l1
+
+    # Correction must be >= 20%
+    if correction <= 0:
+        return None
+
+    if not _valid_depth(
+        l1,
+        h1,
+        l1
+    ):
+        return None
+
+    return make_result(
+        "Double Top",
+        "Bearish",
+        p,
+        l1,
+        max(h1, h2) * 1.001,
+        l1 - correction,
+        100
+    )
+
+
+# ==========================================================
+# 9. DOUBLE BOTTOM
+# ==========================================================
+
+def detect_double_bottom(
+    pivots,
+    current_pos
+):
+
+    if len(pivots) < 3:
+        return None
+
+    p = pivots[-3:]
+
+    if [x["type"] for x in p] != [
+        "L", "H", "L"
+    ]:
+        return None
+
+    if not _recent(
+        p,
+        current_pos
+    ):
+        return None
+
+    l1, h1, l2 = [
+        x["val"] for x in p
+    ]
+
+    # Bottoms must match within 1%
+    if not _same(
+        l1,
+        l2
+    ):
+        return None
+
+    correction = h1 - l1
+
+    if correction <= 0:
+        return None
+
+    if not _valid_depth(
+        l1,
+        h1,
+        h1
+    ):
+        return None
+
+    return make_result(
+        "Double Bottom",
+        "Bullish",
+        p,
+        h1,
+        min(l1, l2) * 0.999,
+        h1 + correction,
+        100
+    )
+
+
+# ==========================================================
+# 10. TRIPLE TOP
+# ==========================================================
+
+def detect_triple_top(
+    pivots,
+    current_pos
+):
+
+    if len(pivots) < 5:
+        return None
+
+    p = pivots[-5:]
+
+    if [x["type"] for x in p] != [
+        "H", "L", "H", "L", "H"
+    ]:
+        return None
+
+    if not _recent(
+        p,
+        current_pos
+    ):
+        return None
+
+    h1, l1, h2, l2, h3 = [
+        x["val"] for x in p
+    ]
+
+    # All three tops must match
+    if not (
+        _same(h1, h2)
+        and _same(h2, h3)
+    ):
+        return None
+
+    # Both corrections meaningful
+    if not (
+        _valid_depth(h1, h2, l1)
+        and _valid_depth(h2, h3, l2)
+    ):
+        return None
+
+    # Corresponding corrections
+    c1 = h1 - l1
+    c2 = h2 - l2
+
+    if not _same(
+        c1,
+        c2
+    ):
+        return None
+
+    neckline = min(
+        l1,
+        l2
+    )
+
+    height = (
+        max(h1, h2, h3)
+        - neckline
+    )
+
+    return make_result(
+        "Triple Top",
+        "Bearish",
+        p,
+        neckline,
+        max(h1, h2, h3) * 1.001,
+        neckline - height,
+        100
+    )
+
+
+# ==========================================================
+# 11. TRIPLE BOTTOM
+# ==========================================================
+
+def detect_triple_bottom(
+    pivots,
+    current_pos
+):
+
+    if len(pivots) < 5:
+        return None
+
+    p = pivots[-5:]
+
+    if [x["type"] for x in p] != [
+        "L", "H", "L", "H", "L"
+    ]:
+        return None
+
+    if not _recent(
+        p,
+        current_pos
+    ):
+        return None
+
+    l1, h1, l2, h2, l3 = [
+        x["val"] for x in p
+    ]
+
+    # All bottoms equal
+    if not (
+        _same(l1, l2)
+        and _same(l2, l3)
+    ):
+        return None
+
+    # Corrections
+    c1 = h1 - l1
+    c2 = h2 - l2
+
+    if not (
+        c1 > 0
+        and c2 > 0
+    ):
+        return None
+
+    if not _same(
+        c1,
+        c2
+    ):
+        return None
+
+    neckline = max(
+        h1,
+        h2
+    )
+
+    height = (
+        neckline
+        - min(l1, l2, l3)
+    )
+
+    return make_result(
+        "Triple Bottom",
+        "Bullish",
+        p,
+        neckline,
+        min(l1, l2, l3) * 0.999,
+        neckline + height,
+        100
+    )
+
+
+# ==========================================================
+# 12. ASCENDING TRIANGLE
+# ==========================================================
+
+def detect_ascending_triangle(
+    pivots,
+    current_pos
+):
+
+    if len(pivots) < 5:
+        return None
+
+    p = pivots[-5:]
+
+    if [x["type"] for x in p] != [
+        "L", "H", "L", "H", "L"
+    ]:
+        return None
+
+    if not _recent(
+        p,
+        current_pos
+    ):
+        return None
+
+    l1, h1, l2, h2, l3 = [
+        x["val"] for x in p
+    ]
+
+    # Flat resistance
+    if not _same(
+        h1,
+        h2
+    ):
+        return None
+
+    # Rising supports
+    if not (
+        l2 > l1
+        and l3 > l2
+    ):
+        return None
+
+    # Range must contract
+    first_range = h1 - l1
+    last_range = h2 - l3
+
+    if last_range >= first_range:
+        return None
+
+    neckline = max(
+        h1,
+        h2
+    )
+
+    height = (
+        neckline
+        - min(l1, l2, l3)
+    )
+
+    return make_result(
+        "Ascending Triangle",
+        "Bullish",
+        p,
+        neckline,
+        min(l1, l2, l3) * 0.999,
+        neckline + height,
+        100
+    )
+
+
+# ==========================================================
+# 13. DESCENDING TRIANGLE
+# ==========================================================
+
+def detect_descending_triangle(
+    pivots,
+    current_pos
+):
+
+    if len(pivots) < 5:
+        return None
+
+    p = pivots[-5:]
+
+    if [x["type"] for x in p] != [
+        "H", "L", "H", "L", "H"
+    ]:
+        return None
+
+    if not _recent(
+        p,
+        current_pos
+    ):
+        return None
+
+    h1, l1, h2, l2, h3 = [
+        x["val"] for x in p
+    ]
+
+    # Flat support
+    if not _same(
+        l1,
+        l2
+    ):
+        return None
+
+    # Lower highs
+    if not (
+        h2 < h1
+        and h3 < h2
+    ):
+        return None
+
+    first_range = h1 - l1
+    last_range = h3 - l2
+
+    if last_range >= first_range:
+        return None
+
+    neckline = min(
+        l1,
+        l2
+    )
+
+    height = (
+        max(h1, h2, h3)
+        - neckline
+    )
+
+    return make_result(
+        "Descending Triangle",
+        "Bearish",
+        p,
+        neckline,
+        max(h1, h2, h3) * 1.001,
+        neckline - height,
+        100
+    )
+
+
+# ==========================================================
+# 14. SYMMETRICAL TRIANGLE
+# ==========================================================
+
+def detect_symmetrical_triangle(
+    pivots,
+    current_pos
+):
+
+    if len(pivots) < 5:
+        return None
+
+    p = pivots[-5:]
+
+    if [x["type"] for x in p] != [
+        "H", "L", "H", "L", "H"
+    ]:
+        return None
+
+    if not _recent(
+        p,
+        current_pos
+    ):
+        return None
+
+    h1, l1, h2, l2, h3 = [
+        x["val"] for x in p
+    ]
+
+    # Lower highs
+    if not (
+        h2 < h1
+        and h3 < h2
+    ):
+        return None
+
+    # Higher lows
+    if not (
+        l2 > l1
+    ):
+        return None
+
+    # Contraction
+    first_range = h1 - l1
+    second_range = h3 - l2
+
+    if second_range >= first_range:
+        return None
+
+    # Both sides must converge
+    upper_slope = _slope(
+        p[0],
+        p[2]
+    )
+
+    lower_slope = _slope(
+        p[1],
+        p[3]
+    )
+
+    if not (
+        upper_slope < 0
+        and lower_slope > 0
+    ):
+        return None
+
+    return make_result(
+        "Symmetrical Triangle",
+        "Neutral",
+        p,
+        h3,
+        h1 * 1.001,
+        l1,
+        100
+    )
+
+
+# ==========================================================
+# 15. RISING WEDGE
+# ==========================================================
+
+def detect_rising_wedge(
+    pivots,
+    current_pos
+):
+
+    if len(pivots) < 5:
+        return None
+
+    p = pivots[-5:]
+
+    if [x["type"] for x in p] != [
+        "L", "H", "L", "H", "L"
+    ]:
+        return None
+
+    if not _recent(
+        p,
+        current_pos
+    ):
+        return None
+
+    l1, h1, l2, h2, l3 = [
+        x["val"] for x in p
+    ]
+
+    # Both highs and lows rise
+    if not (
+        h2 > h1
+        and l2 > l1
+        and l3 > l2
+    ):
+        return None
+
+    upper_slope = (
+        h2 - h1
+    ) / max(
+        p[3]["pos"] - p[1]["pos"],
+        1
+    )
+
+    lower_slope = (
+        l3 - l1
+    ) / max(
+        p[4]["pos"] - p[0]["pos"],
+        1
+    )
+
+    # Rising but converging
+    if not (
+        upper_slope > 0
+        and lower_slope > 0
+        and lower_slope < upper_slope
+    ):
+        return None
+
+    first_range = h1 - l1
+    last_range = h2 - l3
+
+    if last_range >= first_range:
+        return None
+
+    return make_result(
+        "Rising Wedge",
+        "Bearish",
+        p,
+        l3,
+        max(h1, h2) * 1.001,
+        l3 - (
+            max(h1, h2)
+            - min(l1, l2, l3)
+        ),
+        100
+    )
+
+
+# ==========================================================
+# 16. FALLING WEDGE
+# ==========================================================
+
+def detect_falling_wedge(
+    pivots,
+    current_pos
+):
+
+    if len(pivots) < 5:
+        return None
+
+    p = pivots[-5:]
+
+    if [x["type"] for x in p] != [
+        "H", "L", "H", "L", "H"
+    ]:
+        return None
+
+    if not _recent(
+        p,
+        current_pos
+    ):
+        return None
+
+    h1, l1, h2, l2, h3 = [
+        x["val"] for x in p
+    ]
+
+    # Lower highs and lower lows
+    if not (
+        h2 < h1
+        and h3 < h2
+        and l2 < l1
+    ):
+        return None
+
+    upper_slope = (
+        h3 - h1
+    ) / max(
+        p[4]["pos"] - p[0]["pos"],
+        1
+    )
+
+    lower_slope = (
+        l2 - l1
+    ) / max(
+        p[3]["pos"] - p[1]["pos"],
+        1
+    )
+
+    # Both lines descend
+    if not (
+        upper_slope < 0
+        and lower_slope < 0
+    ):
+        return None
+
+    # Convergence
+    first_range = h1 - l1
+    last_range = h3 - l2
+
+    if last_range >= first_range:
+        return None
+
+    return make_result(
+        "Falling Wedge",
+        "Bullish",
+        p,
+        h3,
+        min(l1, l2) * 0.999,
+        h3 + (
+            max(h1, h2, h3)
+            - min(l1, l2)
+        ),
+        100
+    )
+
+
+# ==========================================================
+# 17. RECTANGLE
+# ==========================================================
+
+def detect_rectangle(
+    pivots,
+    current_pos
+):
+
+    if len(pivots) < 6:
+        return None
+
+    p = pivots[-6:]
+
+    if not _recent(
+        p,
+        current_pos
+    ):
+        return None
+
+    highs = [
+        x for x in p
+        if x["type"] == "H"
+    ]
+
+    lows = [
+        x for x in p
+        if x["type"] == "L"
+    ]
+
+    if len(highs) < 3:
+        return None
+
+    if len(lows) < 3:
+        return None
+
+    # Resistance remains flat
+    if not (
+        _same(
+            highs[0]["val"],
+            highs[-1]["val"]
+        )
+    ):
+        return None
+
+    # Support remains flat
+    if not (
+        _same(
+            lows[0]["val"],
+            lows[-1]["val"]
+        )
+    ):
+        return None
+
+    resistance = max(
+        x["val"] for x in highs
+    )
+
+    support = min(
+        x["val"] for x in lows
+    )
+
+    if resistance <= support:
+        return None
+
+    return make_result(
+        "Rectangle",
+        "Neutral",
+        p,
+        resistance,
+        resistance * 1.001,
+        support,
+        100
+    )
+
+
+# ==========================================================
+# 18. BULL FLAG
+# ==========================================================
+
+def detect_bull_flag(
+    pivots,
+    current_pos
+):
+
+    if len(pivots) < 5:
+        return None
+
+    p = pivots[-5:]
+
+    if [x["type"] for x in p] != [
+        "L", "H", "L", "H", "L"
+    ]:
+        return None
+
+    if not _recent(
+        p,
+        current_pos
+    ):
+        return None
+
+    l1, h1, l2, h2, l3 = [
+        x["val"] for x in p
+    ]
+
+    # Strong bullish pole
+    pole = h1 - l1
+
+    if pole <= 0:
+        return None
+
+    # Flag correction
+    correction = h1 - l3
+
+    if correction <= 0:
+        return None
+
+    # Correction must not consume the pole
+    if correction >= pole:
+        return None
+
+    # Flag slopes downward
+    if not (
+        h2 < h1
+        and l3 < l2
+    ):
+        return None
+
+    # Corresponding correction must be meaningful
+    if correction / pole < MIN_CORRECTION:
+        return None
+
+    return make_result(
+        "Bull Flag",
+        "Bullish",
+        p,
+        h2,
+        l3 * 0.999,
+        h2 + pole,
+        100
+    )
+
+
+# ==========================================================
+# 19. BEAR FLAG
+# ==========================================================
+
+def detect_bear_flag(
+    pivots,
+    current_pos
+):
+
+    if len(pivots) < 5:
+        return None
+
+    p = pivots[-5:]
+
+    if [x["type"] for x in p] != [
+        "H", "L", "H", "L", "H"
+    ]:
+        return None
+
+    if not _recent(
+        p,
+        current_pos
+    ):
+        return None
+
+    h1, l1, h2, l2, h3 = [
+        x["val"] for x in p
+    ]
+
+    # Strong beari
