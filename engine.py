@@ -20,29 +20,48 @@ def calculate_indicators(df):
     return df
 
 def calculate_zigzag(df, depth=7, deviation=5, backstep=3):
-def calculate_zigzag(df, depth=7, deviation=5, backstep=3):
     df = df.copy()
+
     df["Pivot_H"] = np.nan
     df["Pivot_L"] = np.nan
-    highs = df["High"].values
-    lows = df["Low"].values
 
-    # تقليص نطاق الحلقة لضمان وجود شموع كافية يميناً ويساراً للمقارنة
+    highs = df["High"].astype(float).values
+    lows = df["Low"].astype(float).values
+
     for i in range(depth, len(df) - backstep):
-        # النقطة يجب أن تكون الأعلى/الأدنى مقارنة بالشموع السابقة (depth) واللاحقة (backstep)
-        window_high = np.max(highs[i - depth : i + backstep + 1])
-        window_low = np.min(lows[i - depth : i + backstep + 1])
 
-        # تعيين القمة الصارمة
-        if highs[i] == window_high:
-            df.iloc[i, df.columns.get_loc("Pivot_H")] = highs[i]
+        high_window = highs[i - depth:i + backstep + 1]
+        low_window = lows[i - depth:i + backstep + 1]
 
-        # تعيين القاع الصارم
-        if lows[i] == window_low:
-            df.iloc[i, df.columns.get_loc("Pivot_L")] = lows[i]
+        current_high = highs[i]
+        current_low = lows[i]
+
+        # قمة مؤكدة: أعلى قمة في النطاق
+        is_high = (
+            current_high == np.max(high_window)
+            and np.sum(high_window == current_high) == 1
+        )
+
+        # قاع مؤكد: أدنى قاع في النطاق
+        is_low = (
+            current_low == np.min(low_window)
+            and np.sum(low_window == current_low) == 1
+        )
+
+        # لا نسمح بأن تكون الشمعة قمة وقاعاً في نفس الوقت
+        if is_high and not is_low:
+            df.iloc[
+                i,
+                df.columns.get_loc("Pivot_H")
+            ] = current_high
+
+        elif is_low and not is_high:
+            df.iloc[
+                i,
+                df.columns.get_loc("Pivot_L")
+            ] = current_low
 
     return df
-
 
 def get_chronological_pivots(df):
     pivots = []
