@@ -1612,32 +1612,108 @@ def detect_bull_flag(
 
 
 # ==========================================================
-# 19. BEAR FLAG
+# 19. BEAR FLAG (COMPLETED)
 # ==========================================================
 
-def detect_bear_flag(
-    pivots,
-    current_pos
-):
-
+def detect_bear_flag(pivots, current_pos):
     if len(pivots) < 5:
         return None
 
     p = pivots[-5:]
-
-    if [x["type"] for x in p] != [
-        "H", "L", "H", "L", "H"
-    ]:
+    if [x["type"] for x in p] != ["H", "L", "H", "L", "H"]:
         return None
 
-    if not _recent(
+    if not recent_pattern(p, current_pos):
+        return None
+
+    h1, l1, h2, l2, h3 = [x["val"] for x in p]
+
+    pole = h1 - l1
+    if pole <= 0:
+        return None
+
+    correction = h3 - l1
+    if correction <= 0 or correction >= pole:
+        return None
+
+    if not (h2 > h1 and l2 > l1):
+        return None
+
+    return make_result(
+        "Bear Flag",
+        "Bearish",
         p,
-        current_pos
-    ):
-        return None
+        l2,
+        h3 * 1.001,
+        l2 - pole,
+        100
+    )
 
-    h1, l1, h2, l2, h3 = [
-        x["val"] for x in p
+# ==========================================================
+# MAIN ANALYSIS ENTRY POINT FOR APP.PY
+# ==========================================================
+
+def run_full_analysis(df):
+    """
+    Executes indicators calculation, swing pivot extraction,
+    and runs pattern scanning to return a structured analysis payload.
+    """
+    df_calc = calculate_indicators(df)
+    df_calc = calculate_zigzag(df_calc)
+    
+    pivots = get_chronological_pivots(df_calc)
+    current_pos = len(df_calc) - 1
+    
+    pattern_detectors = [
+        detect_head_shoulders,
+        detect_inverse_head_shoulders,
+        detect_double_top,
+        detect_double_bottom,
+        detect_triple_top,
+        detect_triple_bottom,
+        detect_ascending_triangle,
+        detect_descending_triangle,
+        detect_symmetrical_triangle,
+        detect_rising_wedge,
+        detect_falling_wedge,
+        detect_rectangle,
+        detect_bull_flag,
+        detect_bear_flag,
     ]
 
-    # Strong beari
+    detected_pattern = None
+    for detector in pattern_detectors:
+        res = detector(pivots, current_pos)
+        if res is not None:
+            detected_pattern = res
+            break
+
+    latest_close = float(df_calc["Close"].iloc[-1])
+
+    if detected_pattern:
+        pattern_name = detected_pattern["name"]
+        bias = detected_pattern["bias"]
+        signal = "STRONG BUY" if bias == "Bullish" else "STRONG SELL" if bias == "Bearish" else "WAITING"
+        entry = detected_pattern["entry_trigger"]
+        sl = detected_pattern["sl"]
+        tp = detected_pattern["tp"]
+        nodes = detected_pattern["nodes"]
+    else:
+        pattern_name = "NO PATTERN DETECTED"
+        bias = "Neutral"
+        signal = "WAITING"
+        entry = latest_close
+        sl = latest_close * 0.99
+        tp = latest_close * 1.01
+        nodes = []
+
+    return {
+        "df": df_calc,
+        "signal": signal,
+        "pattern": pattern_name,
+        "bias": bias,
+        "entry": round(entry, 4),
+        "sl": round(sl, 4),
+        "tp": round(tp, 4),
+        "nodes": nodes
+    }
