@@ -47,9 +47,10 @@ def calculate_zigzag(df, depth=7, deviation=5, backstep=3):
 def get_chronological_pivots(df):
     pivots = []
     for pos, (idx, row) in enumerate(df.iterrows()):
+        # فصل الشروط لضمان التقاط جميع النقاط المتطرفة
         if not pd.isna(row["Pivot_H"]):
             pivots.append({"idx": idx, "pos": pos, "val": float(row["Pivot_H"]), "type": "H"})
-        elif not pd.isna(row["Pivot_L"]):
+        if not pd.isna(row["Pivot_L"]):
             pivots.append({"idx": idx, "pos": pos, "val": float(row["Pivot_L"]), "type": "L"})
 
     clean = []
@@ -58,6 +59,8 @@ def get_chronological_pivots(df):
             clean.append(p)
             continue
         last = clean[-1]
+        
+        # التناوب الصارم: إذا تتابعت قمتان، نأخذ الأعلى، وإذا تتابع قاعان نأخذ الأدنى
         if last["type"] != p["type"]:
             clean.append(p)
         elif p["type"] == "H":
@@ -66,6 +69,7 @@ def get_chronological_pivots(df):
         elif p["type"] == "L":
             if p["val"] < last["val"]:
                 clean[-1] = p
+                
     return clean
 
 def calculate_slope(y2, y1, x2, x1):
