@@ -101,16 +101,168 @@ def make_result(name, bias, points, entry, sl, tp, score=100):
 
 def build_top_banner_text(pattern_name, bias, signal, reason, match_pct, current_price, trigger, rsi_val):
     if pattern_name == "NO PATTERN DETECTED":
-        line1 = "النمط السعري: لا يوجد نمط هندسي مكتمل حالياً | الحركة العامة: نطاق عرضي تذبذبي."
-    else:
-        line1 = f"النمط السعري: تشكّل {pattern_name} بنسبة تطابق {match_pct:.0f}% | الاتجاه المتوقع: {bias}."
+        l# ==========================================================
+# ZIGZAG - STRICT MAJOR SWING DETECTION
+# ==========================================================
 
-    if signal in ["STRONG BUY", "STRONG SELL"]:
-        line2 = f"الحالة الراهنة: السعر الحالي المغلق ({current_price:.4f}) أكد الاختراق للمستوى ({trigger:.4f}) | RSI: {rsi_val:.1f}."
-    else:
-        line2 = f"الحالة الراهنة: الزوج في وضع الانتظار بناءً على الشمعة المغلقة ({current_price:.4f}) | السبب: {reason}."
+MIN_SWING_PERCENT = 0.005   # 0.5% minimum movement
 
-    return f"SIGNAL: {signal}\n{line1}\n{line2}"
+
+def calculate_zigzag(df, depth=7, deviation=5, backstep=3):
+    df = df.copy()
+
+    df["Pivot_H"] = np.nan
+    df["Pivot_L"] = np.nan
+
+    highs = df["High"].astype(float).values
+    lows = df["Low"].astype(float).values
+
+    n = len(df)
+
+    for i in range(depth, n - backstep):
+
+        high_window = highs[i-depth:i+backstep+1]
+        low_window = lows[i-depth:i+backstep+1]
+
+        current_high = highs[i]
+        current_low = lows[i]
+
+        is_high = (
+            current_high == np.max(high_window)
+            and np.sum(high_window == current_high) == 1
+        )
+
+        is_low = (
+            current_low == np.min(low_window)
+            and np.sum(low_window == current_low) == 1
+        )
+
+        # يمنع اعتبار نفس الشمعة قمة وقاعاً معاً
+        if is_high and not is_low:
+
+            df.iloc[
+                i,
+                df.columns.get_loc("Pivot_H")
+            ] = current_high
+
+        elif is_low and not is_high:
+
+            df.iloc[
+                i,
+                df.columns.get_loc("Pivot_L")
+            ] = current_low
+
+    return df
+
+
+# ==========================================================
+# CHRONOLOGICAL PIVOTS + MAJOR SWING FILTER
+# ==========================================================
+
+def get_chronological_pivots(df):
+
+    raw_pivots = []
+
+    for pos, (idx, row) in enumerate(df.iterrows()):
+
+        if not pd.isna(row["Pivot_H"]):
+
+            raw_pivots.append({
+                "idx": idx,
+                "pos": pos,
+                "val": float(row["Pivot_H"]),
+                "type": "H"
+            })
+
+        elif not pd.isna(row["Pivot_L"]):
+
+            raw_pivots.append({
+                "idx": idx,
+                "pos": pos,
+                "val": float(row["Pivot_L"]),
+                "type": "L"
+            })
+
+    # ======================================================
+    # 1. STRICT H/L ALTERNATION
+    # ======================================================
+
+    clean = []
+
+    for p in raw_pivots:
+
+        if not clean:
+            clean.append(p)
+            continue
+
+        last = clean[-1]
+
+        # حركة عكسية = موجة جديدة
+        if last["type"] != p["type"]:
+
+            clean.append(p)
+            continue
+
+        # قمتان متتاليتان -> نأخذ الأعلى
+        if p["type"] == "H":
+
+            if p["val"] > last["val"]:
+                clean[-1] = p
+
+        # قاعان متتاليان -> نأخذ الأدنى
+        elif p["type"] == "L":
+
+            if p["val"] < last["val"]:
+                clean[-1] = p
+
+    # ======================================================
+    # 2. MAJOR SWING FILTER
+    # ======================================================
+
+    major = []
+
+    for p in clean:
+
+        if not major:
+            major.append(p)
+            continue
+
+        last = major[-1]
+
+        movement = abs(
+            p["val"] - last["val"]
+        ) / max(
+            abs(last["val"]),
+            1e-9
+        )
+
+        # ----------------------------------------------
+        # إذا كانت الحركة صغيرة جداً
+        # لا تعتبر موجة رئيسية
+        # ----------------------------------------------
+
+        if movement < MIN_SWING_PERCENT:
+
+            # إذا كانت نفس النوع نحتفظ بالأقوى
+            if p["type"] == last["type"]:
+
+                if p["type"] == "H":
+                    if p["val"] > last["val"]:
+                        major[-1] = p
+
+                else:
+                    if p["val"] < last["val"]:
+                        major[-1] = p
+
+            continue
+
+        # ----------------------------------------------
+        # حركة رئيسية جديدة
+        # ----------------------------------------------
+
+        major.append(p)
+
+    return major
 
 def detect_double_top(pivots, current_pos):
     if len(pivots) < 3: return None
