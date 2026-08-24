@@ -6,13 +6,12 @@ import pandas as pd
 
 # استيراد محرك النماذج بأي اسم متاح لضمان الاستقرار
 try:
-    from engine import run_full_analysis
-except ImportError:
-    try:
-        from pattern_engine import run_full_analysis
-    except ImportError:
-        from pp import run_full_analysis
+    import streamlit as st
+import yfinance as yf
+import plotly.graph_objects as go
+import pandas as pd
 
+from engine import run_full_analysis
 # استيراد دالة الربط بالشيت من ffff.py
 try:
     from ffff import get_symbols_from_sheet
