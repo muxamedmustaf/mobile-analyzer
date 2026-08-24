@@ -5,7 +5,7 @@ import pandas as pd
 
 
 # استيراد محرك النماذج بأي اسم متاح لضمان الاستقرار
-try:
+
     import streamlit as st
 import yfinance as yf
 import plotly.graph_objects as go
