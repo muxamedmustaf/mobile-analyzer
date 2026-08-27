@@ -6,7 +6,7 @@ import numpy as np
 # HEAD & SHOULDERS ENGINE
 # ==========================================================
 
-LOOKBACK = 500
+LOOKBACK = 80
 PIVOT_LEFT = 3
 PIVOT_RIGHT = 3
 
