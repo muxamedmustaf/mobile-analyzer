@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 
 # ==========================================================
-# ENGINE.PY - LIVE SCANNER ANCHOR FIX (v4.1)
+# ENGINE.PY - STRICT LIVE EDGE SCANNER (v4.2)
 # ==========================================================
 
 MIN_SWING_PERCENT = 0.008
@@ -193,9 +193,9 @@ def detect_all_head_shoulders(pivots, df):
         if not passed:
             continue
 
-        # [فلتر الحداثة الحية]: التأكد من أن النمط حدث في آخر الشموع لئلا يظهر معلقاً في منتصف الشارت
+        # [صارم جداً]: يجب أن يكون الكسر قد حدث في آخر 10 شمعة فقط ليظهر على حافة الشارت الحالية
         end_pos = df.index.get_loc(end_idx)
-        if (total_candles - end_pos) > 60:  # إذا كان الكسر قد حدث قبل أكثر من 60 شمعة، يتم استبعاده ليكون التركيز على الحاضر
+        if (total_candles - end_pos) > 10:
             continue
 
         neckline_avg = (l1 + l2) / 2.0
@@ -249,7 +249,6 @@ def run_full_analysis(df):
             "nodes": [], "all_patterns": []
         }
 
-    # حصر التحليل في آخر 200 شمعة للحفاظ على سرعة الماسح الحي
     df_active = df.tail(200).copy()
 
     df_active = calculate_indicators(df_active)
@@ -284,5 +283,5 @@ def run_full_analysis(df):
     }
 
 if __name__ == "__main__":
-    print("ENGINE.PY loaded with Live Scanner Anchor Fix (v4.1).")
-                                                             
+    print("ENGINE.PY loaded with Strict Live Edge Scanner (v4.2).")
+    
