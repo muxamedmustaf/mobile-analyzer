@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 
 # ==========================================================
-# ENGINE.PY - POST-HEAD INVALIDATION FILTER (v3.5)
+# ENGINE.PY - MODULAR PIPELINE WITH EMA & RSI FILTERS (v4.0)
 # ==========================================================
 
 MIN_SWING_PERCENT = 0.008
@@ -84,10 +84,93 @@ def get_chronological_pivots(df):
 
     return clean
 
+# نظام الأنابيب المعياري لإضافة واختبار الدوال بسهولة
+class PatternValidatorPipeline:
+    def __init__(self, df):
+        self.df = df
+        # قائمة الدوال المجربة التي تجتاز الاختبارات التسلسلية
+        self.filters = [
+            self.time_filter,
+            self.trend_filter,
+            self.invalidation_filter,
+            self.indicator_confirmation_filter,
+            self.breakout_filter
+        ]
+
+    def time_filter(self, p, data):
+        i_l0, i_h1, i_l1, i_h2, i_l2, i_h3 = [x["pos"] for x in p]
+        if (i_h1 - i_l0 < MIN_WAVE_CANDLES) or \
+           (i_l1 - i_h1 < MIN_WAVE_CANDLES) or \
+           (i_h2 - i_l1 < MIN_WAVE_CANDLES) or \
+           (i_l2 - i_h2 < MIN_WAVE_CANDLES) or \
+           (i_h3 - i_l2 < MIN_WAVE_CANDLES):
+            return False, None, None
+        return True, None, None
+
+    def trend_filter(self, p, data):
+        idx_l0 = p[0]["idx"]
+        pre_l0_df = data.loc[:idx_l0]
+        if len(pre_l0_df) > 10:
+            past_min = pre_l0_df['Low'].iloc[-10:].min()
+            if past_min > p[0]["val"]:
+                return False, None, None
+        return True, None, None
+
+    def invalidation_filter(self, p, data):
+        h2 = p[3]["val"]
+        idx_h2 = p[3]["idx"]
+        post_head_df = data.loc[idx_h2:]
+        if not post_head_df.empty:
+            if post_head_df['High'].max() > h2:
+                return False, None, None
+        return True, None, None
+
+    def indicator_confirmation_filter(self, p, data):
+        idx_h3 = p[5]["idx"]
+        rsi_val = data.loc[idx_h3, "RSI"]
+        
+        # شرط تأكيد RSI بين 30 و 75
+        if not (30 <= rsi_val <= 75):
+            return False, None, None
+        
+        # التحقق من توفر قيم المتوسطات EMA 50 و EMA 200 وصحتها
+        ema50 = data.loc[idx_h3, "EMA50"]
+        ema200 = data.loc[idx_h3, "EMA200"]
+        if pd.isna(ema50) or pd.isna(ema200):
+            return False, None, None
+            
+        return True, None, None
+
+    def breakout_filter(self, p, data):
+        idx_h3 = p[5]["idx"]
+        l1, l2 = p[2]["val"], p[4]["val"]
+        neckline_avg = (l1 + l2) / 2.0
+        
+        post_h3_df = data.loc[idx_h3:]
+        breakout_candles = post_h3_df[post_h3_df['Close'] < neckline_avg]
+        if breakout_candles.empty:
+            return False, None, None
+            
+        end_idx = breakout_candles.index[0]
+        end_val = breakout_candles['Close'].iloc[0]
+        return True, end_idx, end_val
+
+    def run(self, p):
+        end_idx, end_val = None, None
+        for f in self.filters:
+            passed, e_idx, e_val = f(p, self.df)
+            if not passed:
+                return False, None, None
+            if e_idx is not None:
+                end_idx, end_val = e_idx, e_val
+        return True, end_idx, end_val
+
 def detect_all_head_shoulders(pivots, df):
     patterns = []
     if len(pivots) < 6:
         return patterns
+
+    validator = PatternValidatorPipeline(df)
 
     for i in range(len(pivots) - 5):
         p = pivots[i:i + 6]
@@ -96,25 +179,6 @@ def detect_all_head_shoulders(pivots, df):
             continue
 
         l0, h1, l1, h2, l2, h3 = [x["val"] for x in p]
-        i_l0, i_h1, i_l1, i_h2, i_l2, i_h3 = [x["pos"] for x in p]
-        idx_l0 = p[0]["idx"]
-        idx_h2 = p[3]["idx"]  # مؤشر قمة الرأس
-        idx_h3 = p[5]["idx"]
-
-        # فلتر المسافة الزمنية
-        if (i_h1 - i_l0 < MIN_WAVE_CANDLES) or \
-           (i_l1 - i_h1 < MIN_WAVE_CANDLES) or \
-           (i_h2 - i_l1 < MIN_WAVE_CANDLES) or \
-           (i_l2 - i_h2 < MIN_WAVE_CANDLES) or \
-           (i_h3 - i_l2 < MIN_WAVE_CANDLES):
-            continue
-
-        # فلتر الاتجاه السابق (يجب أن يكون في قمة وليست قاعاً هابطاً)
-        pre_l0_df = df.loc[:idx_l0]
-        if len(pre_l0_df) > 10:
-            past_min = pre_l0_df['Low'].iloc[-10:].min()
-            if past_min > l0:
-                continue
 
         if h1 <= l0 or l1 <= l0: continue
         if h2 <= h1 or h2 <= h3: continue
@@ -123,17 +187,15 @@ def detect_all_head_shoulders(pivots, df):
         head_height = h2 - neckline_min
         if head_height <= 0: continue
 
-        # هندسة الكتفين
         if abs(h1 - h3) > (head_height * 0.35): continue
         max_shoulder = max(h1, h3)
         if (h2 - max_shoulder) < (head_height * 0.25): continue
         if abs(l1 - l2) > (head_height * 0.25): continue
 
-        # [إضافة حاسمة v3.5]: فلتر إلغاء النموذج إذا تجاوز السعر قمة الرأس لاحقاً
-        post_head_df = df.loc[idx_h2:]
-        if not post_head_df.empty:
-            if post_head_df['High'].max() > h2:
-                continue  # إلغاء النموذج فوراً لأنه تم اختراق الرأس لاحقاً
+        # تطبيق خط أنابيب الفلاتر المعياري
+        passed, end_idx, end_val = validator.run(p)
+        if not passed:
+            continue
 
         neckline_avg = (l1 + l2) / 2.0
         actual_head_length = h2 - neckline_avg
@@ -141,16 +203,6 @@ def detect_all_head_shoulders(pivots, df):
         entry = neckline_avg
         sl = h2
         tp = entry - actual_head_length 
-        
-        # فلتر الكسر الإجباري لخط العنق بعد الكتف الأيمن
-        post_h3_df = df.loc[idx_h3:]
-        breakout_candles = post_h3_df[post_h3_df['Close'] < entry]
-        
-        if breakout_candles.empty:
-            continue
-            
-        end_idx = breakout_candles.index[0]
-        end_val = breakout_candles['Close'].iloc[0]
 
         nodes = [(x["idx"], x["val"]) for x in p]
         nodes.append((end_idx, float(end_val)))
@@ -228,5 +280,4 @@ def run_full_analysis(df):
     }
 
 if __name__ == "__main__":
-    print("ENGINE.PY loaded with Post-Head Invalidation Filter (v3.5).")
-        
+    print("ENGINE.PY loaded with Modular Pipeline & EMA/RSI Filters (v4.0).")
