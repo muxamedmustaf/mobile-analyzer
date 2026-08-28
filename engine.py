@@ -2,10 +2,9 @@ import pandas as pd
 import numpy as np
 
 # ==========================================================
-# ENGINE.PY
+# ENGINE.PY - STRICT LOGICAL HEAD & SHOULDERS ENGINE
 # ==========================================================
 
-MAX_VARIATION = 0.035
 MIN_SWING_PERCENT = 0.005
 
 
@@ -88,72 +87,74 @@ def get_chronological_pivots(df):
     return clean
 
 
-def variation(a, b):
-    return abs(a - b) / max(abs(a), abs(b), 1e-9)
-
-
-def same_level(a, b, tolerance=MAX_VARIATION):
-    return variation(a, b) <= tolerance
-
-
 def detect_all_head_shoulders(pivots):
     patterns = []
-    if len(pivots) < 5:
+    if len(pivots) < 6:
         return patterns
 
-    for i in range(len(pivots) - 4):
-        p = pivots[i:i + 5]
+    # Requires 6 chronological pivots: L0 -> H1 -> L1 -> H2 -> L2 -> H3
+    for i in range(len(pivots) - 5):
+        p = pivots[i:i + 6]
+        types = [x["type"] for x in p]
 
-        if [x["type"] for x in p] != ["H", "L", "H", "L", "H"]:
+        if types != ["L", "H", "L", "H", "L", "H"]:
             continue
 
-        h1, l1, h2, l2, h3 = [x["val"] for x in p]
+        l0 = p[0]["val"]  # Initial Low (Start of Bullish Wave)
+        h1 = p[1]["val"]  # Left Shoulder Peak
+        l1 = p[2]["val"]  # Left Neckline Low
+        h2 = p[3]["val"]  # Head Peak
+        l2 = p[4]["val"]  # Right Neckline Low
+        h3 = p[5]["val"]  # Right Shoulder Peak
 
+        # 1. Preceding Uptrend: H1 must be higher than initial Low (L0)
+        if h1 <= l0:
+            continue
+
+        # 2. Retracement: L1 must be higher than L0 (Correction < Initial Uptrend)
+        if l1 <= l0:
+            continue
+
+        # 3. Head Wave: H2 strictly higher than H1 and H3
         if h2 <= h1 or h2 <= h3:
             continue
 
-        if not same_level(h1, h3, MAX_VARIATION):
+        # 4. Head Wave Height: (H2 - L1) must be longer than Left Shoulder Retracement (H1 - L1)
+        if (h2 - l1) <= (h1 - l1):
             continue
 
-        x1 = p[1]["pos"]
-        x2 = p[3]["pos"]
-
-        if x2 == x1:
-            neckline = (l1 + l2) / 2.0
-        else:
-            neckline = l2
-
-        height = h2 - neckline
-        if height <= 0:
+        # 5. Right Shoulder: H3 stays above the Right Neckline Low (L2)
+        if h3 <= l2:
             continue
 
-        left_depth = (h1 - l1) / max(height, 1e-9)
-        right_depth = (h3 - l2) / max(height, 1e-9)
+        # 6. Neckline Proximity: L2 must approach/reach L1 level
+        neckline_avg = (l1 + l2) / 2.0
+        head_height = h2 - neckline_avg
 
-        if left_depth < 0.10 or right_depth < 0.10:
+        if head_height <= 0:
             continue
 
-        entry = neckline
-        sl = h2
-        tp = neckline - height
+        # Reject if L2 diverges too far from L1 relative to Head height (Strict Neckline)
+        if abs(l2 - l1) > (head_height * 0.35):
+            continue
 
-        # Ku dar Low-ka ka horreeyay Garabka Hore (L0)
-        nodes_points = p.copy()
-        if i > 0 and pivots[i - 1]["type"] == "L":
-            nodes_points = [pivots[i - 1]] + p
+        # Measured Target Strategy
+        entry = neckline_avg
+        sl = h2  # Structural Stop Loss at the Head Peak
+        tp = entry - head_height  # TP = Entry minus exact Head Height
 
         patterns.append({
             "name": "Head and Shoulders",
             "pattern": "Head and Shoulders",
             "bias": "Bearish",
             "match": 100.0,
-            "nodes": [(x["idx"], x["val"]) for x in nodes_points],
+            "nodes": [(x["idx"], x["val"]) for x in p],
             "entry": float(round(entry, 5)),
             "entry_trigger": float(round(entry, 5)),
             "sl": float(round(sl, 5)),
             "tp": float(round(tp, 5)),
-            "neckline_start_idx": p[1]["idx"],
-            "end_pos": p[4]["pos"]
+            "neckline_start_idx": p[2]["idx"],
+            "end_pos": p[5]["pos"]
         })
 
     return patterns
@@ -216,4 +217,8 @@ def run_full_analysis(df):
         "neckline_start_idx": latest_pattern["neckline_start_idx"],
         "all_patterns": all_patterns
     }
+
+
+if __name__ == "__main__":
+    print("ENGINE.PY loaded with strict mathematical H&S conditions.")
     
