@@ -2,10 +2,11 @@ import pandas as pd
 import numpy as np
 
 # ==========================================================
-# ENGINE.PY - STRICT LOGICAL HEAD & SHOULDERS (v3.1)
+# ENGINE.PY - COMPLETE H&S WAVES & NECKLINE (v3.3)
 # ==========================================================
 
-MIN_SWING_PERCENT = 0.005
+MIN_SWING_PERCENT = 0.008
+MIN_WAVE_CANDLES = 3
 
 def calculate_indicators(df):
     df = df.copy()
@@ -24,7 +25,7 @@ def calculate_indicators(df):
 
     return df
 
-def calculate_zigzag(df, depth=5, backstep=3):
+def calculate_zigzag(df, depth=8, backstep=4):
     df = df.copy()
     df["Pivot_H"] = np.nan
     df["Pivot_L"] = np.nan
@@ -83,7 +84,7 @@ def get_chronological_pivots(df):
 
     return clean
 
-def detect_all_head_shoulders(pivots):
+def detect_all_head_shoulders(pivots, df):
     patterns = []
     if len(pivots) < 6:
         return patterns
@@ -91,59 +92,71 @@ def detect_all_head_shoulders(pivots):
     for i in range(len(pivots) - 5):
         p = pivots[i:i + 6]
         
-        # يجب أن يكون التسلسل: قاع ثم قمة ثم قاع ثم قمة ثم قاع ثم قمة
         if [x["type"] for x in p] != ["L", "H", "L", "H", "L", "H"]:
             continue
 
-        l0 = p[0]["val"]  # بداية الموجة الصاعدة
-        h1 = p[1]["val"]  # الكتف الأيسر
-        l1 = p[2]["val"]  # عنق أيسر
-        h2 = p[3]["val"]  # الرأس
-        l2 = p[4]["val"]  # عنق أيمن
-        h3 = p[5]["val"]  # الكتف الأيمن
+        l0, h1, l1, h2, l2, h3 = [x["val"] for x in p]
+        i_l0, i_h1, i_l1, i_h2, i_l2, i_h3 = [x["pos"] for x in p]
+        idx_h3 = p[5]["idx"]
 
-        # 1. موجة صاعدة
-        if h1 <= l0: continue
-        
-        # 2. تصحيح عكسي أقل من الموجة الصاعدة
-        if l1 <= l0: continue
-        
-        # 3. الرأس يجب أن يكون أعلى نقطة
+        if (i_h1 - i_l0 < MIN_WAVE_CANDLES) or \
+           (i_l1 - i_h1 < MIN_WAVE_CANDLES) or \
+           (i_h2 - i_l1 < MIN_WAVE_CANDLES) or \
+           (i_l2 - i_h2 < MIN_WAVE_CANDLES) or \
+           (i_h3 - i_l2 < MIN_WAVE_CANDLES):
+            continue
+
+        if h1 <= l0 or l1 <= l0: continue
         if h2 <= h1 or h2 <= h3: continue
 
         neckline_min = min(l1, l2)
         head_height = h2 - neckline_min
         if head_height <= 0: continue
 
-        # 4. فلتر الصورة (52009.jpg): يجب ألا يكون أحد الكتفين أعلى من الآخر بشكل يكسر النمط
-        if abs(h1 - h3) > (head_height * 0.40): continue
-
-        # 5. فلتر الصورة: يجب أن يكون الرأس بارزاً بوضوح عن أعلى كتف
+        if abs(h1 - h3) > (head_height * 0.35): continue
         max_shoulder = max(h1, h3)
-        if (h2 - max_shoulder) < (head_height * 0.20): continue
+        if (h2 - max_shoulder) < (head_height * 0.25): continue
+        if abs(l1 - l2) > (head_height * 0.25): continue
 
-        # 6. موجة هابطة تصل/تجاوز/تقترب من الموجة الصاعدة الأخيرة (خط العنق)
-        if abs(l1 - l2) > (head_height * 0.35): continue
-
-        # 7. قياس طول الرأس ووضع الهدف نفس الطول بعد كسر العنق
         neckline_avg = (l1 + l2) / 2.0
         actual_head_length = h2 - neckline_avg
         
         entry = neckline_avg
         sl = h2
         tp = entry - actual_head_length 
+        
+        # إضافة الموجة الهابطة الأخيرة (الكتف الأيمن نزولاً لخط العنق)
+        post_h3_df = df.loc[idx_h3:]
+        
+        if len(post_h3_df) > 1:
+            breakout_candles = post_h3_df[post_h3_df['Low'] <= entry]
+            if not breakout_candles.empty:
+                end_idx = breakout_candles.index[0]
+                end_val = entry
+            else:
+                end_idx = post_h3_df.index[-1]
+                end_val = post_h3_df['Close'].iloc[-1]
+        else:
+            end_idx = idx_h3
+            end_val = h3
+
+        # تجميع الـ 6 عقد الأصلية + العقدة 7 لإكمال الرسم
+        nodes = [(x["idx"], x["val"]) for x in p]
+        if end_idx != idx_h3:
+            nodes.append((end_idx, float(end_val)))
 
         patterns.append({
             "name": "Head and Shoulders",
             "pattern": "Head and Shoulders",
             "bias": "Bearish",
             "match": 100.0,
-            "nodes": [(x["idx"], x["val"]) for x in p],
+            "nodes": nodes,
             "entry": float(round(entry, 5)),
             "entry_trigger": float(round(entry, 5)),
             "sl": float(round(sl, 5)),
             "tp": float(round(tp, 5)),
             "neckline_start_idx": p[2]["idx"],
+            "neckline_end_idx": end_idx,
             "end_pos": p[5]["pos"]
         })
 
@@ -177,7 +190,9 @@ def run_full_analysis(df):
     df = calculate_zigzag(df)
 
     pivots = get_chronological_pivots(df)
-    all_patterns = detect_all_head_shoulders(pivots)
+    
+    # تمرير df إلى الدالة لتتمكن من تتبع السعر وبناء النقطة السابعة
+    all_patterns = detect_all_head_shoulders(pivots, df)
 
     if not all_patterns:
         return {
@@ -208,5 +223,5 @@ def run_full_analysis(df):
     }
 
 if __name__ == "__main__":
-    print("ENGINE.PY loaded with strict mathematical H&S conditions (v3.1).")
+    print("ENGINE.PY loaded with Complete H&S waves and Neckline nodes (v3.3).")
     
