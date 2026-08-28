@@ -2,20 +2,15 @@ import pandas as pd
 import numpy as np
 
 # ==========================================================
-# ENGINE.PY - UPDATED FOR MULTIPLE HEAD & SHOULDERS DETECTION
+# ENGINE.PY
 # ==========================================================
 
-MAX_VARIATION = 0.035  # Extended tolerance (3.5%) for shoulder height balance
+MAX_VARIATION = 0.035
 MIN_SWING_PERCENT = 0.005
 
 
-# ==========================================================
-# INDICATORS
-# ==========================================================
-
 def calculate_indicators(df):
     df = df.copy()
-
     df["EMA50"] = df["Close"].ewm(span=50, adjust=False).mean()
     df["EMA200"] = df["Close"].ewm(span=200, adjust=False).mean()
 
@@ -32,13 +27,8 @@ def calculate_indicators(df):
     return df
 
 
-# ==========================================================
-# ZIGZAG PIVOT DETECTION
-# ==========================================================
-
 def calculate_zigzag(df, depth=5, backstep=3):
     df = df.copy()
-
     df["Pivot_H"] = np.nan
     df["Pivot_L"] = np.nan
 
@@ -65,64 +55,38 @@ def calculate_zigzag(df, depth=5, backstep=3):
 
         if is_high and not is_low:
             df.iloc[i, df.columns.get_loc("Pivot_H")] = current_high
-
         elif is_low and not is_high:
             df.iloc[i, df.columns.get_loc("Pivot_L")] = current_low
 
     return df
 
 
-# ==========================================================
-# CHRONOLOGICAL MAJOR PIVOTS
-# ==========================================================
-
 def get_chronological_pivots(df):
     raw = []
-
     for pos, (idx, row) in enumerate(df.iterrows()):
         if not pd.isna(row["Pivot_H"]):
-            raw.append({
-                "idx": idx,
-                "pos": pos,
-                "val": float(row["Pivot_H"]),
-                "type": "H"
-            })
-
+            raw.append({"idx": idx, "pos": pos, "val": float(row["Pivot_H"]), "type": "H"})
         elif not pd.isna(row["Pivot_L"]):
-            raw.append({
-                "idx": idx,
-                "pos": pos,
-                "val": float(row["Pivot_L"]),
-                "type": "L"
-            })
+            raw.append({"idx": idx, "pos": pos, "val": float(row["Pivot_L"]), "type": "L"})
 
     clean = []
-
     for p in raw:
         if not clean:
             clean.append(p)
             continue
 
         last = clean[-1]
-
         if last["type"] != p["type"]:
             movement = abs(p["val"] - last["val"]) / max(abs(last["val"]), 1e-9)
-
             if movement >= MIN_SWING_PERCENT:
                 clean.append(p)
-
         elif p["type"] == "H" and p["val"] > last["val"]:
             clean[-1] = p
-
         elif p["type"] == "L" and p["val"] < last["val"]:
             clean[-1] = p
 
     return clean
 
-
-# ==========================================================
-# HELPERS
-# ==========================================================
 
 def variation(a, b):
     return abs(a - b) / max(abs(a), abs(b), 1e-9)
@@ -132,34 +96,25 @@ def same_level(a, b, tolerance=MAX_VARIATION):
     return variation(a, b) <= tolerance
 
 
-# ==========================================================
-# HISTORICAL HEAD AND SHOULDERS DETECTOR
-# ==========================================================
-
 def detect_all_head_shoulders(pivots):
     patterns = []
     if len(pivots) < 5:
         return patterns
 
-    # Scan entire chronological history
     for i in range(len(pivots) - 4):
         p = pivots[i:i + 5]
 
-        # Structure must strictly be: High -> Low -> High -> Low -> High
         if [x["type"] for x in p] != ["H", "L", "H", "L", "H"]:
             continue
 
         h1, l1, h2, l2, h3 = [x["val"] for x in p]
 
-        # 1. Head (h2) must be strictly higher than Left (h1) and Right (h3) shoulders
         if h2 <= h1 or h2 <= h3:
             continue
 
-        # 2. Both shoulders should be relatively close in height
         if not same_level(h1, h3, MAX_VARIATION):
             continue
 
-        # 3. Neckline calculation
         x1 = p[1]["pos"]
         x2 = p[3]["pos"]
 
@@ -172,7 +127,6 @@ def detect_all_head_shoulders(pivots):
         if height <= 0:
             continue
 
-        # Depth check
         left_depth = (h1 - l1) / max(height, 1e-9)
         right_depth = (h3 - l2) / max(height, 1e-9)
 
@@ -183,16 +137,21 @@ def detect_all_head_shoulders(pivots):
         sl = h2
         tp = neckline - height
 
+        # Ku dar Low-ka ka horreeyay Garabka Hore (L0)
+        nodes_points = p.copy()
+        if i > 0 and pivots[i - 1]["type"] == "L":
+            nodes_points = [pivots[i - 1]] + p
+
         patterns.append({
             "name": "Head and Shoulders",
             "pattern": "Head and Shoulders",
             "bias": "Bearish",
             "match": 100.0,
-            "nodes": [(x["idx"], x["val"]) for x in p],
-            "entry": float(entry),
-            "entry_trigger": float(entry),
-            "sl": float(sl),
-            "tp": float(tp),
+            "nodes": [(x["idx"], x["val"]) for x in nodes_points],
+            "entry": float(round(entry, 5)),
+            "entry_trigger": float(round(entry, 5)),
+            "sl": float(round(sl, 5)),
+            "tp": float(round(tp, 5)),
             "neckline_start_idx": p[1]["idx"],
             "end_pos": p[4]["pos"]
         })
@@ -200,47 +159,28 @@ def detect_all_head_shoulders(pivots):
     return patterns
 
 
-# ==========================================================
-# MAIN ANALYSIS
-# ==========================================================
-
 def run_full_analysis(df):
     if df is None or df.empty:
         return {
-            "df": df,
-            "signal": "WAITING",
-            "pattern": "NO PATTERN DETECTED",
-            "bias": "Neutral",
-            "entry": None,
-            "sl": None,
-            "tp": None,
-            "nodes": [],
-            "all_patterns": []
+            "df": df, "signal": "WAITING", "pattern": "NO PATTERN DETECTED",
+            "bias": "Neutral", "entry": None, "sl": None, "tp": None,
+            "nodes": [], "all_patterns": []
         }
 
     df = df.copy()
-
     required = ["Open", "High", "Low", "Close"]
     for col in required:
         if col not in df.columns:
             raise ValueError(f"Missing required column: {col}")
-
-    for col in required:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
     df = df.dropna(subset=required)
 
     if len(df) < 30:
         return {
-            "df": df,
-            "signal": "WAITING",
-            "pattern": "NO PATTERN DETECTED",
-            "bias": "Neutral",
-            "entry": None,
-            "sl": None,
-            "tp": None,
-            "nodes": [],
-            "all_patterns": []
+            "df": df, "signal": "WAITING", "pattern": "NO PATTERN DETECTED",
+            "bias": "Neutral", "entry": None, "sl": None, "tp": None,
+            "nodes": [], "all_patterns": []
         }
 
     df = calculate_indicators(df)
@@ -251,27 +191,16 @@ def run_full_analysis(df):
 
     if not all_patterns:
         return {
-            "df": df,
-            "signal": "WAITING",
-            "pattern": "NO PATTERN DETECTED",
-            "bias": "Neutral",
-            "entry": None,
-            "sl": None,
-            "tp": None,
-            "nodes": [],
-            "all_patterns": []
+            "df": df, "signal": "WAITING", "pattern": "NO PATTERN DETECTED",
+            "bias": "Neutral", "entry": None, "sl": None, "tp": None,
+            "nodes": [], "all_patterns": []
         }
 
-    # Select the most recent pattern detected
     latest_pattern = all_patterns[-1]
-
     last_close = float(df["Close"].iloc[-1])
     trigger = float(latest_pattern["entry_trigger"])
 
-    if last_close < trigger:
-        signal = "STRONG SELL"
-    else:
-        signal = "WAITING"
+    signal = "STRONG SELL" if last_close < trigger else "WAITING"
 
     return {
         "df": df,
@@ -287,8 +216,4 @@ def run_full_analysis(df):
         "neckline_start_idx": latest_pattern["neckline_start_idx"],
         "all_patterns": all_patterns
     }
-
-
-if __name__ == "__main__":
-    print("ENGINE.PY loaded successfully with full historical Head & Shoulders scanner.")
     
