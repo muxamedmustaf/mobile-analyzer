@@ -248,11 +248,17 @@ def run_full_analysis(df):
             "nodes": [], "all_patterns": []
         }
 
-    df = calculate_indicators(df)
-    df = calculate_zigzag(df)
+    # [فلتر النافذة النشطة]: حصر البحث في آخر 200 شمعة فقط لتركيز الماسح على الحاضر
+    if len(df) > 200:
+        df_active = df.tail(200).copy()
+    else:
+        df_active = df.copy()
 
-    pivots = get_chronological_pivots(df)
-    all_patterns = detect_all_head_shoulders(pivots, df)
+    df_active = calculate_indicators(df_active)
+    df_active = calculate_zigzag(df_active)
+
+    pivots = get_chronological_pivots(df_active)
+    all_patterns = detect_all_head_shoulders(pivots, df_active)
 
     if not all_patterns:
         return {
@@ -265,7 +271,7 @@ def run_full_analysis(df):
     signal = "STRONG SELL"
 
     return {
-        "df": df,
+        "df": df, # إعادة إرسال الشارت كاملاً للرسم
         "signal": signal,
         "pattern": latest_pattern["pattern"],
         "bias": latest_pattern["bias"],
@@ -278,6 +284,3 @@ def run_full_analysis(df):
         "neckline_start_idx": latest_pattern["neckline_start_idx"],
         "all_patterns": all_patterns
     }
-
-if __name__ == "__main__":
-    print("ENGINE.PY loaded with Modular Pipeline & EMA/RSI Filters (v4.0).")
