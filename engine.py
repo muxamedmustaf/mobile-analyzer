@@ -2,11 +2,10 @@ import pandas as pd
 import numpy as np
 
 # ==========================================================
-# ENGINE.PY - STRICT LOGICAL HEAD & SHOULDERS ENGINE
+# ENGINE.PY - STRICT LOGICAL HEAD & SHOULDERS (v3.1)
 # ==========================================================
 
 MIN_SWING_PERCENT = 0.005
-
 
 def calculate_indicators(df):
     df = df.copy()
@@ -24,7 +23,6 @@ def calculate_indicators(df):
     df["RSI"] = df["RSI"].fillna(50.0)
 
     return df
-
 
 def calculate_zigzag(df, depth=5, backstep=3):
     df = df.copy()
@@ -59,7 +57,6 @@ def calculate_zigzag(df, depth=5, backstep=3):
 
     return df
 
-
 def get_chronological_pivots(df):
     raw = []
     for pos, (idx, row) in enumerate(df.iterrows()):
@@ -86,62 +83,55 @@ def get_chronological_pivots(df):
 
     return clean
 
-
 def detect_all_head_shoulders(pivots):
     patterns = []
     if len(pivots) < 6:
         return patterns
 
-    # Requires 6 chronological pivots: L0 -> H1 -> L1 -> H2 -> L2 -> H3
     for i in range(len(pivots) - 5):
         p = pivots[i:i + 6]
-        types = [x["type"] for x in p]
-
-        if types != ["L", "H", "L", "H", "L", "H"]:
+        
+        # يجب أن يكون التسلسل: قاع ثم قمة ثم قاع ثم قمة ثم قاع ثم قمة
+        if [x["type"] for x in p] != ["L", "H", "L", "H", "L", "H"]:
             continue
 
-        l0 = p[0]["val"]  # Initial Low (Start of Bullish Wave)
-        h1 = p[1]["val"]  # Left Shoulder Peak
-        l1 = p[2]["val"]  # Left Neckline Low
-        h2 = p[3]["val"]  # Head Peak
-        l2 = p[4]["val"]  # Right Neckline Low
-        h3 = p[5]["val"]  # Right Shoulder Peak
+        l0 = p[0]["val"]  # بداية الموجة الصاعدة
+        h1 = p[1]["val"]  # الكتف الأيسر
+        l1 = p[2]["val"]  # عنق أيسر
+        h2 = p[3]["val"]  # الرأس
+        l2 = p[4]["val"]  # عنق أيمن
+        h3 = p[5]["val"]  # الكتف الأيمن
 
-        # 1. Preceding Uptrend: H1 must be higher than initial Low (L0)
-        if h1 <= l0:
-            continue
+        # 1. موجة صاعدة
+        if h1 <= l0: continue
+        
+        # 2. تصحيح عكسي أقل من الموجة الصاعدة
+        if l1 <= l0: continue
+        
+        # 3. الرأس يجب أن يكون أعلى نقطة
+        if h2 <= h1 or h2 <= h3: continue
 
-        # 2. Retracement: L1 must be higher than L0 (Correction < Initial Uptrend)
-        if l1 <= l0:
-            continue
+        neckline_min = min(l1, l2)
+        head_height = h2 - neckline_min
+        if head_height <= 0: continue
 
-        # 3. Head Wave: H2 strictly higher than H1 and H3
-        if h2 <= h1 or h2 <= h3:
-            continue
+        # 4. فلتر الصورة (52009.jpg): يجب ألا يكون أحد الكتفين أعلى من الآخر بشكل يكسر النمط
+        if abs(h1 - h3) > (head_height * 0.40): continue
 
-        # 4. Head Wave Height: (H2 - L1) must be longer than Left Shoulder Retracement (H1 - L1)
-        if (h2 - l1) <= (h1 - l1):
-            continue
+        # 5. فلتر الصورة: يجب أن يكون الرأس بارزاً بوضوح عن أعلى كتف
+        max_shoulder = max(h1, h3)
+        if (h2 - max_shoulder) < (head_height * 0.20): continue
 
-        # 5. Right Shoulder: H3 stays above the Right Neckline Low (L2)
-        if h3 <= l2:
-            continue
+        # 6. موجة هابطة تصل/تجاوز/تقترب من الموجة الصاعدة الأخيرة (خط العنق)
+        if abs(l1 - l2) > (head_height * 0.35): continue
 
-        # 6. Neckline Proximity: L2 must approach/reach L1 level
+        # 7. قياس طول الرأس ووضع الهدف نفس الطول بعد كسر العنق
         neckline_avg = (l1 + l2) / 2.0
-        head_height = h2 - neckline_avg
-
-        if head_height <= 0:
-            continue
-
-        # Reject if L2 diverges too far from L1 relative to Head height (Strict Neckline)
-        if abs(l2 - l1) > (head_height * 0.35):
-            continue
-
-        # Measured Target Strategy
+        actual_head_length = h2 - neckline_avg
+        
         entry = neckline_avg
-        sl = h2  # Structural Stop Loss at the Head Peak
-        tp = entry - head_height  # TP = Entry minus exact Head Height
+        sl = h2
+        tp = entry - actual_head_length 
 
         patterns.append({
             "name": "Head and Shoulders",
@@ -158,7 +148,6 @@ def detect_all_head_shoulders(pivots):
         })
 
     return patterns
-
 
 def run_full_analysis(df):
     if df is None or df.empty:
@@ -218,7 +207,6 @@ def run_full_analysis(df):
         "all_patterns": all_patterns
     }
 
-
 if __name__ == "__main__":
-    print("ENGINE.PY loaded with strict mathematical H&S conditions.")
+    print("ENGINE.PY loaded with strict mathematical H&S conditions (v3.1).")
     
