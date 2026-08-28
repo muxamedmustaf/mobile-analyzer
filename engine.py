@@ -2,13 +2,10 @@ import pandas as pd
 import numpy as np
 
 # ==========================================================
-# ENGINE.PY
-# SINGLE PATTERN ENGINE: HEAD AND SHOULDERS
-# Compatible with the existing app.py and backtest.py
+# ENGINE.PY - UPDATED FOR MULTIPLE HEAD & SHOULDERS DETECTION
 # ==========================================================
 
-MAX_PATTERN_AGE = 25
-MAX_VARIATION = 0.01
+MAX_VARIATION = 0.035  # Extended tolerance (3.5%) for shoulder height balance
 MIN_SWING_PERCENT = 0.005
 
 
@@ -36,10 +33,10 @@ def calculate_indicators(df):
 
 
 # ==========================================================
-# ZIGZAG
+# ZIGZAG PIVOT DETECTION
 # ==========================================================
 
-def calculate_zigzag(df, depth=7, deviation=5, backstep=3):
+def calculate_zigzag(df, depth=5, backstep=3):
     df = df.copy()
 
     df["Pivot_H"] = np.nan
@@ -135,103 +132,72 @@ def same_level(a, b, tolerance=MAX_VARIATION):
     return variation(a, b) <= tolerance
 
 
-def recent_pattern(points, current_pos):
-    if not points:
-        return False
-    return current_pos - points[-1]["pos"] <= MAX_PATTERN_AGE
-
-
-def make_result(name, bias, points, entry, sl, tp, score=100):
-    return {
-        "name": name,
-        "pattern": name,
-        "bias": bias,
-        "match": float(score),
-        "nodes": [(p["idx"], p["val"]) for p in points],
-        "entry": float(entry),
-        "entry_trigger": float(entry),
-        "sl": float(sl),
-        "tp": float(tp),
-        "neckline_start_idx": points[1]["idx"],
-    }
-
-
 # ==========================================================
-# HEAD AND SHOULDERS
+# HISTORICAL HEAD AND SHOULDERS DETECTOR
 # ==========================================================
 
-def detect_head_shoulders(pivots, current_pos):
+def detect_all_head_shoulders(pivots):
+    patterns = []
     if len(pivots) < 5:
-        return None
+        return patterns
 
-    # Examine only the latest few possible structures.
-    start = max(0, len(pivots) - 7)
-
-    for i in range(start, len(pivots) - 4):
+    # Scan entire chronological history
+    for i in range(len(pivots) - 4):
         p = pivots[i:i + 5]
 
+        # Structure must strictly be: High -> Low -> High -> Low -> High
         if [x["type"] for x in p] != ["H", "L", "H", "L", "H"]:
-            continue
-
-        if not recent_pattern(p, current_pos):
             continue
 
         h1, l1, h2, l2, h3 = [x["val"] for x in p]
 
-        # Head must be above both shoulders.
+        # 1. Head (h2) must be strictly higher than Left (h1) and Right (h3) shoulders
         if h2 <= h1 or h2 <= h3:
             continue
 
-        # Both shoulders should be close in height.
-        if not same_level(h1, h3, 0.01):
+        # 2. Both shoulders should be relatively close in height
+        if not same_level(h1, h3, MAX_VARIATION):
             continue
 
-        # Neckline is formed by the two reaction lows.
+        # 3. Neckline calculation
         x1 = p[1]["pos"]
         x2 = p[3]["pos"]
 
         if x2 == x1:
             neckline = (l1 + l2) / 2.0
         else:
-            slope = (l2 - l1) / float(x2 - x1)
-            neckline = l2 + slope * (current_pos - x2)
+            neckline = l2
 
         height = h2 - neckline
-
         if height <= 0:
             continue
 
-        # Both neckline lows must be meaningfully below the shoulders.
+        # Depth check
         left_depth = (h1 - l1) / max(height, 1e-9)
         right_depth = (h3 - l2) / max(height, 1e-9)
 
-        if left_depth < 0.20 or right_depth < 0.20:
+        if left_depth < 0.10 or right_depth < 0.10:
             continue
 
-        # Right shoulder must remain below the head.
-        if h3 >= h2:
-            continue
-
-        # Entry = neckline break.
         entry = neckline
-
-        # Structural invalidation above the right shoulder.
-        sl = h3 * 1.001
-
-        # Classical measured target.
+        sl = h2
         tp = neckline - height
 
-        return make_result(
-            "Head and Shoulders",
-            "Bearish",
-            p,
-            entry,
-            sl,
-            tp,
-            100
-        )
+        patterns.append({
+            "name": "Head and Shoulders",
+            "pattern": "Head and Shoulders",
+            "bias": "Bearish",
+            "match": 100.0,
+            "nodes": [(x["idx"], x["val"]) for x in p],
+            "entry": float(entry),
+            "entry_trigger": float(entry),
+            "sl": float(sl),
+            "tp": float(tp),
+            "neckline_start_idx": p[1]["idx"],
+            "end_pos": p[4]["pos"]
+        })
 
-    return None
+    return patterns
 
 
 # ==========================================================
@@ -249,11 +215,11 @@ def run_full_analysis(df):
             "sl": None,
             "tp": None,
             "nodes": [],
+            "all_patterns": []
         }
 
     df = df.copy()
 
-    # Normalize required columns.
     required = ["Open", "High", "Low", "Close"]
     for col in required:
         if col not in df.columns:
@@ -274,20 +240,16 @@ def run_full_analysis(df):
             "sl": None,
             "tp": None,
             "nodes": [],
+            "all_patterns": []
         }
 
     df = calculate_indicators(df)
     df = calculate_zigzag(df)
 
     pivots = get_chronological_pivots(df)
-    current_pos = len(df) - 1
+    all_patterns = detect_all_head_shoulders(pivots)
 
-    pattern_result = detect_head_shoulders(
-        pivots,
-        current_pos
-    )
-
-    if pattern_result is None:
+    if not all_patterns:
         return {
             "df": df,
             "signal": "WAITING",
@@ -297,13 +259,15 @@ def run_full_analysis(df):
             "sl": None,
             "tp": None,
             "nodes": [],
+            "all_patterns": []
         }
 
-    last_close = float(df["Close"].iloc[-1])
-    trigger = float(pattern_result["entry_trigger"])
+    # Select the most recent pattern detected
+    latest_pattern = all_patterns[-1]
 
-    # Detection is separated from trading confirmation.
-    # A bearish H&S becomes STRONG SELL only after a close below neckline.
+    last_close = float(df["Close"].iloc[-1])
+    trigger = float(latest_pattern["entry_trigger"])
+
     if last_close < trigger:
         signal = "STRONG SELL"
     else:
@@ -312,23 +276,19 @@ def run_full_analysis(df):
     return {
         "df": df,
         "signal": signal,
-        "pattern": pattern_result["pattern"],
-        "bias": pattern_result["bias"],
-        "entry": pattern_result["entry"],
-        "entry_trigger": pattern_result["entry_trigger"],
-        "sl": pattern_result["sl"],
-        "tp": pattern_result["tp"],
-        "nodes": pattern_result["nodes"],
-        "match": pattern_result["match"],
-        "neckline_start_idx": pattern_result["neckline_start_idx"],
+        "pattern": latest_pattern["pattern"],
+        "bias": latest_pattern["bias"],
+        "entry": latest_pattern["entry"],
+        "entry_trigger": latest_pattern["entry_trigger"],
+        "sl": latest_pattern["sl"],
+        "tp": latest_pattern["tp"],
+        "nodes": latest_pattern["nodes"],
+        "match": latest_pattern["match"],
+        "neckline_start_idx": latest_pattern["neckline_start_idx"],
+        "all_patterns": all_patterns
     }
 
 
-# ==========================================================
-# OPTIONAL SIMPLE TEST
-# ==========================================================
-
 if __name__ == "__main__":
-    print("ENGINE.PY loaded successfully.")
-    print("Active pattern: Head and Shoulders")
+    print("ENGINE.PY loaded successfully with full historical Head & Shoulders scanner.")
     
