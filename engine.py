@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 
 # ==========================================================
-# ENGINE.PY - COMPLETE H&S WAVES & NECKLINE (v3.3)
+# ENGINE.PY - STRICT BREAKOUT & TREND FILTER (v3.4)
 # ==========================================================
 
 MIN_SWING_PERCENT = 0.008
@@ -97,14 +97,24 @@ def detect_all_head_shoulders(pivots, df):
 
         l0, h1, l1, h2, l2, h3 = [x["val"] for x in p]
         i_l0, i_h1, i_l1, i_h2, i_l2, i_h3 = [x["pos"] for x in p]
+        idx_l0 = p[0]["idx"]
         idx_h3 = p[5]["idx"]
 
+        # فلتر المسافة الزمنية (تجنب التذبذب العشوائي)
         if (i_h1 - i_l0 < MIN_WAVE_CANDLES) or \
            (i_l1 - i_h1 < MIN_WAVE_CANDLES) or \
            (i_h2 - i_l1 < MIN_WAVE_CANDLES) or \
            (i_l2 - i_h2 < MIN_WAVE_CANDLES) or \
            (i_h3 - i_l2 < MIN_WAVE_CANDLES):
             continue
+
+        # 1. فلتر الاتجاه السابق (يجب أن يأتي بعد ترند صاعد، وليس في قاع هابط)
+        pre_l0_df = df.loc[:idx_l0]
+        if len(pre_l0_df) > 10:
+            past_min = pre_l0_df['Low'].iloc[-10:].min()
+            # إذا كان السعر قبل النمط أعلى ويهبط بقوة، يتم إلغاء النمط (كما في 52032)
+            if past_min > l0:
+                continue
 
         if h1 <= l0 or l1 <= l0: continue
         if h2 <= h1 or h2 <= h3: continue
@@ -113,6 +123,7 @@ def detect_all_head_shoulders(pivots, df):
         head_height = h2 - neckline_min
         if head_height <= 0: continue
 
+        # هندسة الكتفين
         if abs(h1 - h3) > (head_height * 0.35): continue
         max_shoulder = max(h1, h3)
         if (h2 - max_shoulder) < (head_height * 0.25): continue
@@ -125,25 +136,21 @@ def detect_all_head_shoulders(pivots, df):
         sl = h2
         tp = entry - actual_head_length 
         
-        # إضافة الموجة الهابطة الأخيرة (الكتف الأيمن نزولاً لخط العنق)
+        # 2. فلتر الكسر الإجباري الصارم (Mandatory Breakout Filter)
         post_h3_df = df.loc[idx_h3:]
         
-        if len(post_h3_df) > 1:
-            breakout_candles = post_h3_df[post_h3_df['Low'] <= entry]
-            if not breakout_candles.empty:
-                end_idx = breakout_candles.index[0]
-                end_val = entry
-            else:
-                end_idx = post_h3_df.index[-1]
-                end_val = post_h3_df['Close'].iloc[-1]
-        else:
-            end_idx = idx_h3
-            end_val = h3
+        # البحث عن الشموع التي أغلقت تحت خط العنق بعد الكتف الأيمن
+        breakout_candles = post_h3_df[post_h3_df['Close'] < entry]
+        
+        # إذا لم يتم الكسر إطلاقاً، يتم إلغاء النمط بالكامل وتجاهله
+        if breakout_candles.empty:
+            continue
+            
+        end_idx = breakout_candles.index[0]
+        end_val = breakout_candles['Close'].iloc[0]
 
-        # تجميع الـ 6 عقد الأصلية + العقدة 7 لإكمال الرسم
         nodes = [(x["idx"], x["val"]) for x in p]
-        if end_idx != idx_h3:
-            nodes.append((end_idx, float(end_val)))
+        nodes.append((end_idx, float(end_val)))
 
         patterns.append({
             "name": "Head and Shoulders",
@@ -190,8 +197,6 @@ def run_full_analysis(df):
     df = calculate_zigzag(df)
 
     pivots = get_chronological_pivots(df)
-    
-    # تمرير df إلى الدالة لتتمكن من تتبع السعر وبناء النقطة السابعة
     all_patterns = detect_all_head_shoulders(pivots, df)
 
     if not all_patterns:
@@ -202,10 +207,9 @@ def run_full_analysis(df):
         }
 
     latest_pattern = all_patterns[-1]
-    last_close = float(df["Close"].iloc[-1])
-    trigger = float(latest_pattern["entry_trigger"])
-
-    signal = "STRONG SELL" if last_close < trigger else "WAITING"
+    
+    # بما أن النمط لن يُعتمد إلا بعد الكسر، فالإشارة دائماً ستكون STRONG SELL
+    signal = "STRONG SELL"
 
     return {
         "df": df,
@@ -223,5 +227,5 @@ def run_full_analysis(df):
     }
 
 if __name__ == "__main__":
-    print("ENGINE.PY loaded with Complete H&S waves and Neckline nodes (v3.3).")
-    
+    print("ENGINE.PY loaded with Strict Breakout & Trend Filters (v3.4).")
+        
