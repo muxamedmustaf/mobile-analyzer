@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 
 # ==========================================================
-# ENGINE.PY - MODULAR PIPELINE WITH EMA & RSI FILTERS (v4.0)
+# ENGINE.PY - LIVE SCANNER ANCHOR FIX (v4.1)
 # ==========================================================
 
 MIN_SWING_PERCENT = 0.008
@@ -84,11 +84,9 @@ def get_chronological_pivots(df):
 
     return clean
 
-# نظام الأنابيب المعياري لإضافة واختبار الدوال بسهولة
 class PatternValidatorPipeline:
     def __init__(self, df):
         self.df = df
-        # قائمة الدوال المجربة التي تجتاز الاختبارات التسلسلية
         self.filters = [
             self.time_filter,
             self.trend_filter,
@@ -129,11 +127,9 @@ class PatternValidatorPipeline:
         idx_h3 = p[5]["idx"]
         rsi_val = data.loc[idx_h3, "RSI"]
         
-        # شرط تأكيد RSI بين 30 و 75
         if not (30 <= rsi_val <= 75):
             return False, None, None
         
-        # التحقق من توفر قيم المتوسطات EMA 50 و EMA 200 وصحتها
         ema50 = data.loc[idx_h3, "EMA50"]
         ema200 = data.loc[idx_h3, "EMA200"]
         if pd.isna(ema50) or pd.isna(ema200):
@@ -171,6 +167,7 @@ def detect_all_head_shoulders(pivots, df):
         return patterns
 
     validator = PatternValidatorPipeline(df)
+    total_candles = len(df)
 
     for i in range(len(pivots) - 5):
         p = pivots[i:i + 6]
@@ -192,9 +189,13 @@ def detect_all_head_shoulders(pivots, df):
         if (h2 - max_shoulder) < (head_height * 0.25): continue
         if abs(l1 - l2) > (head_height * 0.25): continue
 
-        # تطبيق خط أنابيب الفلاتر المعياري
         passed, end_idx, end_val = validator.run(p)
         if not passed:
+            continue
+
+        # [فلتر الحداثة الحية]: التأكد من أن النمط حدث في آخر الشموع لئلا يظهر معلقاً في منتصف الشارت
+        end_pos = df.index.get_loc(end_idx)
+        if (total_candles - end_pos) > 60:  # إذا كان الكسر قد حدث قبل أكثر من 60 شمعة، يتم استبعاده ليكون التركيز على الحاضر
             continue
 
         neckline_avg = (l1 + l2) / 2.0
@@ -248,11 +249,8 @@ def run_full_analysis(df):
             "nodes": [], "all_patterns": []
         }
 
-    # [فلتر النافذة النشطة]: حصر البحث في آخر 200 شمعة فقط لتركيز الماسح على الحاضر
-    if len(df) > 200:
-        df_active = df.tail(200).copy()
-    else:
-        df_active = df.copy()
+    # حصر التحليل في آخر 200 شمعة للحفاظ على سرعة الماسح الحي
+    df_active = df.tail(200).copy()
 
     df_active = calculate_indicators(df_active)
     df_active = calculate_zigzag(df_active)
@@ -271,7 +269,7 @@ def run_full_analysis(df):
     signal = "STRONG SELL"
 
     return {
-        "df": df, # إعادة إرسال الشارت كاملاً للرسم
+        "df": df,
         "signal": signal,
         "pattern": latest_pattern["pattern"],
         "bias": latest_pattern["bias"],
@@ -284,3 +282,7 @@ def run_full_analysis(df):
         "neckline_start_idx": latest_pattern["neckline_start_idx"],
         "all_patterns": all_patterns
     }
+
+if __name__ == "__main__":
+    print("ENGINE.PY loaded with Live Scanner Anchor Fix (v4.1).")
+                                                             
