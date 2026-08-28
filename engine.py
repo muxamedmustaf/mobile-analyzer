@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 
 # ==========================================================
-# ENGINE.PY - STRICT BREAKOUT & TREND FILTER (v3.4)
+# ENGINE.PY - POST-HEAD INVALIDATION FILTER (v3.5)
 # ==========================================================
 
 MIN_SWING_PERCENT = 0.008
@@ -98,9 +98,10 @@ def detect_all_head_shoulders(pivots, df):
         l0, h1, l1, h2, l2, h3 = [x["val"] for x in p]
         i_l0, i_h1, i_l1, i_h2, i_l2, i_h3 = [x["pos"] for x in p]
         idx_l0 = p[0]["idx"]
+        idx_h2 = p[3]["idx"]  # مؤشر قمة الرأس
         idx_h3 = p[5]["idx"]
 
-        # فلتر المسافة الزمنية (تجنب التذبذب العشوائي)
+        # فلتر المسافة الزمنية
         if (i_h1 - i_l0 < MIN_WAVE_CANDLES) or \
            (i_l1 - i_h1 < MIN_WAVE_CANDLES) or \
            (i_h2 - i_l1 < MIN_WAVE_CANDLES) or \
@@ -108,11 +109,10 @@ def detect_all_head_shoulders(pivots, df):
            (i_h3 - i_l2 < MIN_WAVE_CANDLES):
             continue
 
-        # 1. فلتر الاتجاه السابق (يجب أن يأتي بعد ترند صاعد، وليس في قاع هابط)
+        # فلتر الاتجاه السابق (يجب أن يكون في قمة وليست قاعاً هابطاً)
         pre_l0_df = df.loc[:idx_l0]
         if len(pre_l0_df) > 10:
             past_min = pre_l0_df['Low'].iloc[-10:].min()
-            # إذا كان السعر قبل النمط أعلى ويهبط بقوة، يتم إلغاء النمط (كما في 52032)
             if past_min > l0:
                 continue
 
@@ -129,6 +129,12 @@ def detect_all_head_shoulders(pivots, df):
         if (h2 - max_shoulder) < (head_height * 0.25): continue
         if abs(l1 - l2) > (head_height * 0.25): continue
 
+        # [إضافة حاسمة v3.5]: فلتر إلغاء النموذج إذا تجاوز السعر قمة الرأس لاحقاً
+        post_head_df = df.loc[idx_h2:]
+        if not post_head_df.empty:
+            if post_head_df['High'].max() > h2:
+                continue  # إلغاء النموذج فوراً لأنه تم اختراق الرأس لاحقاً
+
         neckline_avg = (l1 + l2) / 2.0
         actual_head_length = h2 - neckline_avg
         
@@ -136,13 +142,10 @@ def detect_all_head_shoulders(pivots, df):
         sl = h2
         tp = entry - actual_head_length 
         
-        # 2. فلتر الكسر الإجباري الصارم (Mandatory Breakout Filter)
+        # فلتر الكسر الإجباري لخط العنق بعد الكتف الأيمن
         post_h3_df = df.loc[idx_h3:]
-        
-        # البحث عن الشموع التي أغلقت تحت خط العنق بعد الكتف الأيمن
         breakout_candles = post_h3_df[post_h3_df['Close'] < entry]
         
-        # إذا لم يتم الكسر إطلاقاً، يتم إلغاء النمط بالكامل وتجاهله
         if breakout_candles.empty:
             continue
             
@@ -207,8 +210,6 @@ def run_full_analysis(df):
         }
 
     latest_pattern = all_patterns[-1]
-    
-    # بما أن النمط لن يُعتمد إلا بعد الكسر، فالإشارة دائماً ستكون STRONG SELL
     signal = "STRONG SELL"
 
     return {
@@ -227,5 +228,5 @@ def run_full_analysis(df):
     }
 
 if __name__ == "__main__":
-    print("ENGINE.PY loaded with Strict Breakout & Trend Filters (v3.4).")
+    print("ENGINE.PY loaded with Post-Head Invalidation Filter (v3.5).")
         
