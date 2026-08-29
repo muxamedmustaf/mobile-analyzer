@@ -151,14 +151,20 @@ if st.session_state.scanned_signals:
                 mode="lines+markers", line=dict(color="#C5221F", width=2.5),
                 marker=dict(size=7, color="#0B57D0"), name=f"{pattern}"
             ))
-
         fig.update_layout(
             template="plotly_white",
             height=520,
             xaxis_rangeslider_visible=False,
             margin=dict(l=10, r=40, t=10, b=30),
-            showlegend=False
+            showlegend=False,
+            dragmode='pan'  # 👈 Wuxuu sahlayaa in chart-ka la jiido oo dhinac walba loo raro
         )
 
-        st.plotly_chart(fig, use_container_width=True)
-        
+        # Config-gaan waxay sahlayaan zooming-ka iyo la qabsashada moobilada
+        config = {
+            'scrollZoom': True,       # Sahlaya in la weyneeyo/yarayso (Zoom) adigoo isticmaalaya laba farood ama mouse wheel
+            'displayModeBar': True,   # Muujinta qalabka fududaynaya maamulka chart-ka
+            'responsive': True
+        }
+
+        st.plotly_chart(fig, use_container_width=True, config=config)
