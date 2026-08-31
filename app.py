@@ -7,7 +7,7 @@ from engine import run_full_analysis
 try:
     from ffff import get_symbols_from_sheet
 except ImportError:
-    st.error("⚠️ لم يتم العثور على ملف ffff.py بجانب app.py")
+    st.error("⚠️ The file ffff.py was not found alongside app.py")
 
 st.set_page_config(page_title="Smart Market Analyzer", page_icon="📈", layout="wide", initial_sidebar_state="collapsed")
 
@@ -26,11 +26,11 @@ st.markdown(f'''
 </div>
 ''', unsafe_allow_html=True)
 
-scan_mode = st.radio("طريقة العمل والمسح:", ["زوج فردي", "Google Sheet (مسح القائمة للفرص المكتملة)"], horizontal=True)
+scan_mode = st.radio("Scan Method:", ["Single Asset", "Google Sheet (Scan List for Completed Setups)"], horizontal=True)
 
 symbols_to_scan = []
 
-if scan_mode == "زوج فردي":
+if scan_mode == "Single Asset":
     symbol = st.text_input("Market Asset Symbol", value="NZDCAD=X")
     st.session_state.current_symbol = symbol
     symbols_to_scan = [symbol]
@@ -39,16 +39,16 @@ else:
     with c1:
         sheet_id = st.text_input("Spreadsheet ID", value="1TXvF6RhSgfJ631UpnWB38Ww1OMvZVx7VonDB_y1pO3s")
     with c2:
-        sheet_name = st.text_input("Sheet Name", value="Sheet1")
+        sheet_name = st.text_input("Sheet Name", value="GOLD")
     with c3:
-        col_name = st.text_input("Column Name", value="Ticker")
+        col_name = st.text_input("Column Name", value="TOKENS")
 
     fetched_symbols, err = get_symbols_from_sheet(sheet_id, sheet_name, col_name)
     if err:
         st.error(err)
     else:
         symbols_to_scan = fetched_symbols
-        st.success(f"تم تحميل {len(symbols_to_scan)} زوج عملات!")
+        st.success(f"Successfully loaded {len(symbols_to_scan)} assets!")
 
 tf_options = ["1m", "5m", "15m", "30m", "1h", "4h", "1D", "1W", "1M"]
 selected_tf = st.radio("Select Timeframe", options=tf_options, index=6, horizontal=True)
@@ -62,7 +62,7 @@ tf_map = {
 }
 current_setting = tf_map[selected_tf]
 
-run_scan = st.button("🚀 بدء المسح والتحليل", use_container_width=True)
+run_scan = st.button("🚀 Start Scan & Analysis", use_container_width=True)
 
 if run_scan and symbols_to_scan:
     valid_signals = []
@@ -70,7 +70,7 @@ if run_scan and symbols_to_scan:
     status_text = st.empty()
 
     for idx, sym in enumerate(symbols_to_scan):
-        status_text.text(f"جاري فحص الزوج ({idx+1}/{len(symbols_to_scan)}): {sym}...")
+        status_text.text(f"Scanning asset ({idx+1}/{len(symbols_to_scan)}): {sym}...")
         progress_bar.progress((idx + 1) / len(symbols_to_scan))
 
         try:
@@ -85,7 +85,7 @@ if run_scan and symbols_to_scan:
                 signal = result["signal"]
                 pattern = result["pattern"]
 
-                if signal in ["STRONG BUY", "STRONG SELL"] or scan_mode == "زوج فردي":
+                if signal in ["STRONG BUY", "STRONG SELL"] or scan_mode == "Single Asset":
                     valid_signals.append({
                         "symbol": sym,
                         "signal": signal,
@@ -98,14 +98,15 @@ if run_scan and symbols_to_scan:
     status_text.empty()
     progress_bar.empty()
     st.session_state.scanned_signals = valid_signals
+    st.success(f"Scan finished! Total results found: {len(valid_signals)} valid signals out of {len(symbols_to_scan)} scanned assets.")
 
 # Display Persistent Results
 if st.session_state.scanned_signals:
     valid_signals = st.session_state.scanned_signals
 
-    if scan_mode == "Google Sheet (مسح القائمة للفرص المكتملة)":
+    if scan_mode == "Google Sheet (Scan List for Completed Setups)":
         options = [f"{item['symbol']} | {item['signal']} ({item['pattern']})" for item in valid_signals]
-        selected_option = st.selectbox("👇 اختر العملة لعرض التحليل ومستويات الأهداف والشارت:", options)
+        selected_option = st.selectbox("👇 Select asset to view analysis, target levels, and chart:", options)
         selected_index = options.index(selected_option)
         selected_data = valid_signals[selected_index]
 
@@ -124,7 +125,7 @@ if st.session_state.scanned_signals:
 
         st.markdown(f"""
         <div style="margin-top: 14px; margin-bottom: 15px;">
-            <div style="font-size: 42px; font-weight: 600; color: #0B57D0;">{latest_close:.5f}</div>
+            <div style="font-size: 42px; font-weight: 650; color: #0B57D0;">{latest_close:.5f}</div>
             <div style="font-size: 15px; color: #202124;">RSI (14): {latest_rsi:.2f}</div>
         </div>
         """, unsafe_allow_html=True)
@@ -157,14 +158,14 @@ if st.session_state.scanned_signals:
             xaxis_rangeslider_visible=False,
             margin=dict(l=10, r=40, t=10, b=30),
             showlegend=False,
-            dragmode='pan'  # 👈 Wuxuu sahlayaa in chart-ka la jiido oo dhinac walba loo raro
+            dragmode='pan'
         )
 
-        # Config-gaan waxay sahlayaan zooming-ka iyo la qabsashada moobilada
         config = {
-            'scrollZoom': True,       # Sahlaya in la weyneeyo/yarayso (Zoom) adigoo isticmaalaya laba farood ama mouse wheel
-            'displayModeBar': True,   # Muujinta qalabka fududaynaya maamulka chart-ka
+            'scrollZoom': True,
+            'displayModeBar': True,
             'responsive': True
         }
 
         st.plotly_chart(fig, use_container_width=True, config=config)
+        
