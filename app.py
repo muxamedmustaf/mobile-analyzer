@@ -11,6 +11,9 @@ except ImportError:
 
 st.set_page_config(page_title="Smart Market Analyzer", page_icon="📈", layout="wide", initial_sidebar_state="collapsed")
 
+# Hidden Spreadsheet ID constant
+SHEET_ID = "1TXvF6RhSgfJ631UpnWB38Ww1OMvZVx7VonDB_y1pO3s"
+
 # Session state initialization for retaining dropdown selection
 if "current_symbol" not in st.session_state:
     st.session_state.current_symbol = "NZDCAD=X"
@@ -35,15 +38,13 @@ if scan_mode == "Single Asset":
     st.session_state.current_symbol = symbol
     symbols_to_scan = [symbol]
 else:
-    c1, c2, c3 = st.columns([2, 1, 1])
+    c1, c2 = st.columns(2)
     with c1:
-        sheet_id = st.text_input("Spreadsheet ID", value="1TXvF6RhSgfJ631UpnWB38Ww1OMvZVx7VonDB_y1pO3s")
-    with c2:
         sheet_name = st.text_input("Sheet Name", value="GOLD")
-    with c3:
+    with c2:
         col_name = st.text_input("Column Name", value="TOKENS")
 
-    fetched_symbols, err = get_symbols_from_sheet(sheet_id, sheet_name, col_name)
+    fetched_symbols, err = get_symbols_from_sheet(SHEET_ID, sheet_name, col_name)
     if err:
         st.error(err)
     else:
@@ -168,4 +169,3 @@ if st.session_state.scanned_signals:
         }
 
         st.plotly_chart(fig, use_container_width=True, config=config)
-        
