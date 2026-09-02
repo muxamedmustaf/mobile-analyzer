@@ -2,11 +2,9 @@ import pandas as pd
 import numpy as np
 
 # ==========================================================
-# ENGINE.PY - STRICT LIVE EDGE SCANNER (v4.3)
+# ENGINE.PY - DYNAMIC SWING SCANNER (v4.6)
 # ==========================================================
 
-# تم تعديل نسبة وحجم التأرجح لالتقاط القمم والقيعان الكبيرة الحديثة وتجنب الصغيرة
-MIN_SWING_PERCENT = 0.012
 MIN_WAVE_CANDLES = 3
 
 
@@ -25,11 +23,22 @@ def calculate_indicators(df):
     df["RSI"] = 100 - (100 / (1 + rs))
     df["RSI"] = df["RSI"].fillna(50.0)
 
+    # حساب المدى الحقيقي المتوسط (ATR) لجعل التأرجح ديناميكياً
+    high_low = df["High"] - df["Low"]
+    high_close = np.abs(df["High"] - df["Close"].shift())
+    low_close = np.abs(df["Low"] - df["Close"].shift())
+    ranges = pd.concat([high_low, high_close, low_close], axis=1)
+    true_range = ranges.max(axis=1)
+    df["ATR"] = true_range.rolling(14).mean()
+
+    # نسبة تأرجح ديناميكية تعتمد على نسبة الـ ATR إلى سعر الإغلاق (مثلاً نصف متوسط التذبذب)
+    df["Dynamic_Swing"] = (df["ATR"] / df["Close"]) * 0.5
+    df["Dynamic_Swing"] = df["Dynamic_Swing"].fillna(0.001)
+
     return df
 
 
 def calculate_zigzag(df, depth=12, backstep=6):
-    # زيادة العمق (Depth) وخطوة الرجوع (Backstep) لالتقاط القمم والقيعان الكبيرة الحديثة
     df = df.copy()
     df["Pivot_H"] = np.nan
     df["Pivot_L"] = np.nan
@@ -72,7 +81,8 @@ def get_chronological_pivots(df):
                 "idx": idx,
                 "pos": pos,
                 "val": float(row["Pivot_H"]),
-                "type": "H"
+                "type": "H",
+                "dynamic_swing": float(row.get("Dynamic_Swing", 0.001))
             })
 
         elif not pd.isna(row["Pivot_L"]):
@@ -80,8 +90,12 @@ def get_chronological_pivots(df):
                 "idx": idx,
                 "pos": pos,
                 "val": float(row["Pivot_L"]),
-                "type": "L"
+                "type": "L",
+                "dynamic_swing": float(row.get("Dynamic_Swing", 0.001))
             })
+
+    if not raw:
+        return []
 
     clean = []
 
@@ -91,23 +105,42 @@ def get_chronological_pivots(df):
             continue
 
         last = clean[-1]
+        # استخدام الحد الأدنى الديناميكي الخاص بالنقطة الحالية
+        current_min_swing = p["dynamic_swing"]
 
         if last["type"] != p["type"]:
             movement = abs(p["val"] - last["val"]) / max(
                 abs(last["val"]), 1e-9
             )
 
-            if movement >= MIN_SWING_PERCENT:
+            if movement >= current_min_swing:
                 clean.append(p)
+            else:
+                if last["type"] == "H" and p["val"] > last["val"]:
+                    clean[-1] = p
+                elif last["type"] == "L" and p["val"] < last["val"]:
+                    clean[-1] = p
 
-        # تجديد القمة أو القاع فور تكوين قمة/قاع أكبر أو أعمق
         elif p["type"] == "H" and p["val"] > last["val"]:
             clean[-1] = p
 
         elif p["type"] == "L" and p["val"] < last["val"]:
             clean[-1] = p
 
-    return clean
+    final_clean = []
+    for p in clean:
+        if not final_clean:
+            final_clean.append(p)
+        else:
+            if final_clean[-1]["type"] != p["type"]:
+                final_clean.append(p)
+            else:
+                if p["type"] == "H" and p["val"] > final_clean[-1]["val"]:
+                    final_clean[-1] = p
+                elif p["type"] == "L" and p["val"] < final_clean[-1]["val"]:
+                    final_clean[-1] = p
+
+    return final_clean
 
 
 class PatternValidatorPipeline:
@@ -296,13 +329,11 @@ def detect_all_head_shoulders(pivots, df):
             (end_idx, float(end_val))
         )
 
-        # رسم خط العنق دائماً
         neckline_nodes = [
             (l1_idx, l1),
             (l2_idx, l2)
         ]
 
-        # سهم توضيحي لطول امتداد الهدف
         target_nodes = [
             (end_idx, float(round(entry, 5))),
             (end_idx, float(round(tp, 5)))
@@ -342,11 +373,6 @@ def detect_all_head_shoulders(pivots, df):
 
     return patterns
 
-
-# ==========================================================
-# ADDITION ONLY
-# INVERSE HEAD & SHOULDERS
-# ==========================================================
 
 def detect_all_inverse_head_shoulders(pivots, df):
 
@@ -487,13 +513,11 @@ def detect_all_inverse_head_shoulders(pivots, df):
             (end_idx, end_val)
         )
 
-        # رسم خط العنق دائماً
         neckline_nodes = [
             (h1_idx, h1),
             (h2_idx, h2)
         ]
 
-        # سهم توضيحي لطول امتداد الهدف
         target_nodes = [
             (end_idx, float(round(entry, 5))),
             (end_idx, float(round(tp, 5)))
@@ -534,10 +558,6 @@ def detect_all_inverse_head_shoulders(pivots, df):
     return patterns
 
 
-# ==========================================================
-# COMBINE BOTH PATTERNS
-# ==========================================================
-
 _original_detect_all_head_shoulders = detect_all_head_shoulders
 
 
@@ -567,10 +587,6 @@ def _detect_both_head_shoulders(pivots, df):
 
 detect_all_head_shoulders = _detect_both_head_shoulders
 
-
-# ==========================================================
-# RUN FULL ANALYSIS
-# ==========================================================
 
 def run_full_analysis(df):
 
@@ -729,13 +745,9 @@ def _run_full_analysis_both_directions(df):
 run_full_analysis = _run_full_analysis_both_directions
 
 
-# ==========================================================
-# MAIN
-# ==========================================================
-
 if __name__ == "__main__":
 
     print(
-        "ENGINE.PY loaded with Strict Live Edge Scanner (v4.3)."
+        "ENGINE.PY loaded with Dynamic ATR Swing Scanner (v4.6)."
         )
         
