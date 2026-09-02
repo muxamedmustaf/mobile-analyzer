@@ -11,8 +11,10 @@ except ImportError:
 
 st.set_page_config(page_title="Smart Market Analyzer", page_icon="📈", layout="wide", initial_sidebar_state="collapsed")
 
-# Hidden Spreadsheet ID constant
+# Hidden Spreadsheet Constants
 SHEET_ID = "1TXvF6RhSgfJ631UpnWB38Ww1OMvZVx7VonDB_y1pO3s"
+DEFAULT_SHEET_NAME = "GOLD"
+DEFAULT_COL_NAME = "TOKENS"
 
 # Session state initialization for retaining dropdown selection
 if "current_symbol" not in st.session_state:
@@ -38,18 +40,12 @@ if scan_mode == "Single Asset":
     st.session_state.current_symbol = symbol
     symbols_to_scan = [symbol]
 else:
-    c1, c2 = st.columns(2)
-    with c1:
-        sheet_name = st.text_input("Sheet Name", value="GOLD")
-    with c2:
-        col_name = st.text_input("Column Name", value="TOKENS")
-
-    fetched_symbols, err = get_symbols_from_sheet(SHEET_ID, sheet_name, col_name)
+    fetched_symbols, err = get_symbols_from_sheet(SHEET_ID, DEFAULT_SHEET_NAME, DEFAULT_COL_NAME)
     if err:
         st.error(err)
     else:
         symbols_to_scan = fetched_symbols
-        st.success(f"Successfully loaded {len(symbols_to_scan)} assets!")
+        st.success(f"Successfully loaded {len(symbols_to_scan)} assets from Google Sheet!")
 
 tf_options = ["1m", "5m", "15m", "30m", "1h", "4h", "1D", "1W", "1M"]
 selected_tf = st.radio("Select Timeframe", options=tf_options, index=6, horizontal=True)
@@ -136,12 +132,22 @@ if st.session_state.scanned_signals:
         e2.metric("🛑 Stop Loss", f"{active_result['sl']}")
         e3.metric("🏆 Target", f"{active_result['tp']}")
 
+        # --------------------------------------------------
+        # Two-line English Report
+        # --------------------------------------------------
+        bias_text = "Bullish" if signal == "STRONG BUY" else "Bearish" if signal == "STRONG SELL" else "Neutral"
+        st.info(
+            f"**ANALYSIS REPORT:** A confirmed **{pattern}** pattern has been detected for **{active_symbol}** indicating a **{bias_text}** trend shift.\n"
+            f"**EXECUTION PLAN:** Recommendation is **{signal}** at **{active_result['entry']}** with Stop Loss set at **{active_result['sl']}** and Target at **{active_result['tp']}**."
+        )
+
         fig = go.Figure()
         fig.add_trace(go.Candlestick(
             x=df_res.index, open=df_res["Open"], high=df_res["High"], low=df_res["Low"], close=df_res["Close"],
             name="Price", increasing_line_color="#137333", decreasing_line_color="#C5221F"
         ))
 
+        # 1. Draw Structure Nodes & Waves
         nodes = active_result.get("nodes", [])
         if nodes:
             sorted_nodes = sorted(nodes, key=lambda item: pd.to_datetime(item[0]))
@@ -153,6 +159,49 @@ if st.session_state.scanned_signals:
                 mode="lines+markers", line=dict(color="#C5221F", width=2.5),
                 marker=dict(size=7, color="#0B57D0"), name=f"{pattern}"
             ))
+
+        # 2. Draw Neckline (خط العنق)
+        neckline_nodes = active_result.get("neckline_nodes", [])
+        if len(neckline_nodes) >= 2:
+            x_neck = [n[0] for n in neckline_nodes]
+            y_neck = [n[1] for n in neckline_nodes]
+            fig.add_trace(go.Scatter(
+                x=x_neck, y=y_neck,
+                mode="lines",
+                line=dict(color="#8E24AA", width=2, dash="dash"),
+                name="Neckline"
+            ))
+
+        # 3. Draw Target Extension & Arrow (امتداد الهدف وسهم المسار)
+        target_nodes = active_result.get("target_nodes", [])
+        if len(target_nodes) >= 2:
+            entry_idx, entry_val = target_nodes[0]
+            tp_idx, tp_val = target_nodes[1]
+
+            # Horizontal Target Line
+            fig.add_trace(go.Scatter(
+                x=[entry_idx, tp_idx],
+                y=[tp_val, tp_val],
+                mode="lines",
+                line=dict(color="#0F9D58", width=2, dash="dot"),
+                name="Target Level"
+            ))
+
+            # Directional Arrow Annotation
+            fig.add_annotation(
+                x=tp_idx,
+                y=tp_val,
+                ax=entry_idx,
+                ay=entry_val,
+                xref="x", yref="y",
+                axref="x", ayref="y",
+                showarrow=True,
+                arrowhead=3,
+                arrowsize=1.2,
+                arrowwidth=2,
+                arrowcolor="#0F9D58" if signal == "STRONG BUY" else "#D93025"
+            )
+
         fig.update_layout(
             template="plotly_white",
             height=520,
@@ -169,3 +218,4 @@ if st.session_state.scanned_signals:
         }
 
         st.plotly_chart(fig, use_container_width=True, config=config)
+            
