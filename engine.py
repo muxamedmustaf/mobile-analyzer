@@ -2,10 +2,11 @@ import pandas as pd
 import numpy as np
 
 # ==========================================================
-# ENGINE.PY - STRICT LIVE EDGE SCANNER (v4.2)
+# ENGINE.PY - STRICT LIVE EDGE SCANNER (v4.3)
 # ==========================================================
 
-MIN_SWING_PERCENT = 0.008
+# تم تعديل نسبة وحجم التأرجح لالتقاط القمم والقيعان الكبيرة الحديثة وتجنب الصغيرة
+MIN_SWING_PERCENT = 0.012
 MIN_WAVE_CANDLES = 3
 
 
@@ -27,7 +28,8 @@ def calculate_indicators(df):
     return df
 
 
-def calculate_zigzag(df, depth=8, backstep=4):
+def calculate_zigzag(df, depth=12, backstep=6):
+    # زيادة العمق (Depth) وخطوة الرجوع (Backstep) لالتقاط القمم والقيعان الكبيرة الحديثة
     df = df.copy()
     df["Pivot_H"] = np.nan
     df["Pivot_L"] = np.nan
@@ -98,6 +100,7 @@ def get_chronological_pivots(df):
             if movement >= MIN_SWING_PERCENT:
                 clean.append(p)
 
+        # تجديد القمة أو القاع فور تكوين قمة/قاع أكبر أو أعمق
         elif p["type"] == "H" and p["val"] > last["val"]:
             clean[-1] = p
 
@@ -275,6 +278,7 @@ def detect_all_head_shoulders(pivots, df):
         if (total_candles - end_pos) > 10:
             continue
 
+        l1_idx, l2_idx = p[2]["idx"], p[4]["idx"]
         neckline_avg = (l1 + l2) / 2.0
 
         actual_head_length = h2 - neckline_avg
@@ -291,6 +295,18 @@ def detect_all_head_shoulders(pivots, df):
         nodes.append(
             (end_idx, float(end_val))
         )
+
+        # رسم خط العنق دائماً
+        neckline_nodes = [
+            (l1_idx, l1),
+            (l2_idx, l2)
+        ]
+
+        # سهم توضيحي لطول امتداد الهدف
+        target_nodes = [
+            (end_idx, float(round(entry, 5))),
+            (end_idx, float(round(tp, 5)))
+        ]
 
         patterns.append({
 
@@ -312,9 +328,13 @@ def detect_all_head_shoulders(pivots, df):
 
             "tp": float(round(tp, 5)),
 
-            "neckline_start_idx": p[2]["idx"],
+            "neckline_start_idx": l1_idx,
 
             "neckline_end_idx": end_idx,
+
+            "neckline_nodes": neckline_nodes,
+
+            "target_nodes": target_nodes,
 
             "end_pos": p[5]["pos"]
 
@@ -327,9 +347,6 @@ def detect_all_head_shoulders(pivots, df):
 # ADDITION ONLY
 # INVERSE HEAD & SHOULDERS
 # ==========================================================
-# الجزء التالي مضاف فقط.
-# لم يتم حذف أو تعديل منطق Head & Shoulders الأصلي.
-
 
 def detect_all_inverse_head_shoulders(pivots, df):
 
@@ -344,8 +361,6 @@ def detect_all_inverse_head_shoulders(pivots, df):
 
         p = pivots[i:i + 6]
 
-        # الشكل:
-        # H -> L -> H -> L -> H -> L
         if [x["type"] for x in p] != [
             "H", "L", "H", "L", "H", "L"
         ]:
@@ -355,19 +370,11 @@ def detect_all_inverse_head_shoulders(pivots, df):
             x["val"] for x in p
         ]
 
-        # --------------------------------------------------
-        # الرأس يجب أن يكون أسفل الكتفين
-        # --------------------------------------------------
-
         if l2 >= l1:
             continue
 
         if l2 >= l3:
             continue
-
-        # --------------------------------------------------
-        # الكتفان يجب أن يكونا متقاربين
-        # --------------------------------------------------
 
         neckline_max = max(h1, h2)
 
@@ -379,25 +386,13 @@ def detect_all_inverse_head_shoulders(pivots, df):
         if abs(l1 - l3) > (head_depth * 0.35):
             continue
 
-        # --------------------------------------------------
-        # الرأس يجب أن يكون أعمق بشكل واضح
-        # --------------------------------------------------
-
         min_shoulder = min(l1, l3)
 
         if (min_shoulder - l2) < (head_depth * 0.25):
             continue
 
-        # --------------------------------------------------
-        # الرقبة يجب أن تكون متقاربة
-        # --------------------------------------------------
-
         if abs(h1 - h2) > (head_depth * 0.25):
             continue
-
-        # --------------------------------------------------
-        # الفواصل الزمنية
-        # --------------------------------------------------
 
         positions = [x["pos"] for x in p]
 
@@ -416,11 +411,6 @@ def detect_all_inverse_head_shoulders(pivots, df):
         if (positions[5] - positions[4]) < MIN_WAVE_CANDLES:
             continue
 
-        # --------------------------------------------------
-        # Trend check
-        # قبل الكتف الأيسر يجب أن يكون هناك هبوط
-        # --------------------------------------------------
-
         idx_h0 = p[0]["idx"]
 
         pre_left_df = df.loc[:idx_h0]
@@ -432,11 +422,6 @@ def detect_all_inverse_head_shoulders(pivots, df):
             if past_max < p[0]["val"]:
                 continue
 
-        # --------------------------------------------------
-        # Invalidation
-        # بعد الرأس لا يجوز أن يكسر السعر الرأس إلى الأسفل
-        # --------------------------------------------------
-
         idx_l2 = p[3]["idx"]
 
         post_head_df = df.loc[idx_l2:]
@@ -445,10 +430,6 @@ def detect_all_inverse_head_shoulders(pivots, df):
 
             if post_head_df["Low"].min() < l2:
                 continue
-
-        # --------------------------------------------------
-        # RSI / EMA confirmation
-        # --------------------------------------------------
 
         idx_l3 = p[5]["idx"]
 
@@ -466,15 +447,8 @@ def detect_all_inverse_head_shoulders(pivots, df):
         if pd.isna(ema50) or pd.isna(ema200):
             continue
 
-        # --------------------------------------------------
-        # Neckline
-        # --------------------------------------------------
-
+        h1_idx, h2_idx = p[2]["idx"], p[4]["idx"]
         neckline_avg = (h1 + h2) / 2.0
-
-        # --------------------------------------------------
-        # Breakout UP
-        # --------------------------------------------------
 
         post_l3_df = df.loc[idx_l3:]
 
@@ -493,13 +467,8 @@ def detect_all_inverse_head_shoulders(pivots, df):
 
         end_pos = df.index.get_loc(end_idx)
 
-        # يجب أن يكون الكسر حديثاً
         if (total_candles - end_pos) > 10:
             continue
-
-        # --------------------------------------------------
-        # Entry / SL / TP
-        # --------------------------------------------------
 
         entry = neckline_avg
 
@@ -509,10 +478,6 @@ def detect_all_inverse_head_shoulders(pivots, df):
 
         tp = entry + actual_head_length
 
-        # --------------------------------------------------
-        # Nodes
-        # --------------------------------------------------
-
         nodes = [
             (x["idx"], x["val"])
             for x in p
@@ -521,6 +486,18 @@ def detect_all_inverse_head_shoulders(pivots, df):
         nodes.append(
             (end_idx, end_val)
         )
+
+        # رسم خط العنق دائماً
+        neckline_nodes = [
+            (h1_idx, h1),
+            (h2_idx, h2)
+        ]
+
+        # سهم توضيحي لطول امتداد الهدف
+        target_nodes = [
+            (end_idx, float(round(entry, 5))),
+            (end_idx, float(round(tp, 5)))
+        ]
 
         patterns.append({
 
@@ -542,9 +519,13 @@ def detect_all_inverse_head_shoulders(pivots, df):
 
             "tp": float(round(tp, 5)),
 
-            "neckline_start_idx": p[2]["idx"],
+            "neckline_start_idx": h1_idx,
 
             "neckline_end_idx": end_idx,
+
+            "neckline_nodes": neckline_nodes,
+
+            "target_nodes": target_nodes,
 
             "end_pos": p[5]["pos"]
 
@@ -554,7 +535,6 @@ def detect_all_inverse_head_shoulders(pivots, df):
 
 
 # ==========================================================
-# ADDITION ONLY
 # COMBINE BOTH PATTERNS
 # ==========================================================
 
@@ -585,13 +565,11 @@ def _detect_both_head_shoulders(pivots, df):
     return all_patterns
 
 
-# نفس اسم الدالة الأصلية
-# حتى run_full_analysis لا يحتاج إلى تعديل
 detect_all_head_shoulders = _detect_both_head_shoulders
 
 
 # ==========================================================
-# ORIGINAL RUN FULL ANALYSIS
+# RUN FULL ANALYSIS
 # ==========================================================
 
 def run_full_analysis(df):
@@ -607,6 +585,8 @@ def run_full_analysis(df):
             "sl": None,
             "tp": None,
             "nodes": [],
+            "neckline_nodes": [],
+            "target_nodes": [],
             "all_patterns": []
         }
 
@@ -646,6 +626,8 @@ def run_full_analysis(df):
             "sl": None,
             "tp": None,
             "nodes": [],
+            "neckline_nodes": [],
+            "target_nodes": [],
             "all_patterns": []
         }
 
@@ -679,6 +661,8 @@ def run_full_analysis(df):
             "sl": None,
             "tp": None,
             "nodes": [],
+            "neckline_nodes": [],
+            "target_nodes": [],
             "all_patterns": []
         }
 
@@ -711,14 +695,13 @@ def run_full_analysis(df):
         "neckline_start_idx":
             latest_pattern["neckline_start_idx"],
 
+        "neckline_nodes": latest_pattern.get("neckline_nodes", []),
+
+        "target_nodes": latest_pattern.get("target_nodes", []),
+
         "all_patterns": all_patterns
     }
 
-
-# ==========================================================
-# ADDITION ONLY
-# CORRECT SIGNAL FOR INVERSE PATTERN
-# ==========================================================
 
 _original_run_full_analysis = run_full_analysis
 
@@ -743,7 +726,6 @@ def _run_full_analysis_both_directions(df):
     return result
 
 
-# نفس اسم الدالة الأصلية
 run_full_analysis = _run_full_analysis_both_directions
 
 
@@ -754,5 +736,6 @@ run_full_analysis = _run_full_analysis_both_directions
 if __name__ == "__main__":
 
     print(
-        "ENGINE.PY loaded with Strict Live Edge Scanner (v4.2)."
+        "ENGINE.PY loaded with Strict Live Edge Scanner (v4.3)."
         )
+        
