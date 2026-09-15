@@ -236,6 +236,7 @@ class PatternValidatorPipeline:
         idx_h3 = p[5]["idx"]
 
         l1, l2 = p[2]["val"], p[4]["val"]
+        h2 = p[3]["val"]
 
         neckline_avg = (l1 + l2) / 2.0
 
@@ -243,6 +244,11 @@ class PatternValidatorPipeline:
 
         head_length = h2 - neckline_avg
         tp_level = neckline_avg - head_length
+
+        # شرط صارم: التأكد من أن سعر الإغلاق الحالي يتداول حصراً بين خط العنق والهدف
+        current_close = float(data["Close"].iloc[-1])
+        if current_close >= neckline_avg or current_close <= tp_level:
+            return False, None, None
 
         for idx, row in post_h3_df.iterrows():
             close = float(row["Close"])
@@ -364,6 +370,11 @@ def detect_all_head_shoulders(pivots, df):
         entry = neckline_avg
         sl = h2
         tp = entry - actual_head_length
+
+        # شرط صارم: التأكد من أن السعر الحالي لم يخرج عن حدود الدخول والهدف
+        current_close = float(df["Close"].iloc[-1])
+        if current_close >= entry or current_close <= tp:
+            continue
 
         nodes = [
             (x["idx"], x["val"])
@@ -559,6 +570,11 @@ def detect_all_inverse_head_shoulders(pivots, df):
         actual_head_length = neckline_avg - l2
 
         tp = entry + actual_head_length
+
+        # شرط صارم: التأكد من أن السعر الحالي لم يخرج عن حدود الدخول والهدف
+        current_close = float(df["Close"].iloc[-1])
+        if current_close <= entry or current_close >= tp:
+            continue
 
         nodes = [
             (x["idx"], x["val"])
@@ -805,7 +821,5 @@ if __name__ == "__main__":
 
     print(
         "ENGINE.PY loaded with Dynamic ATR Swing Scanner (v4.6)."
-        )
-
-
+            )
         
