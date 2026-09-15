@@ -241,17 +241,21 @@ class PatternValidatorPipeline:
 
         post_h3_df = data.loc[idx_h3:]
 
-        breakout_candles = post_h3_df[
-            post_h3_df["Close"] < neckline_avg
-        ]
+        head_length = h2 - neckline_avg
+        tp_level = neckline_avg - head_length
 
-        if breakout_candles.empty:
-            return False, None, None
+        for idx, row in post_h3_df.iterrows():
+            close = float(row["Close"])
 
-        end_idx = breakout_candles.index[0]
-        end_val = breakout_candles["Close"].iloc[0]
+            # The signal is valid only while price remains between
+            # the neckline and the target after the neckline break.
+            if close <= tp_level:
+                return False, None, None
 
-        return True, end_idx, end_val
+            if close < neckline_avg:
+                return True, idx, close
+
+        return False, None, None
 
     def run(self, p):
 
@@ -519,18 +523,29 @@ def detect_all_inverse_head_shoulders(pivots, df):
 
         post_l3_df = df.loc[idx_l3:]
 
-        breakout_candles = post_l3_df[
-            post_l3_df["Close"] > neckline_avg
-        ]
+        head_length = neckline_avg - l2
+        tp_level = neckline_avg + head_length
 
-        if breakout_candles.empty:
+        end_idx = None
+        end_val = None
+
+        for idx, row in post_l3_df.iterrows():
+            close = float(row["Close"])
+
+            # The signal is valid only while price remains between
+            # the neckline and the target after the neckline break.
+            if close >= tp_level:
+                end_idx = None
+                end_val = None
+                break
+
+            if close > neckline_avg:
+                end_idx = idx
+                end_val = close
+                break
+
+        if end_idx is None:
             continue
-
-        end_idx = breakout_candles.index[0]
-
-        end_val = float(
-            breakout_candles["Close"].iloc[0]
-        )
 
         end_pos = df.index.get_loc(end_idx)
 
@@ -791,5 +806,6 @@ if __name__ == "__main__":
     print(
         "ENGINE.PY loaded with Dynamic ATR Swing Scanner (v4.6)."
         )
+
 
         
