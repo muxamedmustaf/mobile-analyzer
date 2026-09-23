@@ -1,15 +1,16 @@
 import pandas as pd
 import numpy as np
 
-# ==============================================================================
-# ENGINE.PY - DYNAMIC SWING SCANNER (v4.8 - BACKTEST & TIME SYMMETRY FIXED)
-# ==============================================================================
-
+# ==========================================================
+# ENGINE.PY - DYNAMIC SWING SCANNER (v4.7 - Strict Shoulder Symmetry)
+# ==========================================================
 MIN_WAVE_CANDLES = 3
+
+# شروط الهيكل والمتطلبات الإضافية للنموذج
 MIN_PRE_TREND_MOVE = 0.01
 MIN_SHOULDER_REACTION = 0.003
-MAX_SHOULDER_DEPTH_DIFF = 0.30 
-MAX_TIME_SYMMETRY_DIFF = 0.40  # نسبة التفاوت الزمني المقبولة بين الكتفين (40%)
+MAX_SHOULDER_DEPTH_DIFF = 0.20  # تم تخفيض التفاوت في العمق لزيادة التماثل مع الكتف الأيسر (20%)
+MAX_SHOULDER_LEVEL_DIFF = 0.15  # نسبة التفاوت المسموح بها بين مستوى الكتف الأيمن والكتف الأيسر (15%)
 
 
 def calculate_indicators(df):
@@ -20,13 +21,12 @@ def calculate_indicators(df):
     delta = df["Close"].diff()
     gain = delta.where(delta > 0, 0.0).rolling(14).mean()
     loss = -delta.where(delta < 0, 0.0).rolling(14).mean()
-
     loss_safe = loss.replace(0, 1e-9)
     rs = gain / loss_safe
-
     df["RSI"] = 100 - (100 / (1 + rs))
     df["RSI"] = df["RSI"].fillna(50.0)
 
+    # حساب المدى الحقيقي المتوسط (ATR) لجعل التأرجح ديناميكياً
     high_low = df["High"] - df["Low"]
     high_close = np.abs(df["High"] - df["Close"].shift())
     low_close = np.abs(df["Low"] - df["Close"].shift())
@@ -34,6 +34,7 @@ def calculate_indicators(df):
     true_range = ranges.max(axis=1)
     df["ATR"] = true_range.rolling(14).mean()
 
+    # نسبة تأرجح ديناميكية تعتمد على نسبة الـ ATR إلى سعر الإغلاق
     df["Dynamic_Swing"] = (df["ATR"] / df["Close"]) * 0.5
     df["Dynamic_Swing"] = df["Dynamic_Swing"].fillna(0.001)
 
@@ -60,7 +61,6 @@ def calculate_zigzag(df, depth=12, backstep=6):
             current_high == np.max(high_window)
             and np.sum(high_window == current_high) == 1
         )
-
         is_low = (
             current_low == np.min(low_window)
             and np.sum(low_window == current_low) == 1
@@ -76,7 +76,6 @@ def calculate_zigzag(df, depth=12, backstep=6):
 
 def get_chronological_pivots(df):
     raw = []
-
     for pos, (idx, row) in enumerate(df.iterrows()):
         if not pd.isna(row["Pivot_H"]):
             raw.append({
@@ -86,7 +85,6 @@ def get_chronological_pivots(df):
                 "type": "H",
                 "dynamic_swing": float(row.get("Dynamic_Swing", 0.001))
             })
-
         elif not pd.isna(row["Pivot_L"]):
             raw.append({
                 "idx": idx,
@@ -100,7 +98,6 @@ def get_chronological_pivots(df):
         return []
 
     clean = []
-
     for p in raw:
         if not clean:
             clean.append(p)
@@ -111,20 +108,13 @@ def get_chronological_pivots(df):
 
         if last["type"] != p["type"]:
             movement = abs(p["val"] - last["val"]) / max(abs(last["val"]), 1e-9)
-
             if movement >= current_min_swing:
                 clean.append(p)
-            else:
-                if last["type"] == "H" and p["val"] > last["val"]:
-                    clean[-1] = p
-                elif last["type"] == "L" and p["val"] < last["val"]:
-                    clean[-1] = p
-
-        elif p["type"] == "H" and p["val"] > last["val"]:
-            clean[-1] = p
-
-        elif p["type"] == "L" and p["val"] < last["val"]:
-            clean[-1] = p
+        else:
+            if last["type"] == "H" and p["val"] > last["val"]:
+                clean[-1] = p
+            elif last["type"] == "L" and p["val"] < last["val"]:
+                clean[-1] = p
 
     final_clean = []
     for p in clean:
@@ -143,12 +133,9 @@ def get_chronological_pivots(df):
 
 
 class PatternValidatorPipeline:
-
-    def __init__(self, df, pattern_type="Head and Shoulders", is_backtest=False):
+    def __init__(self, df, pattern_type="Head and Shoulders"):
         self.df = df
         self.pattern_type = pattern_type
-        self.is_backtest = is_backtest
-
         self.filters = [
             self.time_filter,
             self.trend_filter,
@@ -159,20 +146,19 @@ class PatternValidatorPipeline:
 
     def time_filter(self, p, data):
         i_l0, i_h1, i_l1, i_h2, i_l2, i_h3 = [x["pos"] for x in p]
-
-        if (i_h1 - i_l0 < MIN_WAVE_CANDLES) or \
-           (i_l1 - i_h1 < MIN_WAVE_CANDLES) or \
-           (i_h2 - i_l1 < MIN_WAVE_CANDLES) or \
-           (i_l2 - i_h2 < MIN_WAVE_CANDLES) or \
-           (i_h3 - i_l2 < MIN_WAVE_CANDLES):
+        if (
+            (i_h1 - i_l0 < MIN_WAVE_CANDLES) or
+            (i_l1 - i_h1 < MIN_WAVE_CANDLES) or
+            (i_h2 - i_l1 < MIN_WAVE_CANDLES) or
+            (i_l2 - i_h2 < MIN_WAVE_CANDLES) or
+            (i_h3 - i_l2 < MIN_WAVE_CANDLES)
+        ):
             return False, None, None
-
         return True, None, None
 
     def trend_filter(self, p, data):
         idx_l0 = p[0]["idx"]
         pre_l0_df = data.loc[:idx_l0]
-
         if len(pre_l0_df) > 10:
             if self.pattern_type == "Head and Shoulders":
                 past_min = pre_l0_df["Low"].iloc[-10:].min()
@@ -185,15 +171,12 @@ class PatternValidatorPipeline:
                 past_max = pre_l0_df["High"].iloc[-10:].max()
                 if past_max < p[0]["val"]:
                     return False, None, None
-
         return True, None, None
 
     def invalidation_filter(self, p, data):
         h2 = p[3]["val"]
         idx_h2 = p[3]["idx"]
-
         post_head_df = data.loc[idx_h2:]
-
         if not post_head_df.empty:
             if self.pattern_type == "Head and Shoulders":
                 if post_head_df["High"].max() > h2:
@@ -201,7 +184,6 @@ class PatternValidatorPipeline:
             else:
                 if post_head_df["Low"].min() < h2:
                     return False, None, None
-
         return True, None, None
 
     def indicator_confirmation_filter(self, p, data):
@@ -228,132 +210,67 @@ class PatternValidatorPipeline:
         return True, None, None
 
     def breakout_filter(self, p, data):
-        i_h3 = p[5]["pos"]
         idx_h3 = p[5]["idx"]
         post_h3_df = data.loc[idx_h3:]
 
         if self.pattern_type == "Head and Shoulders":
-            i_h1, i_l1 = p[1]["pos"], p[2]["pos"]
-            left_shoulder_duration = i_l1 - i_h1
-
             l1, l2 = p[2]["val"], p[4]["val"]
             h2 = p[3]["val"]
             neckline_avg = (l1 + l2) / 2.0
             head_length = h2 - neckline_avg
             tp_level = neckline_avg - head_length
-            sl_level = h2
 
-            breakout_found = False
-            breakout_idx = None
-            breakout_close = None
-
-            for idx, row in post_h3_df.iterrows():
-                high = float(row["High"])
-                close = float(row["Close"])
-
-                # 1. إبطال النموذج إذا تجاوز قمة الرأس قبل الكسر
-                if high >= sl_level:
-                    return False, None, None
-
-                # 2. البحث عن أول شمعة كسر
-                if close < neckline_avg:
-                    breakout_found = True
-                    breakout_idx = idx
-                    breakout_close = close
-                    break
-
-            if not breakout_found:
+            current_close = float(data["Close"].iloc[-1])
+            if current_close >= neckline_avg or current_close <= tp_level:
                 return False, None, None
 
-            # 3. شرط التماثل الزمني للكتف الأيمن مقارنة بالأيسر
-            breakout_pos = data.index.get_loc(breakout_idx)
-            right_breakout_duration = breakout_pos - i_h3
-
-            if left_shoulder_duration > 0:
-                time_diff_ratio = abs(right_breakout_duration - left_shoulder_duration) / left_shoulder_duration
-                if time_diff_ratio > MAX_TIME_SYMMETRY_DIFF:
+            for idx, row in post_h3_df.iterrows():
+                close = float(row["Close"])
+                if close <= tp_level:
                     return False, None, None
-
-            # 4. فحص السعر اللحظي الحالي (للمسح الحي فقط)
-            if not self.is_backtest:
-                current_close = float(data["Close"].iloc[-1])
-                if current_close <= tp_level or current_close >= neckline_avg:
-                    return False, None, None
-
-            return True, breakout_idx, breakout_close
-
+                if close < neckline_avg:
+                    return True, idx, close
         else:
-            # Inverse Head and Shoulders
-            i_l1, i_h1 = p[1]["pos"], p[2]["pos"]
-            left_shoulder_duration = i_h1 - i_l1
-
             h1, h2_neck = p[2]["val"], p[4]["val"]
             l2_head = p[3]["val"]
             neckline_avg = (h1 + h2_neck) / 2.0
             head_length = neckline_avg - l2_head
             tp_level = neckline_avg + head_length
-            sl_level = l2_head
 
-            breakout_found = False
-            breakout_idx = None
-            breakout_close = None
-
-            for idx, row in post_h3_df.iterrows():
-                low = float(row["Low"])
-                close = float(row["Close"])
-
-                if low <= sl_level:
-                    return False, None, None
-
-                if close > neckline_avg:
-                    breakout_found = True
-                    breakout_idx = idx
-                    breakout_close = close
-                    break
-
-            if not breakout_found:
+            current_close = float(data["Close"].iloc[-1])
+            if current_close <= neckline_avg or current_close >= tp_level:
                 return False, None, None
 
-            breakout_pos = data.index.get_loc(breakout_idx)
-            right_breakout_duration = breakout_pos - i_h3
-
-            if left_shoulder_duration > 0:
-                time_diff_ratio = abs(right_breakout_duration - left_shoulder_duration) / left_shoulder_duration
-                if time_diff_ratio > MAX_TIME_SYMMETRY_DIFF:
+            for idx, row in post_h3_df.iterrows():
+                close = float(row["Close"])
+                if close >= tp_level:
                     return False, None, None
+                if close > neckline_avg:
+                    return True, idx, close
 
-            if not self.is_backtest:
-                current_close = float(data["Close"].iloc[-1])
-                if current_close >= tp_level or current_close <= neckline_avg:
-                    return False, None, None
-
-            return True, breakout_idx, breakout_close
+        return False, None, None
 
     def run(self, p):
         end_idx, end_val = None, None
-
         for f in self.filters:
             passed, e_idx, e_val = f(p, self.df)
             if not passed:
                 return False, None, None
             if e_idx is not None:
                 end_idx, end_val = e_idx, e_val
-
         return True, end_idx, end_val
 
 
-def detect_all_head_shoulders(pivots, df, is_backtest=False):
+def detect_all_head_shoulders(pivots, df):
     patterns = []
-
     if len(pivots) < 6:
         return patterns
 
-    validator = PatternValidatorPipeline(df, pattern_type="Head and Shoulders", is_backtest=is_backtest)
+    validator = PatternValidatorPipeline(df, pattern_type="Head and Shoulders")
     total_candles = len(df)
 
     for i in range(len(pivots) - 5):
         p = pivots[i:i + 6]
-
         if [x["type"] for x in p] != ["L", "H", "L", "H", "L", "H"]:
             continue
 
@@ -362,9 +279,9 @@ def detect_all_head_shoulders(pivots, df, is_backtest=False):
         if h1 <= l0 or l1 <= l0:
             continue
 
+        # حساب ردة الفعل للكتف الأيسر والأيمن
         left_reaction_up = (h1 - l0) / max(abs(l0), 1e-9)
         left_reaction_down = (h1 - l1) / max(abs(h1), 1e-9)
-
         if left_reaction_up < MIN_SHOULDER_REACTION or left_reaction_down < MIN_SHOULDER_REACTION:
             continue
 
@@ -378,42 +295,48 @@ def detect_all_head_shoulders(pivots, df, is_backtest=False):
         if h2 <= h1 or h2 <= h3:
             continue
 
+        # ==========================================================
+        # 1. اشتراط تقارب بنية الكتف الأيمن مع الكتف الأيسر (Symmetry Checks)
+        # ==========================================================
+        # أ) تقارب مستويات قمم الكتفين (h1 و h3)
+        shoulder_level_diff = abs(h1 - h3) / max(h1, h3)
+        if shoulder_level_diff > MAX_SHOULDER_LEVEL_DIFF:
+            continue
+
+        # ب) تقارب عمق الكتفين (Left Depth vs Right Depth)
         left_depth = h1 - l1
         right_depth = h3 - l2
-
         if left_depth <= 0 or right_depth <= 0:
             continue
 
         max_depth = max(left_depth, right_depth)
         depth_diff_ratio = abs(left_depth - right_depth) / max_depth
-
         if depth_diff_ratio > MAX_SHOULDER_DEPTH_DIFF:
             continue
 
+        # ج) التثبت من أبعاد الرأس مقارنة بالكتفين
         neckline_min = min(l1, l2)
         head_height = h2 - neckline_min
-
         if head_height <= 0:
             continue
 
-        if abs(h1 - h3) > (head_height * 0.35):
+        if abs(h1 - h3) > (head_height * 0.25):  # تشديد الفارق مقارنة بالرأس
             continue
 
         max_shoulder = max(h1, h3)
         if (h2 - max_shoulder) < (head_height * 0.25):
             continue
 
-        if abs(l1 - l2) > (head_height * 0.25):
+        if abs(l1 - l2) > (head_height * 0.20):  # تقارب القيعان المكونة لخط العنق
             continue
 
+        # تشغيل أنبوب الفحص للتأكد من شروط المؤشرات الفنية (RSI, EMA, Breakout)
         passed, end_idx, end_val = validator.run(p)
         if not passed:
             continue
 
         end_pos = df.index.get_loc(end_idx)
-
-        # استثناء شرط الـ 10 شموع الأخيرة في الاختبار الرجعي
-        if not is_backtest and (total_candles - end_pos) > 10:
+        if (total_candles - end_pos) > 10:
             continue
 
         l1_idx, l2_idx = p[2]["idx"], p[4]["idx"]
@@ -424,11 +347,9 @@ def detect_all_head_shoulders(pivots, df, is_backtest=False):
         sl = h2
         tp = entry - actual_head_length
 
-        # استثناء فحص السعر اللحظي في الاختبار الرجعي
-        if not is_backtest:
-            current_close = float(df["Close"].iloc[-1])
-            if current_close >= entry or current_close <= tp:
-                continue
+        current_close = float(df["Close"].iloc[-1])
+        if current_close >= entry or current_close <= tp:
+            continue
 
         nodes = [(x["idx"], x["val"]) for x in p]
         nodes.append((end_idx, float(end_val)))
@@ -459,18 +380,16 @@ def detect_all_head_shoulders(pivots, df, is_backtest=False):
     return patterns
 
 
-def detect_all_inverse_head_shoulders(pivots, df, is_backtest=False):
+def detect_all_inverse_head_shoulders(pivots, df):
     patterns = []
-
     if len(pivots) < 6:
         return patterns
 
-    validator = PatternValidatorPipeline(df, pattern_type="Inverse Head and Shoulders", is_backtest=is_backtest)
+    validator = PatternValidatorPipeline(df, pattern_type="Inverse Head and Shoulders")
     total_candles = len(df)
 
     for i in range(len(pivots) - 5):
         p = pivots[i:i + 6]
-
         if [x["type"] for x in p] != ["H", "L", "H", "L", "H", "L"]:
             continue
 
@@ -479,42 +398,48 @@ def detect_all_inverse_head_shoulders(pivots, df, is_backtest=False):
         if l2 >= l1 or l2 >= l3:
             continue
 
+        # ==========================================================
+        # 1. اشتراط تقارب بنية الكتف الأيمن مع الكتف الأيسر للنموذج المعكوس
+        # ==========================================================
+        # أ) تقارب مستويات قيعان الكتفين (l1 و l3)
+        shoulder_level_diff = abs(l1 - l3) / max(abs(l1), abs(l3))
+        if shoulder_level_diff > MAX_SHOULDER_LEVEL_DIFF:
+            continue
+
+        # ب) تقارب عمق الكتفين للنموذج المعكوس
         left_depth = h1 - l1
         right_depth = h2 - l3
-
         if left_depth <= 0 or right_depth <= 0:
             continue
 
         max_depth = max(left_depth, right_depth)
         depth_diff_ratio = abs(left_depth - right_depth) / max_depth
-
         if depth_diff_ratio > MAX_SHOULDER_DEPTH_DIFF:
             continue
 
+        # ج) الفحص بالنسبة لعمق الرأس
         neckline_max = max(h1, h2)
         head_depth = neckline_max - l2
-
         if head_depth <= 0:
             continue
 
-        if abs(l1 - l3) > (head_depth * 0.35):
+        if abs(l1 - l3) > (head_depth * 0.25):
             continue
 
         min_shoulder = min(l1, l3)
         if (min_shoulder - l2) < (head_depth * 0.25):
             continue
 
-        if abs(h1 - h2) > (head_depth * 0.25):
+        if abs(h1 - h2) > (head_depth * 0.20):
             continue
 
+        # تشغيل الفحص والتحقق من المؤشرات الفنية للنموذج المعكوس
         passed, end_idx, end_val = validator.run(p)
         if not passed:
             continue
 
         end_pos = df.index.get_loc(end_idx)
-
-        # استثناء شرط الـ 10 شموع الأخيرة في الاختبار الرجعي
-        if not is_backtest and (total_candles - end_pos) > 10:
+        if (total_candles - end_pos) > 10:
             continue
 
         h1_idx, h2_idx = p[2]["idx"], p[4]["idx"]
@@ -525,11 +450,9 @@ def detect_all_inverse_head_shoulders(pivots, df, is_backtest=False):
         sl = l2
         tp = entry + actual_head_length
 
-        # استثناء فحص السعر اللحظي في الاختبار الرجعي
-        if not is_backtest:
-            current_close = float(df["Close"].iloc[-1])
-            if current_close <= entry or current_close >= tp:
-                continue
+        current_close = float(df["Close"].iloc[-1])
+        if current_close <= entry or current_close >= tp:
+            continue
 
         nodes = [(x["idx"], x["val"]) for x in p]
         nodes.append((end_idx, float(end_val)))
@@ -562,94 +485,14 @@ def detect_all_inverse_head_shoulders(pivots, df, is_backtest=False):
 
 _original_detect_all_head_shoulders = detect_all_head_shoulders
 
-
-def _detect_both_head_shoulders(pivots, df, is_backtest=False):
-    normal_patterns = _original_detect_all_head_shoulders(pivots, df, is_backtest=is_backtest)
-    inverse_patterns = detect_all_inverse_head_shoulders(pivots, df, is_backtest=is_backtest)
-
+def _detect_both_head_shoulders(pivots, df):
+    normal_patterns = _original_detect_all_head_shoulders(pivots, df)
+    inverse_patterns = detect_all_inverse_head_shoulders(pivots, df)
     all_patterns = normal_patterns + inverse_patterns
     all_patterns.sort(key=lambda x: x.get("end_pos", -1))
-
     return all_patterns
 
-
 detect_all_head_shoulders = _detect_both_head_shoulders
-
-
-def backtest_strategy(df):
-    if df is None or df.empty:
-        return []
-
-    df_calc = df.copy()
-    required = ["Open", "High", "Low", "Close"]
-
-    for col in required:
-        if col not in df_calc.columns:
-            return []
-        df_calc[col] = pd.to_numeric(df_calc[col], errors="coerce")
-
-    df_calc = df_calc.dropna(subset=required)
-
-    if len(df_calc) < 30:
-        return []
-
-    df_calc = calculate_indicators(df_calc)
-    df_calc = calculate_zigzag(df_calc)
-
-    pivots = get_chronological_pivots(df_calc)
-    # تفعيل خيار الاختبار الرجعي
-    all_patterns = detect_all_head_shoulders(pivots, df_calc, is_backtest=True)
-
-    trades = []
-    for pat in all_patterns:
-        nodes = pat.get("nodes", [])
-        entry = pat.get("entry")
-        sl = pat.get("sl")
-        tp = pat.get("tp")
-        bias = pat.get("bias")
-
-        head_result = "LOSS"
-        shoulder_result = "LOSS"
-
-        if nodes:
-            end_idx = nodes[-1][0]
-            if end_idx in df_calc.index:
-                post_df = df_calc.loc[end_idx:]
-                shoulder_tp = entry - (entry - tp) * 0.5 if bias == "Bearish" else entry + (tp - entry) * 0.5
-
-                for _, row in post_df.iterrows():
-                    high = float(row["High"])
-                    low = float(row["Low"])
-
-                    if bias == "Bearish":
-                        if low <= shoulder_tp:
-                            shoulder_result = "WIN"
-                        if low <= tp:
-                            head_result = "WIN"
-                            break
-                        if high >= sl:
-                            break
-                    else:
-                        if high >= shoulder_tp:
-                            shoulder_result = "WIN"
-                        if high >= tp:
-                            head_result = "WIN"
-                            break
-                        if low <= sl:
-                            break
-
-        trades.append({
-            "Pattern": pat.get("pattern"),
-            "Bias": bias,
-            "Entry": entry,
-            "SL": sl,
-            "TP": tp,
-            "Head Result": head_result,
-            "Shoulder Result": shoulder_result,
-            "nodes": nodes
-        })
-
-    return trades
 
 
 def run_full_analysis(df):
@@ -670,7 +513,6 @@ def run_full_analysis(df):
 
     df = df.copy()
     required = ["Open", "High", "Low", "Close"]
-
     for col in required:
         if col not in df.columns:
             raise ValueError(f"Missing required column: {col}")
@@ -698,8 +540,7 @@ def run_full_analysis(df):
     df_active = calculate_zigzag(df_active)
 
     pivots = get_chronological_pivots(df_active)
-    # المسح الحي
-    all_patterns = detect_all_head_shoulders(pivots, df_active, is_backtest=False)
+    all_patterns = detect_all_head_shoulders(pivots, df_active)
 
     if not all_patterns:
         return {
@@ -737,4 +578,4 @@ def run_full_analysis(df):
 
 
 if __name__ == "__main__":
-    print("ENGINE.PY loaded (v4.8 - Backtest & Time Symmetry Fixed).")
+    print("ENGINE.PY loaded with Strict Shoulder Symmetry & Indicator Pipeline (v4.7).")
