@@ -2,107 +2,105 @@ import pandas as pd
 import numpy as np
 
 # ==========================================================
-# ENGINE.PY - OPTIMIZED DYNAMIC SWING SCANNER (v4.7)
+# ENGINE.PY - DYNAMIC SWING SCANNER (v4.8)
 # ==========================================================
 
 MIN_WAVE_CANDLES = 3
 MIN_PRE_TREND_MOVE = 0.01
-MIN_SHOULDER_REACTION = 0.003
+
+# شرط استقامة خط العنق (نسبة الميل المسموحة 0.5%)
+MAX_NECKLINE_SLOPE = 0.005 
 
 
 def calculate_indicators(df):
     df = df.copy()
-    
-    # حساب المتوسطات
     df["EMA50"] = df["Close"].ewm(span=50, adjust=False).mean()
     df["EMA200"] = df["Close"].ewm(span=200, adjust=False).mean()
 
-    # حساب RSI
     delta = df["Close"].diff()
     gain = delta.where(delta > 0, 0.0).rolling(14).mean()
     loss = -delta.where(delta < 0, 0.0).rolling(14).mean()
 
     loss_safe = loss.replace(0, 1e-9)
     rs = gain / loss_safe
-    df["RSI"] = (100 - (100 / (1 + rs))).fillna(50.0)
 
-    # حساب ATR باستخدام NumPy المباشر لتوفير الذاكرة
-    high_low = (df["High"] - df["Low"]).to_numpy()
-    high_close = np.abs(df["High"].to_numpy() - df["Close"].shift().to_numpy())
-    low_close = np.abs(df["Low"].to_numpy() - df["Close"].shift().to_numpy())
-    
-    true_range = np.maximum(high_low, np.maximum(high_close, low_close))
-    df["ATR"] = pd.Series(true_range, index=df.index).rolling(14).mean()
+    df["RSI"] = 100 - (100 / (1 + rs))
+    df["RSI"] = df["RSI"].fillna(50.0)
 
-    # حساب التأرجح الديناميكي
-    df["Dynamic_Swing"] = ((df["ATR"] / df["Close"]) * 0.5).fillna(0.001)
+    high_low = df["High"] - df["Low"]
+    high_close = np.abs(df["High"] - df["Close"].shift())
+    low_close = np.abs(df["Low"] - df["Close"].shift())
+    ranges = pd.concat([high_low, high_close, low_close], axis=1)
+    true_range = ranges.max(axis=1)
+    df["ATR"] = true_range.rolling(14).mean()
+
+    df["Dynamic_Swing"] = (df["ATR"] / df["Close"]) * 0.5
+    df["Dynamic_Swing"] = df["Dynamic_Swing"].fillna(0.001)
 
     return df
 
 
 def calculate_zigzag(df, depth=12, backstep=6):
     df = df.copy()
-    highs = df["High"].to_numpy(dtype=float)
-    lows = df["Low"].to_numpy(dtype=float)
+    df["Pivot_H"] = np.nan
+    df["Pivot_L"] = np.nan
+
+    highs = df["High"].astype(float).values
+    lows = df["Low"].astype(float).values
     n = len(df)
 
-    pivot_h = np.full(n, np.nan)
-    pivot_l = np.full(n, np.nan)
-
-    # استخدام مصفوفات NumPy بدلاً من Pandas iloc لإلغاء الضغط على المعالج
     for i in range(depth, n - backstep):
-        high_window = highs[i - depth : i + backstep + 1]
-        low_window = lows[i - depth : i + backstep + 1]
+        high_window = highs[i - depth:i + backstep + 1]
+        low_window = lows[i - depth:i + backstep + 1]
 
-        curr_h = highs[i]
-        curr_l = lows[i]
+        current_high = highs[i]
+        current_low = lows[i]
 
-        is_high = (curr_h == np.max(high_window)) and (np.count_nonzero(high_window == curr_h) == 1)
-        is_low = (curr_l == np.min(low_window)) and (np.count_nonzero(low_window == curr_l) == 1)
+        is_high = (
+            current_high == np.max(high_window)
+            and np.sum(high_window == current_high) == 1
+        )
+
+        is_low = (
+            current_low == np.min(low_window)
+            and np.sum(low_window == current_low) == 1
+        )
 
         if is_high and not is_low:
-            pivot_h[i] = curr_h
+            df.iloc[i, df.columns.get_loc("Pivot_H")] = current_high
         elif is_low and not is_high:
-            pivot_l[i] = curr_l
+            df.iloc[i, df.columns.get_loc("Pivot_L")] = current_low
 
-    df["Pivot_H"] = pivot_h
-    df["Pivot_L"] = pivot_l
     return df
 
 
 def get_chronological_pivots(df):
-    p_h = df["Pivot_H"].to_numpy()
-    p_l = df["Pivot_L"].to_numpy()
-    swings = df["Dynamic_Swing"].to_numpy() if "Dynamic_Swing" in df.columns else np.full(len(df), 0.001)
-    indices = df.index.to_numpy()
-
     raw = []
-    # استخراج النقاط باستخدام NumPy دون iterrows()
-    for pos in range(len(df)):
-        val_h = p_h[pos]
-        val_l = p_l[pos]
 
-        if not np.isnan(val_h):
+    for pos, (idx, row) in enumerate(df.iterrows()):
+        if not pd.isna(row["Pivot_H"]):
             raw.append({
-                "idx": indices[pos],
+                "idx": idx,
                 "pos": pos,
-                "val": float(val_h),
+                "val": float(row["Pivot_H"]),
                 "type": "H",
-                "dynamic_swing": float(swings[pos])
+                "dynamic_swing": float(row.get("Dynamic_Swing", 0.001))
             })
-        elif not np.isnan(val_l):
+
+        elif not pd.isna(row["Pivot_L"]):
             raw.append({
-                "idx": indices[pos],
+                "idx": idx,
                 "pos": pos,
-                "val": float(val_l),
+                "val": float(row["Pivot_L"]),
                 "type": "L",
-                "dynamic_swing": float(swings[pos])
+                "dynamic_swing": float(row.get("Dynamic_Swing", 0.001))
             })
 
     if not raw:
         return []
 
     clean = []
+
     for p in raw:
         if not clean:
             clean.append(p)
@@ -112,7 +110,9 @@ def get_chronological_pivots(df):
         current_min_swing = p["dynamic_swing"]
 
         if last["type"] != p["type"]:
-            movement = abs(p["val"] - last["val"]) / max(abs(last["val"]), 1e-9)
+            movement = abs(p["val"] - last["val"]) / max(
+                abs(last["val"]), 1e-9
+            )
 
             if movement >= current_min_swing:
                 clean.append(p)
@@ -121,8 +121,10 @@ def get_chronological_pivots(df):
                     clean[-1] = p
                 elif last["type"] == "L" and p["val"] < last["val"]:
                     clean[-1] = p
+
         elif p["type"] == "H" and p["val"] > last["val"]:
             clean[-1] = p
+
         elif p["type"] == "L" and p["val"] < last["val"]:
             clean[-1] = p
 
@@ -146,6 +148,7 @@ class PatternValidatorPipeline:
 
     def __init__(self, df):
         self.df = df
+
         self.filters = [
             self.time_filter,
             self.trend_filter,
@@ -156,12 +159,14 @@ class PatternValidatorPipeline:
 
     def time_filter(self, p, data):
         i_l0, i_h1, i_l1, i_h2, i_l2, i_h3 = [x["pos"] for x in p]
+
         if (i_h1 - i_l0 < MIN_WAVE_CANDLES) or \
            (i_l1 - i_h1 < MIN_WAVE_CANDLES) or \
            (i_h2 - i_l1 < MIN_WAVE_CANDLES) or \
            (i_l2 - i_h2 < MIN_WAVE_CANDLES) or \
            (i_h3 - i_l2 < MIN_WAVE_CANDLES):
             return False, None, None
+
         return True, None, None
 
     def trend_filter(self, p, data):
@@ -170,11 +175,16 @@ class PatternValidatorPipeline:
 
         if len(pre_l0_df) > 10:
             past_min = pre_l0_df["Low"].iloc[-10:].min()
+
             if past_min > p[0]["val"]:
                 return False, None, None
 
             pre_trend_move = (p[1]["val"] - past_min) / max(abs(past_min), 1e-9)
-            if pre_trend_move < MIN_PRE_TREND_MOVE or p[0]["val"] <= past_min:
+
+            if pre_trend_move < MIN_PRE_TREND_MOVE:
+                return False, None, None
+
+            if p[0]["val"] <= past_min:
                 return False, None, None
 
         return True, None, None
@@ -182,10 +192,12 @@ class PatternValidatorPipeline:
     def invalidation_filter(self, p, data):
         h2 = p[3]["val"]
         idx_h2 = p[3]["idx"]
+
         post_head_df = data.loc[idx_h2:]
 
-        if not post_head_df.empty and post_head_df["High"].max() > h2:
-            return False, None, None
+        if not post_head_df.empty:
+            if post_head_df["High"].max() > h2:
+                return False, None, None
 
         return True, None, None
 
@@ -206,6 +218,7 @@ class PatternValidatorPipeline:
 
     def breakout_filter(self, p, data):
         idx_h3 = p[5]["idx"]
+
         l1, l2 = p[2]["val"], p[4]["val"]
         h2 = p[3]["val"]
 
@@ -219,16 +232,12 @@ class PatternValidatorPipeline:
         if current_close >= neckline_avg or current_close <= tp_level:
             return False, None, None
 
-        # التكرار باستخدام NumPy السريع بدلاً من iterrows
-        closes = post_h3_df["Close"].to_numpy()
-        idxs = post_h3_df.index.to_numpy()
-
-        for i in range(len(closes)):
-            close = float(closes[i])
-            idx = idxs[i]
+        for idx, row in post_h3_df.iterrows():
+            close = float(row["Close"])
 
             if close <= tp_level:
                 return False, None, None
+
             if close < neckline_avg:
                 return True, idx, close
 
@@ -236,10 +245,13 @@ class PatternValidatorPipeline:
 
     def run(self, p):
         end_idx, end_val = None, None
+
         for f in self.filters:
             passed, e_idx, e_val = f(p, self.df)
+
             if not passed:
                 return False, None, None
+
             if e_idx is not None:
                 end_idx, end_val = e_idx, e_val
 
@@ -248,6 +260,7 @@ class PatternValidatorPipeline:
 
 def detect_all_head_shoulders(pivots, df):
     patterns = []
+
     if len(pivots) < 6:
         return patterns
 
@@ -262,23 +275,8 @@ def detect_all_head_shoulders(pivots, df):
 
         l0, h1, l1, h2, l2, h3 = [x["val"] for x in p]
 
-        if h1 <= l0 or l1 <= l0:
-            continue
-
-        left_reaction_up = (h1 - l0) / max(abs(l0), 1e-9)
-        left_reaction_down = (h1 - l1) / max(abs(h1), 1e-9)
-
-        if left_reaction_up < MIN_SHOULDER_REACTION or left_reaction_down < MIN_SHOULDER_REACTION:
-            continue
-
-        if abs(l1 - l0) / max(abs(l0), 1e-9) > 0.02:
-            continue
-
-        right_reaction_up = (h3 - l2) / max(abs(l2), 1e-9)
-        if right_reaction_up < MIN_SHOULDER_REACTION:
-            continue
-
-        if h2 <= h1 or h2 <= h3:
+        # الشروط الهيكلية الأساسية فقط (بدون الشروط المئوية للكتفين)
+        if h1 <= l0 or l1 <= l0 or h2 <= h1 or h2 <= h3:
             continue
 
         neckline_min = min(l1, l2)
@@ -287,26 +285,24 @@ def detect_all_head_shoulders(pivots, df):
         if head_height <= 0:
             continue
 
-        if abs(h1 - h3) > (head_height * 0.35):
-            continue
-
-        max_shoulder = max(h1, h3)
-        if (h2 - max_shoulder) < (head_height * 0.25):
-            continue
-
-        if abs(l1 - l2) > (head_height * 0.25):
+        # --- شرط استقامة خط العنق الجديد (معدل ميلان خط العنق L1 إلى L2) ---
+        neckline_slope = abs(l1 - l2) / max(abs(l1), 1e-9)
+        if neckline_slope > MAX_NECKLINE_SLOPE:
             continue
 
         passed, end_idx, end_val = validator.run(p)
+
         if not passed:
             continue
 
         end_pos = df.index.get_loc(end_idx)
+
         if (total_candles - end_pos) > 10:
             continue
 
         l1_idx, l2_idx = p[2]["idx"], p[4]["idx"]
         neckline_avg = (l1 + l2) / 2.0
+
         actual_head_length = h2 - neckline_avg
 
         entry = neckline_avg
@@ -320,6 +316,13 @@ def detect_all_head_shoulders(pivots, df):
         nodes = [(x["idx"], x["val"]) for x in p]
         nodes.append((end_idx, float(end_val)))
 
+        neckline_nodes = [(l1_idx, l1), (l2_idx, l2)]
+
+        target_nodes = [
+            (end_idx, float(round(entry, 5))),
+            (end_idx, float(round(tp, 5)))
+        ]
+
         patterns.append({
             "name": "Head and Shoulders",
             "pattern": "Head and Shoulders",
@@ -332,8 +335,8 @@ def detect_all_head_shoulders(pivots, df):
             "tp": float(round(tp, 5)),
             "neckline_start_idx": l1_idx,
             "neckline_end_idx": end_idx,
-            "neckline_nodes": [(l1_idx, l1), (l2_idx, l2)],
-            "target_nodes": [(end_idx, float(round(entry, 5))), (end_idx, float(round(tp, 5)))],
+            "neckline_nodes": neckline_nodes,
+            "target_nodes": target_nodes,
             "end_pos": p[5]["pos"]
         })
 
@@ -342,6 +345,7 @@ def detect_all_head_shoulders(pivots, df):
 
 def detect_all_inverse_head_shoulders(pivots, df):
     patterns = []
+
     if len(pivots) < 6:
         return patterns
 
@@ -355,43 +359,58 @@ def detect_all_inverse_head_shoulders(pivots, df):
 
         h0, l1, h1, l2, h2, l3 = [x["val"] for x in p]
 
+        # الشروط الهيكلية الأساسية للنموذج المعكوس
         if l2 >= l1 or l2 >= l3:
             continue
 
         neckline_max = max(h1, h2)
         head_depth = neckline_max - l2
 
-        if head_depth <= 0 or abs(l1 - l3) > (head_depth * 0.35):
+        if head_depth <= 0:
             continue
 
-        min_shoulder = min(l1, l3)
-        if (min_shoulder - l2) < (head_depth * 0.25) or abs(h1 - h2) > (head_depth * 0.25):
+        # --- شرط استقامة خط العنق الجديد (معدل ميلان خط العنق H1 إلى H2) ---
+        neckline_slope = abs(h1 - h2) / max(abs(h1), 1e-9)
+        if neckline_slope > MAX_NECKLINE_SLOPE:
             continue
 
         positions = [x["pos"] for x in p]
-        if any((positions[j] - positions[j - 1]) < MIN_WAVE_CANDLES for j in range(1, 6)):
+
+        if (positions[1] - positions[0]) < MIN_WAVE_CANDLES or \
+           (positions[2] - positions[1]) < MIN_WAVE_CANDLES or \
+           (positions[3] - positions[2]) < MIN_WAVE_CANDLES or \
+           (positions[4] - positions[3]) < MIN_WAVE_CANDLES or \
+           (positions[5] - positions[4]) < MIN_WAVE_CANDLES:
             continue
 
         idx_h0 = p[0]["idx"]
         pre_left_df = df.loc[:idx_h0]
-        if len(pre_left_df) > 10 and pre_left_df["High"].iloc[-10:].max() < p[0]["val"]:
-            continue
+
+        if len(pre_left_df) > 10:
+            past_max = pre_left_df["High"].iloc[-10:].max()
+            if past_max < p[0]["val"]:
+                continue
 
         idx_l2 = p[3]["idx"]
         post_head_df = df.loc[idx_l2:]
-        if not post_head_df.empty and post_head_df["Low"].min() < l2:
-            continue
+
+        if not post_head_df.empty:
+            if post_head_df["Low"].min() < l2:
+                continue
 
         idx_l3 = p[5]["idx"]
+
         if idx_l3 not in df.index:
             continue
 
         rsi_val = df.loc[idx_l3, "RSI"]
+
         if not (25 <= rsi_val <= 70):
             continue
 
         ema50 = df.loc[idx_l3, "EMA50"]
         ema200 = df.loc[idx_l3, "EMA200"]
+
         if pd.isna(ema50) or pd.isna(ema200):
             continue
 
@@ -399,23 +418,23 @@ def detect_all_inverse_head_shoulders(pivots, df):
         neckline_avg = (h1 + h2) / 2.0
 
         post_l3_df = df.loc[idx_l3:]
+
         head_length = neckline_avg - l2
         tp_level = neckline_avg + head_length
 
         end_idx = None
         end_val = None
 
-        closes = post_l3_df["Close"].to_numpy()
-        idxs = post_l3_df.index.to_numpy()
-
-        for idx_pos in range(len(closes)):
-            close = float(closes[idx_pos])
-            idx_val = idxs[idx_pos]
+        for idx, row in post_l3_df.iterrows():
+            close = float(row["Close"])
 
             if close >= tp_level:
+                end_idx = None
+                end_val = None
                 break
+
             if close > neckline_avg:
-                end_idx = idx_val
+                end_idx = idx
                 end_val = close
                 break
 
@@ -423,6 +442,7 @@ def detect_all_inverse_head_shoulders(pivots, df):
             continue
 
         end_pos = df.index.get_loc(end_idx)
+
         if (total_candles - end_pos) > 10:
             continue
 
@@ -438,6 +458,13 @@ def detect_all_inverse_head_shoulders(pivots, df):
         nodes = [(x["idx"], x["val"]) for x in p]
         nodes.append((end_idx, end_val))
 
+        neckline_nodes = [(h1_idx, h1), (h2_idx, h2)]
+
+        target_nodes = [
+            (end_idx, float(round(entry, 5))),
+            (end_idx, float(round(tp, 5)))
+        ]
+
         patterns.append({
             "name": "Inverse Head and Shoulders",
             "pattern": "Inverse Head and Shoulders",
@@ -450,8 +477,8 @@ def detect_all_inverse_head_shoulders(pivots, df):
             "tp": float(round(tp, 5)),
             "neckline_start_idx": h1_idx,
             "neckline_end_idx": end_idx,
-            "neckline_nodes": [(h1_idx, h1), (h2_idx, h2)],
-            "target_nodes": [(end_idx, float(round(entry, 5))), (end_idx, float(round(tp, 5)))],
+            "neckline_nodes": neckline_nodes,
+            "target_nodes": target_nodes,
             "end_pos": p[5]["pos"]
         })
 
@@ -467,6 +494,7 @@ def _detect_both_head_shoulders(pivots, df):
 
     all_patterns = normal_patterns + inverse_patterns
     all_patterns.sort(key=lambda x: x.get("end_pos", -1))
+
     return all_patterns
 
 
@@ -476,9 +504,17 @@ detect_all_head_shoulders = _detect_both_head_shoulders
 def run_full_analysis(df):
     if df is None or df.empty:
         return {
-            "df": df, "signal": "WAITING", "pattern": "NO PATTERN DETECTED",
-            "bias": "Neutral", "entry": None, "sl": None, "tp": None,
-            "nodes": [], "neckline_nodes": [], "target_nodes": [], "all_patterns": []
+            "df": df,
+            "signal": "WAITING",
+            "pattern": "NO PATTERN DETECTED",
+            "bias": "Neutral",
+            "entry": None,
+            "sl": None,
+            "tp": None,
+            "nodes": [],
+            "neckline_nodes": [],
+            "target_nodes": [],
+            "all_patterns": []
         }
 
     df = df.copy()
@@ -493,12 +529,19 @@ def run_full_analysis(df):
 
     if len(df) < 30:
         return {
-            "df": df, "signal": "WAITING", "pattern": "NO PATTERN DETECTED",
-            "bias": "Neutral", "entry": None, "sl": None, "tp": None,
-            "nodes": [], "neckline_nodes": [], "target_nodes": [], "all_patterns": []
+            "df": df,
+            "signal": "WAITING",
+            "pattern": "NO PATTERN DETECTED",
+            "bias": "Neutral",
+            "entry": None,
+            "sl": None,
+            "tp": None,
+            "nodes": [],
+            "neckline_nodes": [],
+            "target_nodes": [],
+            "all_patterns": []
         }
 
-    # تحديد أحدث 200 شمعة فقط للحسابات لتوفير الاستهلاك
     df_active = df.tail(200).copy()
     df_active = calculate_indicators(df_active)
     df_active = calculate_zigzag(df_active)
@@ -508,13 +551,21 @@ def run_full_analysis(df):
 
     if not all_patterns:
         return {
-            "df": df, "signal": "WAITING", "pattern": "NO PATTERN DETECTED",
-            "bias": "Neutral", "entry": None, "sl": None, "tp": None,
-            "nodes": [], "neckline_nodes": [], "target_nodes": [], "all_patterns": []
+            "df": df,
+            "signal": "WAITING",
+            "pattern": "NO PATTERN DETECTED",
+            "bias": "Neutral",
+            "entry": None,
+            "sl": None,
+            "tp": None,
+            "nodes": [],
+            "neckline_nodes": [],
+            "target_nodes": [],
+            "all_patterns": []
         }
 
     latest_pattern = all_patterns[-1]
-    signal = "STRONG BUY" if latest_pattern["pattern"] == "Inverse Head and Shoulders" else "STRONG SELL"
+    signal = "STRONG SELL"
 
     return {
         "df": df,
@@ -534,6 +585,27 @@ def run_full_analysis(df):
     }
 
 
+_original_run_full_analysis = run_full_analysis
+
+
+def _run_full_analysis_both_directions(df):
+    result = _original_run_full_analysis(df)
+
+    if result is None:
+        return result
+
+    if result.get("pattern") == "Inverse Head and Shoulders":
+        result["signal"] = "STRONG BUY"
+        result["bias"] = "Bullish"
+    elif result.get("pattern") == "Head and Shoulders":
+        result["signal"] = "STRONG SELL"
+        result["bias"] = "Bearish"
+
+    return result
+
+
+run_full_analysis = _run_full_analysis_both_directions
+
+
 if __name__ == "__main__":
-    print("ENGINE.PY loaded with Optimized Dynamic ATR Swing Scanner (v4.7).")
-        
+    print("ENGINE.PY loaded with Straight Neckline H&S Scanner.")
