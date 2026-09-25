@@ -5,11 +5,31 @@ import plotly.graph_objects as go
 import importlib
 import engine
 
+# 1. إعداد الصفحة بوضع Wide
 st.set_page_config(
     page_title="Pattern Backtest",
     page_icon="📊",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
+
+# 2. حقن CSS لجعل الواجهة شاسعة وملء الشاشة بالكامل عرضاً وطولاً
+st.markdown("""
+    <style>
+        /* إزالة الهوامش الجانبية والعلويّة للتطبيق وتوسيعه 100% */
+        .main .block-container {
+            max-width: 100% !important;
+            padding-top: 1rem !important;
+            padding-bottom: 1rem !important;
+            padding-left: 1.5rem !important;
+            padding-right: 1.5rem !important;
+        }
+        /* تقليل الفراغات بين عناصر الصفحة */
+        div[data-testid="stVerticalBlock"] > div {
+            gap: 0.8rem;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
 st.title("📊 Pattern Backtest")
 st.caption("هذا الملف ثابت ويقرأ نمط الاختبار من engine.py في كل تشغيل.")
@@ -201,11 +221,13 @@ if "bt_df" in st.session_state:
                 )
             )
 
+    # تم زيادة الارتفاع لـ 750px وإتاحة التمدد الكامل
     fig.update_layout(
         template="plotly_white",
-        height=600,
+        height=750,
         xaxis_rangeslider_visible=False,
-        margin=dict(l=10, r=10, t=20, b=20)
+        margin=dict(l=10, r=10, t=25, b=20),
+        autosize=True
     )
 
     st.plotly_chart(fig, use_container_width=True)
