@@ -5,28 +5,35 @@ import plotly.graph_objects as go
 import importlib
 import engine
 
-# 1. إعداد الصفحة بوضع Wide
+# 1. إعداد الصفحة
 st.set_page_config(
     page_title="Pattern Backtest",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed" # إغلاق القائمة الجانبية تلقائياً في الجوال لترك مساحة للشارت
 )
 
-# 2. حقن CSS لجعل الواجهة شاسعة وملء الشاشة بالكامل عرضاً وطولاً
+# 2. حقن CSS متجاوب مع الهواتف وشاشات الكمبيوتر
 st.markdown("""
     <style>
-        /* إزالة الهوامش الجانبية والعلويّة للتطبيق وتوسيعه 100% */
+        /* إزالة الهوامش الزائدة لتكبير المساحة */
         .main .block-container {
             max-width: 100% !important;
             padding-top: 1rem !important;
             padding-bottom: 1rem !important;
-            padding-left: 1.5rem !important;
-            padding-right: 1.5rem !important;
+            padding-left: 0.5rem !important;
+            padding-right: 0.5rem !important;
         }
-        /* تقليل الفراغات بين عناصر الصفحة */
-        div[data-testid="stVerticalBlock"] > div {
-            gap: 0.8rem;
+        
+        /* ضبط التنسيق لشاشات الهواتف المحمولة */
+        @media (max-width: 768px) {
+            .main .block-container {
+                padding-left: 0.2rem !important;
+                padding-right: 0.2rem !important;
+            }
+            h1 {
+                font-size: 1.5rem !important;
+            }
         }
     </style>
 """, unsafe_allow_html=True)
@@ -34,7 +41,7 @@ st.markdown("""
 st.title("📊 Pattern Backtest")
 st.caption("هذا الملف ثابت ويقرأ نمط الاختبار من engine.py في كل تشغيل.")
 
-# إعادة تحميل engine حتى يقرأ آخر نسخة محفوظة منه
+# إعادة تحميل engine
 engine = importlib.reload(engine)
 
 st.sidebar.header("إعدادات الاختبار")
@@ -52,7 +59,6 @@ period = st.sidebar.selectbox(
     index=1
 )
 
-# 4H في Yahoo Finance: نجلب 1h ثم نعيد التجميع
 yf_interval = "1h" if interval == "4h" else interval
 
 run = st.sidebar.button("🚀 تشغيل الاختبار", use_container_width=True)
@@ -94,11 +100,6 @@ if run:
                 st.error(f"البيانات غير كافية: {len(df)} شمعة فقط.")
                 st.stop()
 
-            # --------------------------------------------------
-            # الاختبار الحقيقي:
-            # كل نقطة زمنية تستخدم البيانات السابقة فقط.
-            # engine.py هو الذي يحتوي منطق النمط.
-            # --------------------------------------------------
             detections = []
 
             for end in range(60, len(df)):
@@ -118,8 +119,6 @@ if run:
                     or ""
                 )
 
-                # لا نعتمد على signal فقط؛ نبحث عن اسم النمط
-                # الذي يكتشفه engine.py.
                 if "head" in pattern.lower() and "shoulder" in pattern.lower():
                     detections.append({
                         "pos": end - 1,
@@ -165,9 +164,6 @@ if "bt_df" in st.session_state:
         )
         st.stop()
 
-    # --------------------------------------------------
-    # رسم آخر ظهور مكتشف
-    # --------------------------------------------------
     selected = st.selectbox(
         "اختر ظهوراً لعرضه على الشارت",
         range(len(detections)),
@@ -178,7 +174,6 @@ if "bt_df" in st.session_state:
 
     d = detections[selected]
 
-    # نعرض منطقة حول النمط
     start = max(0, d["pos"] - 45)
     end = min(len(df), d["pos"] + 15)
     chart_df = df.iloc[start:end]
@@ -221,12 +216,12 @@ if "bt_df" in st.session_state:
                 )
             )
 
-    # تم زيادة الارتفاع لـ 750px وإتاحة التمدد الكامل
+    # ضبط ارتفاع متوازن (500px) وتقليل الحواف ليعمل بشكل ممتازة على الهاتف والكمبيوتر
     fig.update_layout(
-        template="plotly_white",
-        height=750,
+        template="plotly_dark", # ثيم داكن ليناسب واجهة تطبيقك
+        height=500,
         xaxis_rangeslider_visible=False,
-        margin=dict(l=10, r=10, t=25, b=20),
+        margin=dict(l=5, r=5, t=25, b=20),
         autosize=True
     )
 
@@ -253,12 +248,9 @@ if "bt_df" in st.session_state:
     )
 
     st.info(
-        "ملاحظة: هذا الاختبار يقيس مرات اكتشاف النمط بواسطة engine.py. "
-        "ولا يعتبر النجاح ربحاً إلا إذا أضفنا لاحقاً قاعدة واضحة لقياس "
-        "هل وصل السعر إلى TP قبل SL."
+        "ملاحظة: هذا الاختبار يقيس مرات اكتشاف النمط بواسطة engine.py."
     )
 else:
     st.info(
-        "ضع هذا الملف باسم backtest.py بجانب engine.py، "
-        "ثم شغله. عند تغيير engine.py لا تحتاج إلى تغيير backtest.py."
+        "ضع هذا الملف باسم backtest.py بجانب engine.py ثم شغله."
     )
