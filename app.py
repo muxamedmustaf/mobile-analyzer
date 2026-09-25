@@ -149,8 +149,34 @@ if st.session_state.scanned_signals:
 
         # 1. Draw Structure Nodes & Waves
         nodes = active_result.get("nodes", [])
+        target_nodes = active_result.get("target_nodes", [])
+        
         if nodes:
-            sorted_nodes = sorted(nodes, key=lambda item: pd.to_datetime(item[0]))
+            # تحويل العقد إلى قوائم لتكون قابلة للتعديل وفرزها
+            sorted_nodes = sorted([list(n) for n in nodes], key=lambda item: pd.to_datetime(item[0]))
+            
+            # تحديث القاع/القمة الأخير في حال ظهر قاع أحدث قبل نقطة الكسر
+            if target_nodes and len(target_nodes) > 0:
+                entry_idx = target_nodes[0][0]
+                last_node_time = sorted_nodes[-1][0]
+                
+                try:
+                    # تصفية البيانات لمعرفة الحركة بين القاع المسجل ونقطة الكسر
+                    window_df = df_res.loc[last_node_time:entry_idx]
+                    if not window_df.empty and len(window_df) > 1:
+                        if signal == "STRONG BUY":
+                            # إيجاد القاع الأحدث وتحديث الرسم به
+                            newest_trough_idx = window_df['Low'].idxmin()
+                            newest_trough_val = window_df.loc[newest_trough_idx, 'Low']
+                            sorted_nodes[-1] = [newest_trough_idx, newest_trough_val]
+                        elif signal == "STRONG SELL":
+                            # إيجاد القمة الأحدث وتحديث الرسم بها
+                            newest_peak_idx = window_df['High'].idxmax()
+                            newest_peak_val = window_df.loc[newest_peak_idx, 'High']
+                            sorted_nodes[-1] = [newest_peak_idx, newest_peak_val]
+                except Exception:
+                    pass
+
             x_nodes = [n[0] for n in sorted_nodes]
             y_nodes = [n[1] for n in sorted_nodes]
 
@@ -160,21 +186,43 @@ if st.session_state.scanned_signals:
                 marker=dict(size=7, color="#0B57D0"), name=f"{pattern}"
             ))
 
-        # 2. Draw Neckline (خط العنق)
+        # 2. Draw Neckline (خط العنق) وامتداده حتى الكسر
         neckline_nodes = active_result.get("neckline_nodes", [])
+        
         if len(neckline_nodes) >= 2:
             x_neck = [n[0] for n in neckline_nodes]
             y_neck = [n[1] for n in neckline_nodes]
+            
+            # رسم خط العنق الأساسي (متقطع)
             fig.add_trace(go.Scatter(
                 x=x_neck, y=y_neck,
                 mode="lines",
                 line=dict(color="#8E24AA", width=2, dash="dash"),
                 name="Neckline"
             ))
+            
+            # حساب ورسم امتداد خط العنق (الخط الأخضر المتصل)
+            if target_nodes and len(target_nodes) >= 2:
+                entry_idx = target_nodes[0][0]
+                
+                t1 = pd.to_datetime(x_neck[0]).timestamp()
+                t2 = pd.to_datetime(x_neck[1]).timestamp()
+                t_break = pd.to_datetime(entry_idx).timestamp()
+                
+                if t2 != t1:
+                    slope = (y_neck[1] - y_neck[0]) / (t2 - t1)
+                    y_break = y_neck[1] + slope * (t_break - t2)
+                    
+                    fig.add_trace(go.Scatter(
+                        x=[x_neck[1], entry_idx],
+                        y=[y_neck[1], y_break],
+                        mode="lines",
+                        line=dict(color="#00FF00", width=2),
+                        name="Neckline Extension"
+                    ))
 
         # 3. Draw Target Extension & Arrow (امتداد الهدف وسهم المسار)
-        target_nodes = active_result.get("target_nodes", [])
-        if len(target_nodes) >= 2:
+        if target_nodes and len(target_nodes) >= 2:
             entry_idx, entry_val = target_nodes[0]
             tp_idx, tp_val = target_nodes[1]
 
@@ -218,4 +266,3 @@ if st.session_state.scanned_signals:
         }
 
         st.plotly_chart(fig, use_container_width=True, config=config)
-            
