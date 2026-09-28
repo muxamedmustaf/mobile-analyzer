@@ -3,12 +3,12 @@ import numpy as np
 import pandas as pd
 
 # ==========================================================
-# ENGINE_APP.PY - LIVE MARKET SCANNER (STRICT STRICT STRICT)
+# ENGINE_APP.PY - STRICT REAL-TIME LIVE SCANNER ONLY
 # ==========================================================
 
 MIN_WAVE_CANDLES = 3
-MAX_H3_AGE = 15       # H3/L3 waa in uu samaysmay 15 laambadood gudahood
-MAX_PATTERN_SPAN = 80 # Pattern-ka oo dhan waa in uusan ka badanayn 80 laambadood
+MAX_H3_AGE = 8        # H3/L3 waa in uu samaysmay 8 laambadood oo u dambeeya gudahooda
+MAX_PATTERN_SPAN = 60 # Pattern-ka oo dhan waa in uusan ka badanayn 60 laambadood
 
 
 def calculate_indicators(df):
@@ -134,11 +134,11 @@ def detect_all_head_shoulders(pivots, df):
 
         pos_l0, pos_h3 = p[0]["pos"], p[5]["pos"]
 
-        # SHURUUDDII 1: Pattern-ku waa in uusan aad u fidsanayn (Max Span)
+        # 1. SHURUUDDA GABOWGA PATTERN-KA: Waa in uusan ka samaysmin ka badan 60 laambadood
         if (pos_h3 - pos_l0) > MAX_PATTERN_SPAN:
             continue
 
-        # SHURUUDDII 2: Pivot-ka H3 waa in uu dhacay 15 laambadood u dambeeyay gudahooda
+        # 2. SHURUUDDA DHUBAXDA 6-AAD (H3): Waa in uu dhacay 8 laambadood u dambeeyay oo kaliya gudahooda
         if (total_candles - 1 - pos_h3) > MAX_H3_AGE:
             continue
 
@@ -247,11 +247,11 @@ def detect_all_inverse_head_shoulders(pivots, df):
 
         pos_h0, pos_l3 = p[0]["pos"], p[5]["pos"]
 
-        # SHURUUDDII 1: Pattern-ku waa in uusan aad u fidsanayn (Max Span)
+        # 1. SHURUUDDA GABOWGA PATTERN-KA: Max 60 laambadood
         if (pos_l3 - pos_h0) > MAX_PATTERN_SPAN:
             continue
 
-        # SHURUUDDII 2: Pivot-ka L3 waa in uu dhacay 15 laambadood u dambeeyay gudahooda
+        # 2. SHURUUDDA DHUBAXDA 6-AAD (L3): Max 8 laambadood u dambeeyay
         if (total_candles - 1 - pos_l3) > MAX_H3_AGE:
             continue
 
@@ -411,5 +411,5 @@ def run_full_analysis(df):
         "neckline_nodes": latest_pattern.get("neckline_nodes", []),
         "target_nodes": latest_pattern.get("target_nodes", []),
         "all_patterns": all_patterns,
-  }
-  
+    }
+    
