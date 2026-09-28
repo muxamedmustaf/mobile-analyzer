@@ -3,10 +3,10 @@ import numpy as np
 import pandas as pd
 
 # ==========================================================
-# ENGINE_APP.PY - LIVE MARKET SCANNER (v5.2 Complete Strict Rules)
+# ENGINE_APP.PY - LIVE MARKET SCANNER (STRICT PATTERN & SHOULDER RULES)
 # ==========================================================
 
-MIN_WAVE_CANDLES = 5  # Shuruudda 5-ta laambadood ee mowjad kasta (File 1)
+MIN_WAVE_CANDLES = 3
 
 
 def calculate_indicators(df):
@@ -138,8 +138,14 @@ class PatternValidatorPipeline:
 
   def __init__(self, df):
     self.df = df
+    self.filters = [
+        self.time_filter,
+        self.trend_filter,
+        self.invalidation_filter,
+        self.breakout_filter,
+    ]
 
-  def time_filter(self, p):
+  def time_filter(self, p, data):
     i_l0, i_h1, i_l1, i_h2, i_l2, i_h3 = [x["pos"] for x in p]
     if (
         (i_h1 - i_l0 < MIN_WAVE_CANDLES)
@@ -148,79 +154,74 @@ class PatternValidatorPipeline:
         or (i_l2 - i_h2 < MIN_WAVE_CANDLES)
         or (i_h3 - i_l2 < MIN_WAVE_CANDLES)
     ):
-      return False
-    return True
+      return False, None, None
+    return True, None, None
 
-  def trend_filter(self, p, pattern_type="normal"):
-    idx_p0 = p[0]["idx"]
-    pre_df = self.df.loc[:idx_p0]
-    if len(pre_df) > 10:
-      if pattern_type == "normal":
-        past_min = float(pre_df["Low"].iloc[-10:].min())
-        if past_min > p[0]["val"]:
-          return False
-      else:  # inverse
-        past_max = float(pre_df["High"].iloc[-10:].max())
-        if past_max < p[0]["val"]:
-          return False
-    return True
+  def trend_filter(self, p, data):
+    idx_l0 = p[0]["idx"]
+    pre_l0_df = data.loc[:idx_l0]
+    if len(pre_l0_df) > 10:
+      past_min = pre_l0_df["Low"].iloc[-10:].min()
+      if past_min > p[0]["val"]:
+        return False, None, None
+    return True, None, None
 
-  def invalidation_filter(self, p, pattern_type="normal"):
-    head_val = p[3]["val"]
-    idx_head = p[3]["idx"]
-    post_head_df = self.df.loc[idx_head:]
+  def invalidation_filter(self, p, data):
+    h2 = p[3]["val"]
+    idx_h2 = p[3]["idx"]
+    post_head_df = data.loc[idx_h2:]
     if not post_head_df.empty:
-      if pattern_type == "normal":
-        if float(post_head_df["High"].max()) > head_val:
-          return False
-      else:  # inverse
-        if float(post_head_df["Low"].min()) < head_val:
-          return False
-    return True
+      if post_head_df["High"].max() > h2:
+        return False, None, None
+    return True, None, None
 
-  def breakout_and_indicator_filter(self, p, pattern_type="normal"):
+  def breakout_filter(self, p, data):
     idx_h3 = p[5]["idx"]
-    pos_n1, pos_n2 = p[2]["pos"], p[4]["pos"]
-    val_n1, val_n2 = p[2]["val"], p[4]["val"]
+    l1_val, l2_val = p[2]["val"], p[4]["val"]
+    idx_l1, idx_l2 = p[2]["pos"], p[4]["pos"]
 
-    if pos_n1 == pos_n2:
+    if idx_l1 == idx_l2:
       return False, None, None
 
-    slope = (val_n2 - val_n1) / (pos_n2 - pos_n1)
-    post_h3_df = self.df.loc[idx_h3:]
+    slope = (l2_val - l1_val) / (idx_l2 - idx_l1)
+    post_h3_df = data.loc[idx_h3:]
 
     if len(post_h3_df) <= 1:
       return False, None, None
 
     for current_idx, row in post_h3_df.iloc[1:].iterrows():
-      current_pos = self.df.index.get_loc(current_idx)
-      current_neckline = val_n2 + slope * (current_pos - pos_n2)
-      close_price = float(row["Close"])
-      rsi_val = float(row["RSI"])
-      ema50 = row["EMA50"]
-      ema200 = row["EMA200"]
+      current_pos = data.index.get_loc(current_idx)
+      current_neckline = l2_val + slope * (current_pos - idx_l2)
+      close_price = row["Close"]
 
-      if pd.isna(ema50) or pd.isna(ema200):
-        continue
+      if close_price < current_neckline:
+        rsi_val = row["RSI"]
+        ema50 = row["EMA50"]
+        ema200 = row["EMA200"]
 
-      vol_val = row.get("Volume", 0)
-      vol_sma = row.get("Volume_SMA", 0)
-      vol_confirmed = (vol_sma == 0) or (vol_val >= vol_sma * 0.8)
+        if pd.isna(ema50) or pd.isna(ema200):
+          return False, None, None
 
-      if pattern_type == "normal":
-        if close_price < current_neckline:
-          if (30 <= rsi_val <= 75) and (ema50 > ema200) and vol_confirmed:
-            return True, current_idx, close_price
-          else:
-            return False, None, None
-      else:  # inverse
-        if close_price > current_neckline:
-          if (25 <= rsi_val <= 70) and (ema50 < ema200) and vol_confirmed:
-            return True, current_idx, close_price
-          else:
-            return False, None, None
+        vol_val = row.get("Volume", 0)
+        vol_sma = row.get("Volume_SMA", 0)
+        vol_confirmed = (vol_sma == 0) or (vol_val >= vol_sma * 0.8)
+
+        if (30 <= rsi_val <= 75) and (ema50 > ema200) and vol_confirmed:
+          return True, current_idx, close_price
+        else:
+          return False, None, None
 
     return False, None, None
+
+  def run(self, p):
+    end_idx, end_val = None, None
+    for f in self.filters:
+      passed, e_idx, e_val = f(p, self.df)
+      if not passed:
+        return False, None, None
+      if e_idx is not None:
+        end_idx, end_val = e_idx, e_val
+    return True, end_idx, end_val
 
 
 def detect_all_head_shoulders(pivots, df):
@@ -238,11 +239,10 @@ def detect_all_head_shoulders(pivots, df):
 
     l0, h1, l1, h2, l2, h3 = [x["val"] for x in p]
 
-    # Basic height checks
     if h1 <= l0 or l1 <= l0 or h2 <= h1 or h2 <= h3:
       continue
 
-    # SHARDI 3: H1 garabka bidix waa in uu yahay kan ugu dheer uguna sarreeya garabkaas
+    # SHARDI: H1 garabka bidix waa in uu yahay kan ugu dheer uguna sarreeya garabkaas
     if h1 <= max(l0, l1):
       continue
 
@@ -252,7 +252,7 @@ def detect_all_head_shoulders(pivots, df):
     if left_shoulder_height <= 0 or right_shoulder_height <= 0:
       continue
 
-    # SHARDI 1 & 2: Garabka midig 3-diisa nuqul vs Garabka bidix (Tolerance <= 0.5)
+    # SHARDI: Cabirka garbaha iyo Tolerance-ka (Tolerance <= 0.5)
     height_diff_ratio = abs(
         right_shoulder_height - left_shoulder_height
     ) / max(left_shoulder_height, 1e-9)
@@ -281,22 +281,12 @@ def detect_all_head_shoulders(pivots, df):
     if abs(l1 - l2) > (head_height * 0.25):
       continue
 
-    # Pipeline Filters
-    if not validator.time_filter(p):
-      continue
-    if not validator.trend_filter(p, pattern_type="normal"):
-      continue
-    if not validator.invalidation_filter(p, pattern_type="normal"):
-      continue
-
-    passed_breakout, end_idx, end_val = validator.breakout_and_indicator_filter(
-        p, pattern_type="normal"
-    )
-    if not passed_breakout:
+    passed, end_idx, end_val = validator.run(p)
+    if not passed:
       continue
 
     end_pos = df.index.get_loc(end_idx)
-    if (total_candles - end_pos) > 10:  # Caadada live-ka: 10 laambadood ee ugu dambeeyay
+    if (total_candles - end_pos) > 10:  # Tarkaasinta Live Scanner-ka
       continue
 
     l1_idx, l2_idx = p[2]["idx"], p[4]["idx"]
@@ -339,9 +329,7 @@ def detect_all_inverse_head_shoulders(pivots, df):
   if len(pivots) < 6:
     return patterns
 
-  validator = PatternValidatorPipeline(df)
   total_candles = len(df)
-
   for i in range(len(pivots) - 5):
     p = pivots[i : i + 6]
     if [x["type"] for x in p] != ["H", "L", "H", "L", "H", "L"]:
@@ -352,7 +340,7 @@ def detect_all_inverse_head_shoulders(pivots, df):
     if l2 >= l1 or l2 >= l3:
       continue
 
-    # SHARDI 3 (Inverse): L1 waa in uu yahay kan ugu hooseeya garabka bidix
+    # SHARDI Inverse: L1 waa in uu yahay kan ugu hooseeya garabka bidix
     if l1 >= min(h0, h1):
       continue
 
@@ -362,7 +350,7 @@ def detect_all_inverse_head_shoulders(pivots, df):
     if left_shoulder_depth <= 0 or right_shoulder_depth <= 0:
       continue
 
-    # SHARDI 1 & 2 (Inverse): 0.5 Tolerance rule
+    # SHARDI Inverse: Tolerance rule <= 0.5
     depth_diff_ratio = abs(right_shoulder_depth - left_shoulder_depth) / max(
         left_shoulder_depth, 1e-9
     )
@@ -381,7 +369,7 @@ def detect_all_inverse_head_shoulders(pivots, df):
     if head_depth <= 0:
       continue
 
-    if abs(l1 - l3) > (head_depth * 0.65):
+    if abs(l1 - l3) > (head_depth * 0.15):
       continue
 
     min_shoulder = min(l1, l3)
@@ -391,32 +379,58 @@ def detect_all_inverse_head_shoulders(pivots, df):
     if abs(h1 - h2) > (head_depth * 0.25):
       continue
 
-    # Pipeline Filters
-    if not validator.time_filter(p):
-      continue
-    if not validator.trend_filter(p, pattern_type="inverse"):
-      continue
-    if not validator.invalidation_filter(p, pattern_type="inverse"):
+    idx_l3 = p[5]["idx"]
+    if idx_l3 not in df.index:
       continue
 
-    passed_breakout, end_idx, end_val = validator.breakout_and_indicator_filter(
-        p, pattern_type="inverse"
-    )
-    if not passed_breakout:
-      continue
-
-    end_pos = df.index.get_loc(end_idx)
-    if (total_candles - end_pos) > 10:  # Caadada live-ka: 10 laambadood ee ugu dambeeyay
+    post_l3_df = df.loc[idx_l3:]
+    if len(post_l3_df) <= 1:
       continue
 
     h1_idx, h2_idx = p[2]["idx"], p[4]["idx"]
-    slope = (h2 - h1) / (p[4]["pos"] - p[2]["pos"])
-    breakout_neckline_price = h2 + slope * (end_pos - p[4]["pos"])
-    actual_head_length = breakout_neckline_price - l2
+    pos_h1, pos_h2 = p[2]["pos"], p[4]["pos"]
+    if pos_h1 == pos_h2:
+      continue
+
+    slope = (h2 - h1) / (pos_h2 - pos_h1)
+    breakout_confirmed = False
+    end_idx, end_val, breakout_neckline_price = None, None, None
+
+    for current_idx, row in post_l3_df.iloc[1:].iterrows():
+      current_pos = df.index.get_loc(current_idx)
+      current_neckline = h2 + slope * (current_pos - pos_h2)
+      close_price = row["Close"]
+
+      if close_price > current_neckline:
+        rsi_val = row["RSI"]
+        ema50 = row["EMA50"]
+        ema200 = row["EMA200"]
+
+        if pd.isna(ema50) or pd.isna(ema200):
+          break
+
+        vol_val = row.get("Volume", 0)
+        vol_sma = row.get("Volume_SMA", 0)
+        vol_confirmed = (vol_sma == 0) or (vol_val >= vol_sma * 0.8)
+
+        if (25 <= rsi_val <= 70) and (ema50 < ema200) and vol_confirmed:
+          breakout_confirmed = True
+          end_idx = current_idx
+          end_val = close_price
+          breakout_neckline_price = current_neckline
+        break
+
+    if not breakout_confirmed:
+      continue
+
+    end_pos = df.index.get_loc(end_idx)
+    if (total_candles - end_pos) > 10:
+      continue
 
     entry = float(end_val)
     sl = float(round(l2, 5))
     shoulder_sl = float(round(min(l1, l3), 5))
+    actual_head_length = breakout_neckline_price - l2
     tp = float(round(entry + actual_head_length, 5))
 
     nodes = [(x["idx"], x["val"]) for x in p] + [(end_idx, float(end_val))]
@@ -504,7 +518,7 @@ def run_full_analysis(df):
   )
 
   return {
-      "df": df_active,
+      "df": df,
       "signal": signal,
       "pattern": latest_pattern["pattern"],
       "bias": latest_pattern["bias"],
