@@ -73,6 +73,7 @@ def calculate_zigzag(df, depth=12, backstep=6):
 
 def get_chronological_pivots(df):
     raw = []
+
     for pos, (idx, row) in enumerate(df.iterrows()):
         if not pd.isna(row["Pivot_H"]):
             raw.append({
@@ -95,6 +96,7 @@ def get_chronological_pivots(df):
         return []
 
     clean = []
+
     for p in raw:
         if not clean:
             clean.append(p)
@@ -445,7 +447,6 @@ def run_full_analysis(df):
         default_response["df"] = df_active
         return default_response
 
-    # ONLY THE CURRENT ACTIVE SIGNAL
     latest_pattern = all_patterns[-1]
 
     signal = (
@@ -470,6 +471,6 @@ def run_full_analysis(df):
         "neckline_nodes": latest_pattern.get("neckline_nodes", []),
         "target_nodes": latest_pattern.get("target_nodes", []),
 
-        # ONLY CURRENT SIGNAL
+        # CURRENT SIGNAL ONLY
         "all_patterns": [latest_pattern],
-        }
+                }
