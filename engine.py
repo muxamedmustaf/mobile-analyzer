@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 
 # ==========================================================
-# ENGINE_APP.PY - LIVE MARKET SCANNER (STRICT PATTERN & SHOULDER RULES)
+# ENGINE_APP.PY - LIVE MARKET SCANNER (STRICT LATEST CANDLE ONLY)
 # ==========================================================
 
 MIN_WAVE_CANDLES = 3
@@ -286,7 +286,11 @@ def detect_all_head_shoulders(pivots, df):
       continue
 
     end_pos = df.index.get_loc(end_idx)
-    if (total_candles - end_pos) > 10:  # Tarkaasinta Live Scanner-ka
+
+    # =========================================================================
+    # SHARDI ADAG: QASAB IN BREAKOUT-KU KA DHACAY LAAMBADDA UGU DAMBEYSA KALIYA
+    # =========================================================================
+    if end_pos != (total_candles - 1):
       continue
 
     l1_idx, l2_idx = p[2]["idx"], p[4]["idx"]
@@ -424,7 +428,11 @@ def detect_all_inverse_head_shoulders(pivots, df):
       continue
 
     end_pos = df.index.get_loc(end_idx)
-    if (total_candles - end_pos) > 10:
+
+    # =========================================================================
+    # SHARDI ADAG: QASAB IN BREAKOUT-KU KA DHACAY LAAMBADDA UGU DAMBEYSA KALIYA
+    # =========================================================================
+    if end_pos != (total_candles - 1):
       continue
 
     entry = float(end_val)
@@ -534,4 +542,4 @@ def run_full_analysis(df):
       "target_nodes": latest_pattern.get("target_nodes", []),
       "all_patterns": all_patterns,
     }
-    
+  
