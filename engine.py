@@ -8,6 +8,7 @@ import pandas as pd
 
 MAX_H3_AGE = 10        # H3/L3 waa in uu dhacay 10 laambadood u dambeeyay gudahooda
 MAX_PATTERN_SPAN = 70  # Dhammaan pattern-ku waa in uusan ka badanayn 70 laambadood
+MAX_TRADE_HOLD_CANDLES = 20  # Max 20 laambadood oo kaliya ka dib breakout-ka
 
 
 def calculate_indicators(df):
