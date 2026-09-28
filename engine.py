@@ -6,9 +6,9 @@ import pandas as pd
 # ENGINE.PY - REAL-TIME LIVE MARKET ONLY ENGINE
 # ==========================================================
 
-MAX_H3_AGE = 10        # H3/L3 waa in uu dhacay 10 laambadood u dambeeyay gudahooda
-MAX_PATTERN_SPAN = 70  # Dhammaan pattern-ku waa in uusan ka badanayn 70 laambadood
-MAX_TRADE_HOLD_CANDLES = 20  # Max 20 laambadood oo kaliya ka dib breakout-ka
+MAX_H3_AGE = 10        # H3/L3 يجب أن يكون قد تشكل خلال أحدث 10 شمعات
+MAX_PATTERN_SPAN = 70  # الحد الأقصى لطول النمط الكامل (70 شمعة)
+MAX_TRADE_HOLD_CANDLES = 20  # أقصى مدة صلاحية للإشارة بعد الاختراق
 
 
 def calculate_indicators(df):
@@ -135,11 +135,11 @@ def detect_all_head_shoulders(pivots, df):
 
         pos_l0, pos_h3 = p[0]["pos"], p[5]["pos"]
 
-        # 1. LIVE ONLY: Max pattern span limit
+        # 1. LIVE ONLY: فحص ألا يتجاوز طول النمط 70 شمعة
         if (pos_h3 - pos_l0) > MAX_PATTERN_SPAN:
             continue
 
-        # 2. LIVE ONLY: H3 waa in uu yahay mid gabi ahaanba cusub oo laambadihii ugu dambeeyay ku dhex jira
+        # 2. LIVE ONLY: H3 يجب أن يكون قريباً جداً من أحدث الشموع (10 شمعات كحد أقصى)
         if (latest_pos - pos_h3) > MAX_H3_AGE:
             continue
 
@@ -160,7 +160,6 @@ def detect_all_head_shoulders(pivots, df):
         if abs(h1 - h3) > (head_height * 0.20):
             continue
 
-        # Hubi in laambad ka horreysa laambadda ugu dambeysa aysan mar hore jebin neckline-ka
         idx_h3 = p[5]["idx"]
         l1_val, l2_val = p[2]["val"], p[4]["val"]
         idx_l1, idx_l2 = p[2]["pos"], p[4]["pos"]
@@ -170,6 +169,7 @@ def detect_all_head_shoulders(pivots, df):
         slope = (l2_val - l1_val) / (idx_l2 - idx_l1)
         post_h3_df = df.loc[idx_h3:]
 
+        # 3. التأكد من عدم حدوث إغلاق سابق تحت خط العنق في الشموع السابقة
         already_broken = False
         for prev_idx, prev_row in post_h3_df.iloc[1:-1].iterrows():
             prev_pos = df.index.get_loc(prev_idx)
@@ -179,16 +179,16 @@ def detect_all_head_shoulders(pivots, df):
                 break
 
         if already_broken:
-            continue  # Iska indhatir kuwii hore u dhacay ama xirmiyey
+            continue
 
-        # Hubi laambadda u dambeysa maanta
+        # 4. فحص الشمعة الحالية الأخير فقط (df.iloc[-1])
         latest_row = df.iloc[-1]
         latest_idx = df.index[-1]
 
         current_neckline = l2_val + slope * (latest_pos - idx_l2)
         close_price = latest_row["Close"]
 
-        # KALIYA marka laambadda u dambeysa ay ka hoos xiranto Neckline-ka
+        # كسر حقيقي مباشر في الشمعة الأخيرة
         if close_price < current_neckline:
             rsi_val = latest_row["RSI"]
             ema50 = latest_row["EMA50"]
@@ -248,11 +248,11 @@ def detect_all_inverse_head_shoulders(pivots, df):
 
         pos_h0, pos_l3 = p[0]["pos"], p[5]["pos"]
 
-        # 1. LIVE ONLY: Max pattern span limit
+        # 1. LIVE ONLY: فحص ألا يتجاوز طول النمط 70 شمعة
         if (pos_l3 - pos_h0) > MAX_PATTERN_SPAN:
             continue
 
-        # 2. LIVE ONLY: L3 waa in uu yahay mid gabi ahaanba cusub
+        # 2. LIVE ONLY: L3 يجب أن يكون حديثاً (10 شمعات كحد أقصى)
         if (latest_pos - pos_l3) > MAX_H3_AGE:
             continue
 
@@ -277,6 +277,7 @@ def detect_all_inverse_head_shoulders(pivots, df):
         slope = (h2 - h1) / (pos_h2 - pos_h1)
         post_l3_df = df.loc[idx_l3:]
 
+        # 3. التأكد من عدم حدوث اختراق سابق
         already_broken = False
         for prev_idx, prev_row in post_l3_df.iloc[1:-1].iterrows():
             prev_pos = df.index.get_loc(prev_idx)
@@ -286,16 +287,16 @@ def detect_all_inverse_head_shoulders(pivots, df):
                 break
 
         if already_broken:
-            continue  # Iska indhatir kuwii hore u xirmiyey
+            continue
 
-        # Hubi laambadda u dambeysa maanta
+        # 4. فحص الشمعة الحالية الأخيرة فقط
         latest_row = df.iloc[-1]
         latest_idx = df.index[-1]
 
         current_neckline = h2 + slope * (latest_pos - pos_h2)
         close_price = latest_row["Close"]
 
-        # KALIYA marka laambadda u dambeysa ay ka sare xiranto Neckline-ka
+        # اختراق صاعد مباشر في الشمعة الأخيرة
         if close_price > current_neckline:
             rsi_val = latest_row["RSI"]
             ema50 = latest_row["EMA50"]
@@ -345,7 +346,7 @@ def _detect_both_head_shoulders(pivots, df):
     inverse_patterns = detect_all_inverse_head_shoulders(pivots, df)
     all_pats = sorted(normal_patterns + inverse_patterns, key=lambda x: x.get("end_pos", -1))
     
-    # KALIYA soo celi pattern-ka ugu cusub ee LIVE ah (ha tusin kuwa kale)
+    # إرجاع أحدث نمط حي جديد فقط ومنع ظهور أي أنماط تاريخية
     if all_pats:
         return [all_pats[-1]]
     return []
@@ -416,5 +417,5 @@ def run_full_analysis(df):
         "neckline_nodes": latest_pattern.get("neckline_nodes", []),
         "target_nodes": latest_pattern.get("target_nodes", []),
         "all_patterns": all_patterns,
-            }
+                }
     
