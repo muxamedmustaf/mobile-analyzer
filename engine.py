@@ -177,6 +177,13 @@ class PatternValidatorPipeline:
 
   def breakout_filter(self, p, data):
     idx_h3 = p[5]["idx"]
+    pos_h3 = p[5]["pos"]
+    total_candles = len(data)
+
+    # Haddii H3 uu yahay laambadda ugu dambaysa ama ka dambeeya, breakout ma jiro
+    if pos_h3 >= (total_candles - 1):
+      return False, None, None
+
     l1_val, l2_val = p[2]["val"], p[4]["val"]
     idx_l1, idx_l2 = p[2]["pos"], p[4]["pos"]
 
@@ -186,30 +193,35 @@ class PatternValidatorPipeline:
     slope = (l2_val - l1_val) / (idx_l2 - idx_l1)
     post_h3_df = data.loc[idx_h3:]
 
-    if len(post_h3_df) <= 1:
-      return False, None, None
+    # 1. Haddi laambad ka horreysa laambadda ugu dambaysa ay mar hore jebisay, waa SIGNAL HORE -> ISKA INDHATIR
+    for prev_idx, prev_row in post_h3_df.iloc[1:-1].iterrows():
+      prev_pos = data.index.get_loc(prev_idx)
+      prev_neckline = l2_val + slope * (prev_pos - idx_l2)
+      if prev_row["Close"] < prev_neckline:
+        return False, None, None
 
-    for current_idx, row in post_h3_df.iloc[1:].iterrows():
-      current_pos = data.index.get_loc(current_idx)
-      current_neckline = l2_val + slope * (current_pos - idx_l2)
-      close_price = row["Close"]
+    # 2. EEK WAA IN LAAMBADDA UGU DAMBEYSA KALIYA (`df.iloc[-1]`) AY HADDA JEBINAYSO
+    latest_row = data.iloc[-1]
+    latest_idx = data.index[-1]
+    latest_pos = total_candles - 1
 
-      if close_price < current_neckline:
-        rsi_val = row["RSI"]
-        ema50 = row["EMA50"]
-        ema200 = row["EMA200"]
+    current_neckline = l2_val + slope * (latest_pos - idx_l2)
+    close_price = latest_row["Close"]
 
-        if pd.isna(ema50) or pd.isna(ema200):
-          return False, None, None
+    if close_price < current_neckline:
+      rsi_val = latest_row["RSI"]
+      ema50 = latest_row["EMA50"]
+      ema200 = latest_row["EMA200"]
 
-        vol_val = row.get("Volume", 0)
-        vol_sma = row.get("Volume_SMA", 0)
-        vol_confirmed = (vol_sma == 0) or (vol_val >= vol_sma * 0.8)
+      if pd.isna(ema50) or pd.isna(ema200):
+        return False, None, None
 
-        if (30 <= rsi_val <= 75) and (ema50 > ema200) and vol_confirmed:
-          return True, current_idx, close_price
-        else:
-          return False, None, None
+      vol_val = latest_row.get("Volume", 0)
+      vol_sma = latest_row.get("Volume_SMA", 0)
+      vol_confirmed = (vol_sma == 0) or (vol_val >= vol_sma * 0.8)
+
+      if (30 <= rsi_val <= 75) and (ema50 > ema200) and vol_confirmed:
+        return True, latest_idx, close_price
 
     return False, None, None
 
@@ -230,7 +242,6 @@ def detect_all_head_shoulders(pivots, df):
     return patterns
 
   validator = PatternValidatorPipeline(df)
-  total_candles = len(df)
 
   for i in range(len(pivots) - 5):
     p = pivots[i : i + 6]
@@ -242,7 +253,6 @@ def detect_all_head_shoulders(pivots, df):
     if h1 <= l0 or l1 <= l0 or h2 <= h1 or h2 <= h3:
       continue
 
-    # SHARDI: H1 garabka bidix waa in uu yahay kan ugu dheer uguna sarreeya garabkaas
     if h1 <= max(l0, l1):
       continue
 
@@ -252,7 +262,6 @@ def detect_all_head_shoulders(pivots, df):
     if left_shoulder_height <= 0 or right_shoulder_height <= 0:
       continue
 
-    # SHARDI: Cabirka garbaha iyo Tolerance-ka (Tolerance <= 0.5)
     height_diff_ratio = abs(
         right_shoulder_height - left_shoulder_height
     ) / max(left_shoulder_height, 1e-9)
@@ -285,16 +294,9 @@ def detect_all_head_shoulders(pivots, df):
     if not passed:
       continue
 
-    end_pos = df.index.get_loc(end_idx)
-
-    # =========================================================================
-    # SHARDI ADAG: QASAB IN BREAKOUT-KU KA DHACAY LAAMBADDA UGU DAMBEYSA KALIYA
-    # =========================================================================
-    if end_pos != (total_candles - 1):
-      continue
-
     l1_idx, l2_idx = p[2]["idx"], p[4]["idx"]
     slope = (l2 - l1) / (p[4]["pos"] - p[2]["pos"])
+    end_pos = len(df) - 1
     breakout_neckline_price = l2 + slope * (end_pos - p[4]["pos"])
     actual_head_length = h2 - breakout_neckline_price
 
@@ -344,7 +346,6 @@ def detect_all_inverse_head_shoulders(pivots, df):
     if l2 >= l1 or l2 >= l3:
       continue
 
-    # SHARDI Inverse: L1 waa in uu yahay kan ugu hooseeya garabka bidix
     if l1 >= min(h0, h1):
       continue
 
@@ -354,7 +355,6 @@ def detect_all_inverse_head_shoulders(pivots, df):
     if left_shoulder_depth <= 0 or right_shoulder_depth <= 0:
       continue
 
-    # SHARDI Inverse: Tolerance rule <= 0.5
     depth_diff_ratio = abs(right_shoulder_depth - left_shoulder_depth) / max(
         left_shoulder_depth, 1e-9
     )
@@ -384,11 +384,9 @@ def detect_all_inverse_head_shoulders(pivots, df):
       continue
 
     idx_l3 = p[5]["idx"]
-    if idx_l3 not in df.index:
-      continue
+    pos_l3 = p[5]["pos"]
 
-    post_l3_df = df.loc[idx_l3:]
-    if len(post_l3_df) <= 1:
+    if pos_l3 >= (total_candles - 1):
       continue
 
     h1_idx, h2_idx = p[2]["idx"], p[4]["idx"]
@@ -397,71 +395,68 @@ def detect_all_inverse_head_shoulders(pivots, df):
       continue
 
     slope = (h2 - h1) / (pos_h2 - pos_h1)
-    breakout_confirmed = False
-    end_idx, end_val, breakout_neckline_price = None, None, None
+    post_l3_df = df.loc[idx_l3:]
 
-    for current_idx, row in post_l3_df.iloc[1:].iterrows():
-      current_pos = df.index.get_loc(current_idx)
-      current_neckline = h2 + slope * (current_pos - pos_h2)
-      close_price = row["Close"]
-
-      if close_price > current_neckline:
-        rsi_val = row["RSI"]
-        ema50 = row["EMA50"]
-        ema200 = row["EMA200"]
-
-        if pd.isna(ema50) or pd.isna(ema200):
-          break
-
-        vol_val = row.get("Volume", 0)
-        vol_sma = row.get("Volume_SMA", 0)
-        vol_confirmed = (vol_sma == 0) or (vol_val >= vol_sma * 0.8)
-
-        if (25 <= rsi_val <= 70) and (ema50 < ema200) and vol_confirmed:
-          breakout_confirmed = True
-          end_idx = current_idx
-          end_val = close_price
-          breakout_neckline_price = current_neckline
+    # 1. Haddii laambad ka horreysa tan ugu dambaysa ay mar hore jebisay -> ISKA INDHATIR
+    already_broken = False
+    for prev_idx, prev_row in post_l3_df.iloc[1:-1].iterrows():
+      prev_pos = df.index.get_loc(prev_idx)
+      prev_neckline = h2 + slope * (prev_pos - pos_h2)
+      if prev_row["Close"] > prev_neckline:
+        already_broken = True
         break
 
-    if not breakout_confirmed:
+    if already_broken:
       continue
 
-    end_pos = df.index.get_loc(end_idx)
+    # 2. XAQIJI IN LAAMBADDA UGU DAMBEYSA KALIYA (`df.iloc[-1]`) AY HADDA JEBINAYSO
+    latest_row = df.iloc[-1]
+    latest_idx = df.index[-1]
+    latest_pos = total_candles - 1
 
-    # =========================================================================
-    # SHARDI ADAG: QASAB IN BREAKOUT-KU KA DHACAY LAAMBADDA UGU DAMBEYSA KALIYA
-    # =========================================================================
-    if end_pos != (total_candles - 1):
-      continue
+    current_neckline = h2 + slope * (latest_pos - pos_h2)
+    close_price = latest_row["Close"]
 
-    entry = float(end_val)
-    sl = float(round(l2, 5))
-    shoulder_sl = float(round(min(l1, l3), 5))
-    actual_head_length = breakout_neckline_price - l2
-    tp = float(round(entry + actual_head_length, 5))
+    if close_price > current_neckline:
+      rsi_val = latest_row["RSI"]
+      ema50 = latest_row["EMA50"]
+      ema200 = latest_row["EMA200"]
 
-    nodes = [(x["idx"], x["val"]) for x in p] + [(end_idx, float(end_val))]
-    neckline_nodes = [(h1_idx, h1), (h2_idx, h2)]
-    target_nodes = [(end_idx, float(round(entry, 5))), (end_idx, tp)]
+      if pd.isna(ema50) or pd.isna(ema200):
+        continue
 
-    patterns.append({
-        "name": "Inverse Head and Shoulders",
-        "pattern": "Inverse Head and Shoulders",
-        "bias": "Bullish",
-        "match": 100.0,
-        "nodes": nodes,
-        "entry": float(round(entry, 5)),
-        "entry_trigger": float(round(entry, 5)),
-        "sl": sl,
-        "shoulder_sl": shoulder_sl,
-        "tp": tp,
-        "neckline_start_idx": h1_idx,
-        "neckline_end_idx": end_idx,
-        "neckline_nodes": neckline_nodes,
-        "target_nodes": target_nodes,
-        "end_pos": p[5]["pos"],
-    })
+      vol_val = latest_row.get("Volume", 0)
+      vol_sma = latest_row.get("Volume_SMA", 0)
+      vol_confirmed = (vol_sma == 0) or (vol_val >= vol_sma * 0.8)
+
+      if (25 <= rsi_val <= 70) and (ema50 < ema200) and vol_confirmed:
+        entry = float(close_price)
+        sl = float(round(l2, 5))
+        shoulder_sl = float(round(min(l1, l3), 5))
+        actual_head_length = current_neckline - l2
+        tp = float(round(entry + actual_head_length, 5))
+
+        nodes = [(x["idx"], x["val"]) for x in p] + [(latest_idx, float(entry))]
+        neckline_nodes = [(h1_idx, h1), (h2_idx, h2)]
+        target_nodes = [(latest_idx, float(round(entry, 5))), (latest_idx, tp)]
+
+        patterns.append({
+            "name": "Inverse Head and Shoulders",
+            "pattern": "Inverse Head and Shoulders",
+            "bias": "Bullish",
+            "match": 100.0,
+            "nodes": nodes,
+            "entry": float(round(entry, 5)),
+            "entry_trigger": float(round(entry, 5)),
+            "sl": sl,
+            "shoulder_sl": shoulder_sl,
+            "tp": tp,
+            "neckline_start_idx": h1_idx,
+            "neckline_end_idx": latest_idx,
+            "neckline_nodes": neckline_nodes,
+            "target_nodes": target_nodes,
+            "end_pos": p[5]["pos"],
+        })
 
   return patterns
 
@@ -542,4 +537,4 @@ def run_full_analysis(df):
       "target_nodes": latest_pattern.get("target_nodes", []),
       "all_patterns": all_patterns,
     }
-  
+    
