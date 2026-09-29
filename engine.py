@@ -7,7 +7,7 @@ import pandas as pd
 # ==========================================================
 
 MAX_H3_AGE = 10        # H3/L3 يجب أن يكون قد تشكل خلال أحدث 10 شمعات
-MAX_PATTERN_SPAN = 70  # الحد الأقصى لطول النمط الكامل (70 شمعة)
+MAX_PATTERN_SPAN = 50  # الحد الأقصى لطول النمط الكامل (50 شمعة)
 MAX_TRADE_HOLD_CANDLES = 20  # أقصى مدة صلاحية للإشارة بعد الاختراق
 
 
@@ -265,7 +265,7 @@ def detect_all_inverse_head_shoulders(pivots, df):
         if head_depth <= 0:
             continue
 
-        if abs(l1 - l3) > (head_depth * 0.20):
+        if abs(l1 - l3) > (head_depth * 0.40):
             continue
 
         idx_l3 = p[5]["idx"]
