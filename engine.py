@@ -135,7 +135,7 @@ def detect_all_head_shoulders(pivots, df):
 
         pos_l0, pos_h3 = p[0]["pos"], p[5]["pos"]
 
-        # 1. LIVE ONLY: فحص ألا يتجاوز طول النمط 70 شمعة
+        # 1. LIVE ONLY: فحص ألا يتجاوز طول النمط 50 شمعة
         if (pos_h3 - pos_l0) > MAX_PATTERN_SPAN:
             continue
 
@@ -248,7 +248,7 @@ def detect_all_inverse_head_shoulders(pivots, df):
 
         pos_h0, pos_l3 = p[0]["pos"], p[5]["pos"]
 
-        # 1. LIVE ONLY: فحص ألا يتجاوز طول النمط 70 شمعة
+        # 1. LIVE ONLY: فحص ألا يتجاوز طول النمط 50 شمعة
         if (pos_l3 - pos_h0) > MAX_PATTERN_SPAN:
             continue
 
